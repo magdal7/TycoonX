@@ -1,0 +1,168 @@
+name: Neon Migration Preflight (read-only)
+
+# Manually triggered only. This workflow is READ-ONLY: it never runs migrations
+# and never executes INSERT/UPDATE/DELETE/CREATE/ALTER/DROP.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-migration-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Read-only Neon/Prisma preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Connection string comes exclusively from the repository secret DIRECT_URL.
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      # DATABASE_URL is mapped to the same secret ONLY so `prisma validate` can resolve
+      # env("DATABASE_URL") in schema.prisma. `prisma validate` does not connect to the DB.
+      DATABASE_URL: ${{ secrets.DIRECT_URL }}
+      EXPECTED_BRANCH: br-delicate-butterfly-b4et73g9
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies (workspaces + lockfile)
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify frozen migration checksums
+        run: |
+          set -euo pipefail
+          echo "### Frozen migration checksums" >> "$GITHUB_STEP_SUMMARY"
+          declare -A EXPECTED=(
+            ["server/prisma/migrations/20261017000000_phase6b1_economy_foundation/migration.sql"]="1a04a9c5ba3bcc3fb66335c6ce79fbcea73915f106f7160f525da2ed559d7cb3"
+            ["server/prisma/migrations/20261017010000_phase6b2a_username_case_insensitive/migration.sql"]="f44f174b372e040b694e0c30b2dd2c5d31a921f154cb4399753af992820cce82"
+          )
+          for f in "${!EXPECTED[@]}"; do
+            actual="$(sha256sum "$f" | awk '{print $1}')"
+            if [ "$actual" != "${EXPECTED[$f]}" ]; then
+              echo "::error title=Checksum mismatch::$f does not match the frozen checksum"
+              echo "- ❌ checksum FAIL: \`$f\`" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "- ✅ checksum OK: \`$f\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: TCP connectivity to Neon endpoint
+        run: |
+          set -euo pipefail
+          HOST="$(node -e 'process.stdout.write(new URL(process.env.DIRECT_URL).hostname)')"
+          PORT="$(node -e 'process.stdout.write(new URL(process.env.DIRECT_URL).port || "5432")')"
+          if timeout 15 bash -c "exec 3<>/dev/tcp/${HOST}/${PORT}"; then
+            echo "- ✅ TCP connectivity OK (port ${PORT})" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error title=TCP connectivity FAIL::Cannot open a TCP connection to the Neon endpoint"
+            echo "- ❌ TCP connectivity FAIL" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Read-only database checks
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          fi
+
+          # Reads stderr to a file and redacts DSNs/hosts before printing on error.
+          q() {
+            local out
+            if ! out="$(psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "$1" 2>psql.err)"; then
+              sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' psql.err >&2
+              return 1
+            fi
+            printf '%s' "$out"
+          }
+
+          echo "### Database checks" >> "$GITHUB_STEP_SUMMARY"
+
+          BRANCH="$(q "SELECT current_setting('neon.branch_id', true)")"
+          if [ -z "$BRANCH" ]; then
+            echo "::error title=Branch unverified::Neon branch identity is not exposed by this connection"
+            echo "- ❌ branch identity UNVERIFIED (no neon.branch_id) — STOPPING" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$BRANCH" != "$EXPECTED_BRANCH" ]; then
+            echo "::error title=Branch mismatch::connected branch is not the expected production branch"
+            echo "- ❌ branch mismatch (expected production branch not matched)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "- ✅ branch OK: \`${BRANCH}\`" >> "$GITHUB_STEP_SUMMARY"
+
+          USERS="$(q "SELECT count(*) FROM \"User\"")"
+          CEOS="$(q "SELECT count(*) FROM \"CEO\"")"
+          USER_IDS="$(q "SELECT string_agg(id::text, ',' ORDER BY id) FROM \"User\"")"
+          CEO_IDS="$(q "SELECT string_agg(id::text, ',' ORDER BY id) FROM \"CEO\"")"
+          CEO_SLUGS="$(q "SELECT string_agg(slug, ',' ORDER BY id) FROM \"CEO\"")"
+          UCOLL="$(q "SELECT count(*) FROM (SELECT lower(username) FROM \"User\" GROUP BY lower(username) HAVING count(*)>1) x")"
+          MIG_TABLE="$(q "SELECT to_regclass('public._prisma_migrations') IS NOT NULL")"
+          APP_META="$(q "SELECT to_regclass('public.AppMeta') IS NOT NULL")"
+          OWNED_CEO="$(q "SELECT to_regclass('public.OwnedCeo') IS NOT NULL")"
+
+          echo "- Users: ${USERS} (ids: ${USER_IDS})" >> "$GITHUB_STEP_SUMMARY"
+          echo "- CEOs: ${CEOS} (ids: ${CEO_IDS})" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Username case-insensitive collisions: ${UCOLL}" >> "$GITHUB_STEP_SUMMARY"
+
+          fail=0
+          [ "$USERS" = "2" ] || { echo "::error title=Unexpected User count::expected 2"; fail=1; }
+          [ "$USER_IDS" = "2,4" ] || { echo "::error title=Unexpected User ids::expected 2,4"; fail=1; }
+          [ "$CEOS" = "8" ] || { echo "::error title=Unexpected CEO count::expected 8"; fail=1; }
+          [ "$CEO_IDS" = "2,3,4,5,6,7,8,10" ] || { echo "::error title=Unexpected CEO ids::expected 2,3,4,5,6,7,8,10"; fail=1; }
+          [ "$UCOLL" = "0" ] || { echo "::error title=Case-insensitive username collisions::none expected"; fail=1; }
+          # Pre-migration state: these must NOT exist yet.
+          [ "$MIG_TABLE" = "f" ] || { echo "::error title=Unexpected _prisma_migrations::DB is not in the expected pre-migration state"; fail=1; }
+          [ "$APP_META" = "f" ] || { echo "::error title=Unexpected AppMeta::DB is not in the expected pre-migration state"; fail=1; }
+          [ "$OWNED_CEO" = "f" ] || { echo "::error title=Unexpected OwnedCeo::DB is not in the expected pre-migration state"; fail=1; }
+
+          if [ "$fail" -ne 0 ]; then
+            echo "- ❌ one or more database checks failed" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "- ✅ User/CEO counts, ids and pre-migration state OK" >> "$GITHUB_STEP_SUMMARY"
+          echo "  (CEO slugs: ${CEO_SLUGS})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prisma validate
+        run: |
+          set -euo pipefail
+          npx prisma validate --schema server/prisma/schema.prisma
+          echo "- ✅ prisma validate" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate Prisma client (codegen only)
+        run: npx prisma generate --schema server/prisma/schema.prisma
+
+      - name: TypeScript check
+        run: |
+          set -euo pipefail
+          npm run build --workspace=server
+          echo "- ✅ server TypeScript check" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Automated tests
+        run: |
+          set -euo pipefail
+          npm test --workspace=server
+          echo "- ✅ server tests" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo ""
+            echo "---"
+            echo "Read-only preflight. No migrations, no writes, no history changes."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "**Result: ✅ PASS**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**Result: ❌ FAIL**" >> "$GITHUB_STEP_SUMMARY"
+          fi
