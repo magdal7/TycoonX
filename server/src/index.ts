@@ -1,14 +1,12 @@
+import 'dotenv/config'
 import express, { Application } from 'express'
 import cors from 'cors'
 import cookieParser from 'cookie-parser'
-import dotenv from 'dotenv'
 import rateLimit from 'express-rate-limit'
 import { prisma } from './lib/prisma'
 import authRoutes from './routes/auth'
 import ceoRoutes from './routes/ceo'
 import { requireAuth, requireAdmin } from './middleware/auth'
-
-dotenv.config()
 
 const app: Application = express()
 const PORT = Number(process.env.PORT) || 4000

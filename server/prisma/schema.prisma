@@ -24,6 +24,11 @@ model User {
   role      Role     @default(USER)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  ownedCeos        OwnedCeo[]
+  referralsMade    ReferralAttribution[] @relation("ReferralReferrer")
+  referralReceived ReferralAttribution?  @relation("ReferralReferred")
+  idempotencyKeys  IdempotencyKey[]
 }
 
 model CEO {
@@ -38,9 +43,81 @@ model CEO {
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  baseSpPerCycle  Int?
+  maxOwned        Int      @default(1)
+  isStarter       Boolean  @default(false)
+  rewardEligible  Boolean  @default(false)
+  category        String?
+  displayOrder    Int      @default(0)
+
+  owned           OwnedCeo[]
+}
+
+model OwnedCeo {
+  id                    Int             @id @default(autoincrement())
+  userId                Int
+  templateId            Int
+  acquisitionType       AcquisitionType
+  level                 Int             @default(1)
+  cycleLimit            Int?
+  completedRewardCycles Int             @default(0)
+  status                OwnedCeoStatus  @default(IDLE)
+  acquiredAt            DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  template              CEO             @relation(fields: [templateId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([templateId])
+  @@index([userId, status])
+}
+
+model ReferralAttribution {
+  id             Int      @id @default(autoincrement())
+  referrerId     Int
+  referredUserId Int      @unique
+  code           String
+  createdAt      DateTime @default(now())
+  eligible       Boolean  @default(false)
+
+  referrer       User     @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Restrict)
+  referredUser   User     @relation("ReferralReferred", fields: [referredUserId], references: [id], onDelete: Restrict)
+
+  @@index([referrerId])
+}
+
+model IdempotencyKey {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  scope     String
+  key       String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scope, key])
 }
 
 enum Role {
   USER
   ADMIN
+}
+
+enum AcquisitionType {
+  STARTER
+  PURCHASE
+  MISSION
+  REWARD
+  ADMIN
+}
+
+enum OwnedCeoStatus {
+  IDLE
+  PRODUCING
+  READY_TO_COLLECT
+  EXHAUSTED
+  PAUSED
+  DISABLED
 }
