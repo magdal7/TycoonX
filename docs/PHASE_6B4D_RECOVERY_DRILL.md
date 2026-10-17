@@ -29,8 +29,10 @@ Deliverables:
 |---|---|---|
 | This plan | `docs/PHASE_6B4D_RECOVERY_DRILL.md` | Required |
 | Read-only verification workflow | `.github/workflows/neon-recovery-verify.yml` | Included (see §6); SELECT-only |
+| Recovery migration workflow | `.github/workflows/neon-recovery-migrate.yml` | Included (see §6.1); write, manual-only, drill branch only |
 
-No existing workflow, migration file, or checksum is modified (requirement 11).
+No existing workflow, migration file, or checksum is modified (requirement 11). The production and staging
+workflows are untouched.
 
 ---
 
@@ -85,12 +87,13 @@ never selected in any write/restore/reset/delete operation (requirement 6).
 
 | # | Required item | Where it goes | Notes |
 |---|---|---|---|
-| 1 | **Drill branch id** (e.g. `br-xxxx`) | `recovery_branch` workflow input | The exact `neon.branch_id` of `drill-recovery-6b4d`. Must differ from production and staging ids. |
+| 1 | **Drill branch id** — `br-long-king-b4s8l0yv` (name `drill-recovery-6b4d`) | `recovery_branch` workflow input | The exact `neon.branch_id`. Must differ from production `br-delicate-butterfly-b4et73g9` and staging `br-dawn-cherry-b4dnrhm5`. |
 | 2 | **Drill branch direct connection string** | repository secret **`RECOVERY_DIRECT`** | Direct (non-pooled) endpoint. **Never** reuse `DIRECT` or `STAGING_DIRECT`. |
-| 3 | **Confirmation token** | `confirm` workflow input | Must be exactly `VERIFY-RECOVERY-6B4D`. |
+| 3 | **Read-only verification token** | `confirm` input of the verify workflow | Must be exactly `VERIFY-RECOVERY-6B4D`. |
+| 4 | **Migration token** | `confirm` input of the migrate workflow | Must be exactly `APPLY-ECONOMY-V2-RECOVERY-6B4D`. |
 
-If any is missing, do not run. The verification workflow fails closed with `Missing secret`,
-`Missing recovery branch`, `Refusing production`, or `Refusing staging`.
+If any is missing, do not run. Both workflows fail closed with `Missing secret`, `Missing recovery branch`,
+`Refusing production`, or `Refusing staging`.
 
 ---
 
@@ -116,8 +119,15 @@ If any is missing, do not run. The verification workflow fails closed with `Miss
    **pre-migration state**. This proves the drill branch starts clean.
 
 ### 5.4 Migrate the drill branch (simulate post-migration)
-Run the frozen sequence against **D only**. Set the connection string in the shell without echoing it
-(PowerShell): `$env:DIRECT_URL = "<drill direct connection string>"`; run from the repo root:
+
+**Preferred: dispatch the recovery migration workflow** (`.github/workflows/neon-recovery-migrate.yml`,
+see §6.1). It applies the exact frozen sequence to `br-long-king-b4s8l0yv` only, with independent Neon
+server-metadata branch verification before any write. Use this so the drill mirrors the production/staging
+automation.
+
+**Fallback (manual, only if the workflow is unavailable):** run the frozen sequence against **D only**. Set
+the connection string in the shell without echoing it (PowerShell):
+`$env:DIRECT_URL = "<drill direct connection string>"`; run from the repo root:
 
 ```bash
 npx prisma migrate resolve --schema server/prisma/schema.prisma --applied 20240101000000_add_user_model
@@ -128,8 +138,8 @@ psql "$DIRECT_URL" -v ON_ERROR_STOP=1 --single-transaction -f server/prisma/migr
 npx prisma migrate resolve --schema server/prisma/schema.prisma --applied 20261017010000_phase6b2a_username_case_insensitive
 ```
 
-This is the same sequence the staging/production workflows use; the frozen files are unchanged. D is now in
-the migrated state (`_prisma_migrations` present, economy objects present).
+Both paths use the same sequence the staging/production workflows use; the frozen files are unchanged. D is
+now in the migrated state (`_prisma_migrations` present, economy objects present).
 
 ### 5.5 Restore D to the pre-migration state
 
@@ -177,6 +187,51 @@ non-cancelling concurrency group `neon-recovery-verify`, 10-minute timeout.
 
 This is genuinely useful because it makes the post-restore verification repeatable, credential-safe, and
 branch-id-enforced, removing the need for ad-hoc SQL.
+
+### 6.1 Recovery migration workflow (write, drill branch only)
+
+`.github/workflows/neon-recovery-migrate.yml` — manual `workflow_dispatch` only, `contents: read`,
+non-cancelling concurrency group `neon-migration-recovery`, 20-minute timeout. It applies the frozen Economy
+V2 sequence to the disposable drill branch only.
+
+**How to run**
+1. Confirm the drill branch exists and `RECOVERY_DIRECT` points at it (§5.1–5.2).
+2. GitHub → **Actions → "Neon Migration Execute — RECOVERY DRILL (guarded, write)" → Run workflow**.
+3. Select branch **`master`**.
+4. `confirm`: `APPLY-ECONOMY-V2-RECOVERY-6B4D`; `recovery_branch`: `br-long-king-b4s8l0yv`.
+5. Run; read the Job Summary; download the `recovery-drill-migration-report` artifact.
+
+**Safety controls**
+- Connection: **`secrets.RECOVERY_DIRECT` only** — never `DIRECT` or `STAGING_DIRECT`.
+- The input must equal `br-long-king-b4s8l0yv` (fail-closed otherwise); production and staging ids are
+  explicitly rejected.
+- **Independent identity verification (requirement 7):** before any write it reads Neon's **server-side
+  session metadata** — `current_setting('neon.branch_id')` and `current_setting('neon.project_id')` — and
+  requires the branch id to equal the drill branch and the project id to equal `wandering-king-57462138`.
+  The GitHub input and the connection-string label are **not** trusted as proof of identity. If Neon does not
+  expose the metadata (empty), the workflow **fails closed as "unverified"** rather than proceeding.
+- Frozen checksum validation + transaction-safety scan; pre-migration schema/User/CEO checks; metadata-only
+  historical baselining; `psql --single-transaction` applies; per-migration verification; per-row history
+  checksum verification; final check of 4 migration records, constraint, index, preserved records, and zero
+  pending migrations.
+- **No** automatic retry, rollback, reset, restore, or branch deletion.
+
+**How to inspect failures safely**
+- The job stops at the first failed step; later steps are skipped. Read the **Job Summary** and the failed
+  step's redacted output (DSNs → `[REDACTED_DSN]`, `*.neon.tech` → `[REDACTED_HOST]`).
+- The state depends on where it stopped:
+  - **Before the baseline step:** nothing was written; the drill branch is unchanged.
+  - **During a `psql --single-transaction` apply:** the transaction rolled back; no partial schema.
+  - **After a migration commit but before its `resolve`:** the schema effect is present but the history row is
+    missing (the documented commit→resolve window). Recovery = complete the metadata step for that exact
+    migration name (`npx prisma migrate resolve --schema server/prisma/schema.prisma --applied <name>`), then
+    re-run the read-only verifier. **Do not re-dispatch** the migrate workflow (the pre-migration check
+    refuses a non-clean state).
+  - **Never** run `prisma migrate reset`/`dev`/`deploy`, `db push`, `DROP`, `TRUNCATE`, or a Neon restore on
+    the drill branch to "fix" a failure; if the state is unexpected, reset the **disposable** branch from its
+    parent (§5.5) or delete and recreate it.
+- Because the branch is disposable and isolated, a failure has no effect on production, the backup, or
+  staging.
 
 ---
 
