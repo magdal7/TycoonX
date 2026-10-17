@@ -60,6 +60,10 @@ interface RarityStyle {
 
 export const RARITY_ORDER = ['Common', 'Rare', 'Epic', 'Legendary', 'Mythic']
 
+export async function ensureOnboarding(): Promise<void> {
+  await fetch('/api/game/onboarding', { method: 'POST', credentials: 'include' })
+}
+
 const RARITY_STYLES: Record<string, RarityStyle> = {
   Common: {
     badge: 'border-gray-600/50 text-gray-300 bg-gray-700/30',

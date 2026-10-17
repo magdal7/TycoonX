@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { ensureOnboarding } from '../lib/ceos'
 
 type User = { id: number; email: string; username: string; role: string } | null
 
@@ -29,6 +30,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+    ensureOnboarding().catch(() => {})
+  }, [user?.id])
 
   async function login(email: string, password: string) {
     const r = await fetch('/api/auth/login', {

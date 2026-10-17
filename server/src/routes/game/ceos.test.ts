@@ -5,7 +5,7 @@ import type { PrismaClient } from '@prisma/client'
 process.env.JWT_SECRET ??= 'test-secret'
 process.env.DATABASE_URL ??= 'postgresql://test:test@localhost:5432/test'
 
-const { listOwnedCeosHandler, grantStarterCeoHandler } = await import('./ceos')
+const { listOwnedCeosHandler, grantStarterCeoHandler, onboardingHandler } = await import('./ceos')
 
 type Acq = 'STARTER' | 'PURCHASE' | 'MISSION' | 'REWARD' | 'ADMIN'
 
@@ -225,4 +225,46 @@ test('starter handler returns 503 when no active starter template exists', async
   const res = mockRes()
   await grantStarterCeoHandler(asClient(f))(mockReq(100), res)
   assert.equal(res.statusCode, 503)
+})
+
+test('onboarding provisions the starter once and returns the fleet', async () => {
+  const f = new FakePrisma()
+  seed(f)
+  const handler = onboardingHandler(asClient(f))
+
+  const first = mockRes()
+  await handler(mockReq(100), first)
+  assert.equal(first.statusCode, 200)
+  assert.equal(first.body.onboarded, true)
+  assert.equal(first.body.starter.created, true)
+  assert.equal(first.body.owned.length, 1)
+  assert.equal(first.body.owned[0].templateSlug, 'intern-ceo')
+
+  const second = mockRes()
+  await handler(mockReq(100), second)
+  assert.equal(second.statusCode, 200)
+  assert.equal(second.body.starter.created, false)
+  assert.equal(second.body.starter.ownedCeoId, first.body.starter.ownedCeoId)
+  assert.equal(second.body.owned.length, 1)
+  assert.equal(f.owned.filter((o) => o.acquisitionType === 'STARTER').length, 1)
+})
+
+test('onboarding is scoped to the authenticated user', async () => {
+  const f = new FakePrisma()
+  seed(f)
+  const handler = onboardingHandler(asClient(f))
+  await handler(mockReq(100), mockRes())
+  const other = mockRes()
+  await handler(mockReq(200, { userId: 100 }), other)
+  assert.equal(other.body.owned.length, 1)
+  assert.equal(f.owned.filter((o) => o.userId === 100).length, 1)
+  assert.equal(f.owned.filter((o) => o.userId === 200).length, 1)
+})
+
+test('onboarding returns 503 when no active starter template exists', async () => {
+  const f = new FakePrisma()
+  const res = mockRes()
+  await onboardingHandler(asClient(f))(mockReq(100), res)
+  assert.equal(res.statusCode, 503)
+  assert.equal(res.body.onboarded, undefined)
 })

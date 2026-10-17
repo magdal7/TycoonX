@@ -163,7 +163,23 @@ class FakePrisma {
   }
 
   $transaction = async <T>(fn: (tx: FakePrisma) => Promise<T>): Promise<T> => {
-    const run = this.queue.then(() => fn(this))
+    const run = this.queue.then(async () => {
+      const snapshot = {
+        owned: [...this.owned],
+        referrals: [...this.referrals],
+        idem: [...this.idem],
+        seq: this.seq,
+      }
+      try {
+        return await fn(this)
+      } catch (error) {
+        this.owned = snapshot.owned
+        this.referrals = snapshot.referrals
+        this.idem = snapshot.idem
+        this.seq = snapshot.seq
+        throw error
+      }
+    })
     this.queue = run.then(
       () => undefined,
       () => undefined,
@@ -401,4 +417,22 @@ test('starter grant is scoped per user and does not leak across users', async ()
   assert.equal(listB.length, 1)
   assert.equal(listA[0].id, a.ownedCeoId)
   assert.equal(listB[0].id, b.ownedCeoId)
+})
+
+test('a failed provisioning transaction leaves no starter and no idempotency row', async () => {
+  const f = new FakePrisma()
+  seed(f)
+  await assert.rejects(() =>
+    f.$transaction(async (tx) => {
+      await tx.ownedCeo.create({
+        data: { userId: 100, templateId: 1, acquisitionType: 'STARTER', status: 'IDLE' },
+      })
+      await tx.idempotencyKey.create({
+        data: { userId: 100, scope: 'starter_ceo', key: 'v1' },
+      })
+      throw new Error('forced failure')
+    }),
+  )
+  assert.equal(f.owned.length, 0)
+  assert.equal(f.idem.length, 0)
 })
