@@ -139,3 +139,17 @@ INSERT INTO "CEO" (
     10, 1, true, false, 'Starter', 0, CURRENT_TIMESTAMP
 )
 ON CONFLICT ("slug") DO NOTHING;
+
+-- Crypto Whale: approved catalog row. Added ONLY if the slug is absent, so an
+-- existing Crypto Whale row (and its id) is never recreated. Values are the
+-- approved illustrative development defaults (price $1000, 600 SP/cycle, 2 copies).
+INSERT INTO "CEO" (
+    "name", "slug", "rarity", "priceUsd", "dailyRatePercent", "cycleHours", "energyCost", "isActive",
+    "baseSpPerCycle", "maxOwned", "isStarter", "rewardEligible", "category", "displayOrder",
+    "createdAt", "updatedAt"
+) VALUES (
+    'Crypto Whale', 'crypto-whale', 'Mythic', 1000.00, 0.3500, 4, 40, true,
+    600, 2, false, false, NULL, 0,
+    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+)
+ON CONFLICT ("slug") DO NOTHING;
