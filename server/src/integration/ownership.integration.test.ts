@@ -113,6 +113,7 @@ let db: PrismaClient | null = null
 let pool: Pool | null = null
 let starterTemplateId: number | null = null
 let createdFallbackTemplate = false
+let ready = false
 
 const shortId = () => randomBytes(4).toString('hex')
 
@@ -129,12 +130,33 @@ async function createUser(): Promise<number> {
   return user.id
 }
 
+const ITEST_USERNAME_PREFIX = 'itest_'
+
 async function cleanupUser(userId: number): Promise<void> {
   await db!.idempotencyKey.deleteMany({ where: { userId } })
   await db!.referralAttribution.deleteMany({ where: { referrerId: userId } })
   await db!.referralAttribution.deleteMany({ where: { referredUserId: userId } })
   await db!.ownedCeo.deleteMany({ where: { userId } })
   await db!.user.deleteMany({ where: { id: userId } })
+}
+
+/**
+ * Best-effort suite-level sweep for rows left behind by an interrupted test or a
+ * failed per-test cleanup. It only ever touches `itest_`-tagged users (and their
+ * dependent rows) on the already-verified disposable branch.
+ */
+async function sweepLeftoverTestUsers(): Promise<void> {
+  const leftovers = await db!.user.findMany({
+    where: { username: { startsWith: ITEST_USERNAME_PREFIX } },
+    select: { id: true },
+  })
+  const ids = leftovers.map((u) => u.id)
+  if (ids.length === 0) return
+  await db!.idempotencyKey.deleteMany({ where: { userId: { in: ids } } })
+  await db!.referralAttribution.deleteMany({ where: { referrerId: { in: ids } } })
+  await db!.referralAttribution.deleteMany({ where: { referredUserId: { in: ids } } })
+  await db!.ownedCeo.deleteMany({ where: { userId: { in: ids } } })
+  await db!.user.deleteMany({ where: { id: { in: ids } } })
 }
 
 async function failClosed(message: string): Promise<never> {
@@ -228,6 +250,7 @@ before(async () => {
   // before any write. Any failure disconnects and stops the suite.
   await verifyNeonIdentity()
   await assertEconomySchema()
+  ready = true
 
   const existing = await db.cEO.findFirst({
     where: { isStarter: true, isActive: true },
@@ -259,9 +282,14 @@ before(async () => {
 
 after(async () => {
   if (!target.enabled) return
-  if (createdFallbackTemplate && starterTemplateId !== null) {
-    await db!.ownedCeo.deleteMany({ where: { templateId: starterTemplateId } })
-    await db!.cEO.deleteMany({ where: { id: starterTemplateId } })
+  if (ready && db) {
+    // Safety net (runs even when a test/cleanup failed): remove any leftover
+    // itest_ users and their dependent rows before removing the fallback template.
+    await sweepLeftoverTestUsers()
+    if (createdFallbackTemplate && starterTemplateId !== null) {
+      await db.ownedCeo.deleteMany({ where: { templateId: starterTemplateId } })
+      await db.cEO.deleteMany({ where: { id: starterTemplateId } })
+    }
   }
   await db?.$disconnect()
   await pool?.end()
