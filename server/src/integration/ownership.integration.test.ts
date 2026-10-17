@@ -2,7 +2,7 @@ import 'dotenv/config'
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import { PrismaClient } from '@prisma/client'
+import { Prisma, PrismaClient } from '@prisma/client'
 import { PrismaNeon } from '@prisma/adapter-neon'
 import { Pool } from '@neondatabase/serverless'
 import { grantStarterCeo } from '../services/starterCeo'
@@ -12,23 +12,53 @@ import { OwnershipLimitError } from '../services/ownership'
  * PostgreSQL integration tests for starter provisioning.
  *
  * These tests write rows. They refuse to run unless TEST_DATABASE_URL points at
- * an isolated, disposable Neon test branch. They NEVER fall back to
- * DATABASE_URL/DIRECT_URL, never reference the production/staging/recovery
- * branches, and never create or reset a branch. If no safe target is configured
- * the whole suite is skipped. Run with:
+ * an isolated, disposable Neon test branch AND the connected server reports the
+ * exact expected branch/project identity. They NEVER fall back to
+ * DATABASE_URL/DIRECT_URL, never create or reset a branch, and never run
+ * migrations. If no safe target is configured the whole suite is skipped. Run
+ * with the disposable branch's DIRECT connection string, supplied by the
+ * operator at execution time:
  *
- *   TEST_DATABASE_URL="postgresql://...@ep-xxx-pooler.<region>.aws.neon.tech/neondb?sslmode=require" \
- *     npm run test:integration --workspace=server
+ *   $env:TEST_DATABASE_URL = "<operator-supplied direct connection string>"
+ *   npm run test:integration --workspace=server
  *
- * The target branch must already have the frozen migrations applied. The suite
- * only inserts/deletes rows it creates, tagged with an "itest_" prefix, and
- * removes them in `after`.
+ * Safety (fail-closed, in order):
+ *   1. string guard: TEST_DATABASE_URL must not equal DATABASE_URL/DIRECT_URL,
+ *      must not reference a protected branch, and must be a Neon host;
+ *   2. identity guard: `current_setting('neon.branch_id')` and
+ *      `current_setting('neon.project_id')`, queried independently from the
+ *      connected server, must equal EXPECTED_BRANCH_ID / EXPECTED_PROJECT_ID;
+ *   3. schema guard: the expected Economy V2 tables/columns/indexes must exist.
+ * No write happens until all three pass. The target branch must already have the
+ * frozen migrations applied (the suite does not apply them). Only rows tagged
+ * `itest_` are created and they are removed in `after`.
  */
+
+const EXPECTED_BRANCH_ID = 'br-floral-resonance-b4ruvusw'
+const EXPECTED_PROJECT_ID = 'wandering-king-57462138'
 
 const PROTECTED_BRANCHES = [
   'br-delicate-butterfly-b4et73g9', // production
   'br-dawn-cherry-b4dnrhm5', // staging
   'br-long-king-b4s8l0yv', // recovery drill
+]
+
+const REQUIRED_TABLES = [
+  'User',
+  'CEO',
+  'OwnedCeo',
+  'ReferralAttribution',
+  'IdempotencyKey',
+  'AppMeta',
+]
+
+const REQUIRED_CEO_COLUMNS = [
+  'baseSpPerCycle',
+  'maxOwned',
+  'isStarter',
+  'rewardEligible',
+  'category',
+  'displayOrder',
 ]
 
 interface Target {
@@ -107,28 +137,77 @@ async function cleanupUser(userId: number): Promise<void> {
   await db!.user.deleteMany({ where: { id: userId } })
 }
 
+async function failClosed(message: string): Promise<never> {
+  await db?.$disconnect()
+  throw new Error(`Refusing integration test: ${message}`)
+}
+
+/** Positive allowlist: both values are read independently from the server. */
+async function verifyNeonIdentity(): Promise<void> {
+  const rows = await db!.$queryRaw<Array<{ branch: string | null; project: string | null }>>`
+    SELECT current_setting('neon.branch_id', true) AS branch,
+           current_setting('neon.project_id', true) AS project
+  `
+  const branch = (rows[0]?.branch ?? '').trim()
+  const project = (rows[0]?.project ?? '').trim()
+
+  if (!branch) await failClosed('connected server did not expose neon.branch_id')
+  if (!project) await failClosed('connected server did not expose neon.project_id')
+  if (branch !== EXPECTED_BRANCH_ID) {
+    await failClosed(`branch mismatch: connected "${branch}", expected "${EXPECTED_BRANCH_ID}"`)
+  }
+  if (project !== EXPECTED_PROJECT_ID) {
+    await failClosed(`project mismatch: connected "${project}", expected "${EXPECTED_PROJECT_ID}"`)
+  }
+}
+
+/** Confirms the Economy V2 tables, economy columns and unique indexes exist. */
+async function assertEconomySchema(): Promise<void> {
+  const tables = await db!.$queryRaw<Array<{ name: string; present: boolean }>>`
+    SELECT name, to_regclass('public.' || quote_ident(name)) IS NOT NULL AS present
+    FROM (VALUES ${Prisma.join(REQUIRED_TABLES.map((t) => Prisma.sql`(${t})`))}) AS v(name)
+  `
+  const missingTables = tables.filter((r) => !r.present).map((r) => r.name)
+  if (missingTables.length) {
+    await failClosed(`Economy V2 schema incomplete; missing tables: ${missingTables.join(', ')}`)
+  }
+
+  const indexes = await db!.$queryRaw<Array<{ name: string; present: boolean }>>`
+    SELECT name, to_regclass('public.' || quote_ident(name)) IS NOT NULL AS present
+    FROM (VALUES ${Prisma.join(
+      ['OwnedCeo_starter_user_key', 'IdempotencyKey_userId_scope_key_key'].map(
+        (i) => Prisma.sql`(${i})`,
+      ),
+    )}) AS v(name)
+  `
+  const missingIndexes = indexes.filter((r) => !r.present).map((r) => r.name)
+  if (missingIndexes.length) {
+    await failClosed(`Economy V2 schema incomplete; missing indexes: ${missingIndexes.join(', ')}`)
+  }
+
+  const columns = await db!.$queryRaw<Array<{ column_name: string }>>`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'CEO'
+      AND column_name IN (${Prisma.join(REQUIRED_CEO_COLUMNS)})
+  `
+  const found = new Set(columns.map((c) => c.column_name))
+  const missingColumns = REQUIRED_CEO_COLUMNS.filter((c) => !found.has(c))
+  if (missingColumns.length) {
+    await failClosed(`Economy V2 schema incomplete; missing CEO columns: ${missingColumns.join(', ')}`)
+  }
+}
+
 before(async () => {
   if (!target.enabled) return
 
   pool = new Pool({ connectionString: target.url! })
   db = new PrismaClient({ adapter: new PrismaNeon(pool) })
 
-  if (target.isNeon) {
-    const rows = await db.$queryRaw<Array<{ branch: string | null }>>`
-      SELECT current_setting('neon.branch_id', true) AS branch
-    `
-    const branch = rows[0]?.branch ?? ''
-    if (!branch) {
-      await db.$disconnect()
-      throw new Error(
-        'Refusing integration test: could not verify the Neon branch id (neon.branch_id is empty). Use an isolated test branch.',
-      )
-    }
-    if (PROTECTED_BRANCHES.includes(branch)) {
-      await db.$disconnect()
-      throw new Error(`Refusing integration test: connected branch ${branch} is protected.`)
-    }
-  }
+  // Guard 1 already passed at import (string checks). Guards 2 and 3 run here,
+  // before any write. Any failure disconnects and stops the suite.
+  await verifyNeonIdentity()
+  await assertEconomySchema()
 
   const existing = await db.cEO.findFirst({
     where: { isStarter: true, isActive: true },

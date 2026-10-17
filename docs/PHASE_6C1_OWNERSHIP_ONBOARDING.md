@@ -65,31 +65,36 @@ File: `server/src/integration/ownership.integration.test.ts`. Covers:
 4. transaction rollback (forced failure → neither owned row nor idempotency key persisted);
 5. the DB partial unique index rejects a second `STARTER` row.
 
-### Safety model (fail-closed)
+### Safety model (fail-closed, layered)
 
-- The suite reads **only** `TEST_DATABASE_URL`. It never falls back to `DATABASE_URL`/`DIRECT_URL`.
-- At import it refuses (throws) if `TEST_DATABASE_URL`:
-  - references a protected branch id (production `br-delicate-butterfly-b4et73g9`, staging
-    `br-dawn-cherry-b4dnrhm5`, recovery `br-long-king-b4s8l0yv`);
-  - equals `DATABASE_URL` or `DIRECT_URL`;
-  - points at a non-local, non-Neon host.
-- After connecting to a Neon host it queries `current_setting('neon.branch_id')` and refuses if the
-  branch id is empty or protected.
-- A local host is allowed structurally but skipped, because the Neon serverless driver cannot talk to
-  a plain local Postgres (that would need the `pg` driver).
-- No branch is ever created or reset. Rows are tagged `itest_` and deleted in `after`.
+- **Guard 1 — string checks (at import).** The suite reads **only** `TEST_DATABASE_URL`; it never falls
+  back to `DATABASE_URL`/`DIRECT_URL`. It refuses (throws) if the value equals either, references a
+  protected branch id (production `br-delicate-butterfly-b4et73g9`, staging `br-dawn-cherry-b4dnrhm5`,
+  recovery `br-long-king-b4s8l0yv`), or points at a non-local, non-Neon host.
+- **Guard 2 — positive identity allowlist (on connect).** After connecting it reads, independently from
+  the server, `current_setting('neon.branch_id', true)` and `current_setting('neon.project_id', true)`.
+  It fails closed unless `branch_id == br-floral-resonance-b4ruvusw` **and**
+  `project_id == wandering-king-57462138`. Missing or mismatched values abort before any write.
+- **Guard 3 — schema guard (on connect, before writes).** It verifies the Economy V2 objects exist:
+  tables `User`, `CEO`, `OwnedCeo`, `ReferralAttribution`, `IdempotencyKey`, `AppMeta`; indexes
+  `OwnedCeo_starter_user_key` and `IdempotencyKey_userId_scope_key_key`; and `CEO` economy columns
+  `baseSpPerCycle`, `maxOwned`, `isStarter`, `rewardEligible`, `category`, `displayOrder`. Missing
+  objects abort.
+- No write happens until all three guards pass. A local host is allowed structurally but skipped,
+  because the Neon serverless driver cannot talk to a plain local Postgres (that would need `pg`).
+- No migrations, no schema resets, no branch operations. Rows are tagged `itest_` and deleted in
+  `after`; only the fallback starter template (created solely if none exists) is removed.
 
 ### How to configure and run safely
 
-1. In the Neon console, **manually** create a disposable branch from the current schema state (or use
-   an existing isolated test branch). Do not use production/staging/recovery.
-2. Apply the frozen migrations to that branch (its own isolated copy), e.g. against the branch's
-   direct URL: `npx prisma migrate deploy` with `DATABASE_URL`/`DIRECT_URL` temporarily pointed at the
-   branch. This is an operator action outside `npm test`.
-3. Export the branch's **pooled** connection string and run:
+1. In the Neon console, **manually** create a disposable branch (or use the isolated test branch
+   `br-floral-resonance-b4ruvusw`). Do not use production/staging/recovery.
+2. Apply the frozen migrations to that branch (its own isolated copy). This is an operator action
+   outside `npm test`; the suite never applies migrations.
+3. Export the branch's **direct** connection string and run (never paste it into the repo):
 
 ```powershell
-$env:TEST_DATABASE_URL = "postgresql://<user>:<pass>@ep-xxx-pooler.<region>.aws.neon.tech/neondb?sslmode=require"
+$env:TEST_DATABASE_URL = "<operator-supplied direct connection string for the disposable branch>"
 npm run test:integration --workspace=server
 ```
 
@@ -104,7 +109,7 @@ If `TEST_DATABASE_URL` is unset, the suite reports the tests as **skipped** and 
 | `npx prisma validate` (server/) | ✅ schema valid |
 | `npm run build --workspace=server` (`tsc`) | ✅ clean |
 | `npm run test --workspace=server` | ✅ **32/32 pass** |
-| `npm run test:integration --workspace=server` | ⏭️ **5 skipped** (`TEST_DATABASE_URL is not set`) — prepared, not executed |
+| `npm run test:integration --workspace=server` | ⏭️ **5 skipped** (`TEST_DATABASE_URL is not set`) — strict positive allowlist added; not executed because no operator-supplied connection was present |
 | `npm run build --prefix client` | ⚠️ `tsc` clean; `vite build` fails on a **pre-existing** PWA workbox issue (`hq_level3_reference.png` 2.87 MB > 2 MiB precache limit, no `maximumFileSizeToCacheInBytes` configured). Unrelated to this phase. |
 
 ## 6. Remaining risks
