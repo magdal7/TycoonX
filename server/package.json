@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && if not exist ..\\node_modules\\.prisma\\client\\query_engine-windows.dll.node prisma generate",
+    "build": "tsc",
     "start": "node dist/index.js",
     "test": "node --import tsx --test src/lib/idempotency.test.ts src/services/economy.test.ts",
     "prisma:generate": "prisma generate",
