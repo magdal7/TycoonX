@@ -117,9 +117,13 @@ If `TEST_DATABASE_URL` is unset, the suite reports the tests as **skipped** and 
 - **Integration tests not executed.** No isolated test DB is configured here, so real-Postgres
   concurrency/rollback behavior is prepared but unverified until an operator runs them against a
   disposable Neon branch.
-- **Concurrency corroboration.** The exact-once guarantee under true parallelism rests on the DB
-  constraints (idempotency unique + partial starter index). The unit fake serializes transactions, so
-  it cannot reproduce Postgres lock/abort timing; the integration suite is what proves it.
+- **Concurrency corroboration.** Live integration tests exposed a READ COMMITTED race: the capacity
+  count could observe a concurrently-committed STARTER that the earlier existence check missed, raising
+  `OwnershipLimitError` instead of replaying. Fixed by claiming the `IdempotencyKey` as the **first**
+  write (the serialization point) before the capacity count, reconciling capacity conflicts to a replay,
+  and reconciling unique violations outside the transaction with bounded retries. The partial unique
+  index remains the final protection. The unit fake serializes transactions, so it cannot reproduce
+  Postgres lock timing; the integration suite is what proves true parallelism.
 - **`maxOwned` for non-starter templates** is transaction-scoped and not DB-enforced; concurrent
   acquisitions of the same template could exceed the cap. Future purchase/reward paths must use
   `assertOwnershipCapacity` in the same transaction (and may need row locking).

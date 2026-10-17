@@ -419,6 +419,44 @@ test('starter grant is scoped per user and does not leak across users', async ()
   assert.equal(listB[0].id, b.ownedCeoId)
 })
 
+test('starter grant replays when the capacity count sees a concurrent STARTER (READ COMMITTED interleaving)', async () => {
+  const concurrent = { id: 777, templateId: 1 }
+  const calls: string[] = []
+  let starterLookups = 0
+
+  const client = {
+    cEO: { findFirst: async () => ({ id: 1, maxOwned: 1 }) },
+    ownedCeo: {
+      findFirst: async () => {
+        starterLookups += 1
+        // First lookup (pre-claim existence check) misses; the later lookup
+        // (inside the capacity conflict) sees the concurrently committed row.
+        return starterLookups === 1 ? null : concurrent
+      },
+      count: async () => {
+        calls.push('count')
+        return 1
+      },
+      create: async () => {
+        throw new Error('must not create when a concurrent STARTER already exists')
+      },
+    },
+    idempotencyKey: {
+      create: async () => {
+        calls.push('claim')
+        return { id: 1 }
+      },
+    },
+    $transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(client),
+  } as unknown as PrismaClient
+
+  const result = await grantStarterCeo(client, 100)
+  assert.equal(result.created, false)
+  assert.equal(result.ownedCeoId, concurrent.id)
+  // The idempotency claim must precede the capacity check (serialization point).
+  assert.deepEqual(calls, ['claim', 'count'])
+})
+
 test('a failed provisioning transaction leaves no starter and no idempotency row', async () => {
   const f = new FakePrisma()
   seed(f)

@@ -287,14 +287,19 @@ test('starter uniqueness: repeated grants produce exactly one STARTER row', { sk
 test('concurrent grants never create a duplicate starter', { skip }, async () => {
   const userId = await createUser()
   try {
-    const results = await Promise.all(
-      Array.from({ length: 5 }, () => grantStarterCeo(db!, userId)),
-    )
-    assert.equal(new Set(results.map((r) => r.ownedCeoId)).size, 1)
-    assert.equal(results.filter((r) => r.created).length, 1)
+    for (let round = 0; round < 3; round += 1) {
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () => grantStarterCeo(db!, userId)),
+      )
 
-    assert.equal(await db!.ownedCeo.count({ where: { userId, acquisitionType: 'STARTER' } }), 1)
-    assert.equal(await db!.idempotencyKey.count({ where: { userId, scope: 'starter_ceo' } }), 1)
+      // Every caller converges on the same row.
+      assert.equal(new Set(results.map((r) => r.ownedCeoId)).size, 1)
+      // Exactly one grant creates; all later rounds are pure replays.
+      assert.equal(results.filter((r) => r.created).length, round === 0 ? 1 : 0)
+
+      assert.equal(await db!.ownedCeo.count({ where: { userId, acquisitionType: 'STARTER' } }), 1)
+      assert.equal(await db!.idempotencyKey.count({ where: { userId, scope: 'starter_ceo' } }), 1)
+    }
   } finally {
     await cleanupUser(userId)
   }
