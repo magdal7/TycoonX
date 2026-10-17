@@ -52,6 +52,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DIRECT }}
       DIRECT_URL: ${{ secrets.DIRECT }}
       EXPECTED_BRANCH: br-delicate-butterfly-b4et73g9
+      EXPECTED_PROJECT_ID: wandering-king-57462138
       CONFIRM_TOKEN: APPLY-ECONOMY-V2-br-delicate-butterfly-b4et73g9
       SCHEMA: server/prisma/schema.prisma
       MIG_6B1: server/prisma/migrations/20261017000000_phase6b1_economy_foundation/migration.sql
@@ -140,7 +141,11 @@ jobs:
 
           echo "### Pre-migration state" >> "$GITHUB_STEP_SUMMARY"
 
+          # Authoritative identity comes from Neon's server-side session metadata, NOT from the
+          # workflow input or the connection-string label. Both the branch and the project must
+          # match before any write; if either is not exposed, fail closed as unverified.
           BRANCH="$(q "SELECT current_setting('neon.branch_id', true)")"
+          PROJECT="$(q "SELECT current_setting('neon.project_id', true)")"
           if [ -z "$BRANCH" ]; then
             echo "::error title=Branch unverified::Neon branch identity is not exposed by this connection"
             exit 1
@@ -149,7 +154,11 @@ jobs:
             echo "::error title=Branch mismatch::connected branch is not the expected production branch"
             exit 1
           fi
-          echo "- branch OK: \`${BRANCH}\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$PROJECT" ] || [ "$PROJECT" != "$EXPECTED_PROJECT_ID" ]; then
+            echo "::error title=Project mismatch::connected project is not $EXPECTED_PROJECT_ID"
+            exit 1
+          fi
+          echo "- branch OK: \`${BRANCH}\` (project \`${PROJECT}\`)" >> "$GITHUB_STEP_SUMMARY"
 
           # Data preservation / pre-migration markers.
           USERS="$(q "SELECT count(*) FROM \"User\"")"
