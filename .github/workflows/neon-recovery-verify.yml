@@ -1,0 +1,195 @@
+name: Neon Recovery Verify — STAGING DRILL (read-only)
+
+# Manually triggered ONLY. READ-ONLY. This workflow verifies that a disposable Neon
+# recovery-drill branch is at the pre-migration Economy V2 state. It performs SELECTs only:
+# no DDL, no DML, no migration commands, no writes of any kind.
+#
+# Isolation guarantees:
+#   * connection comes ONLY from the RECOVERY_DIRECT secret — never DIRECT, never STAGING_DIRECT
+#   * the connected branch id must equal the operator-supplied recovery branch id
+#   * the connected branch id must NOT equal the production or the successful staging branch
+#   * it never issues a restore/reset/delete; those are Neon Console operator actions
+#
+# See docs/PHASE_6B4D_RECOVERY_DRILL.md for the full drill procedure.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type VERIFY-RECOVERY-6B4D to confirm a read-only recovery verification'
+        required: true
+        type: string
+      recovery_branch:
+        description: 'Exact Neon recovery/drill branch id (e.g. br-xxxxxxxx)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-recovery-verify
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Read-only pre-migration state verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.RECOVERY_DIRECT }}
+      DIRECT_URL: ${{ secrets.RECOVERY_DIRECT }}
+      RECOVERY_BRANCH: ${{ inputs.recovery_branch }}
+      PRODUCTION_BRANCH: br-delicate-butterfly-b4et73g9
+      STAGING_BRANCH: br-dawn-cherry-b4dnrhm5
+      CONFIRM_TOKEN: VERIFY-RECOVERY-6B4D
+    steps:
+      - name: Confirm intent (token + recovery branch)
+        env:
+          CONFIRM_INPUT: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRM_INPUT" != "$CONFIRM_TOKEN" ]; then
+            echo "::error title=Confirmation failed::The confirmation input did not match the recovery token. No action taken."
+            exit 1
+          fi
+          if [ -z "${RECOVERY_BRANCH:-}" ]; then
+            echo "::error title=Missing recovery branch::Provide the exact disposable recovery branch id."
+            exit 1
+          fi
+          if [ "$RECOVERY_BRANCH" = "$PRODUCTION_BRANCH" ]; then
+            echo "::error title=Refusing production::The recovery branch input equals the production branch id."
+            exit 1
+          fi
+          if [ "$RECOVERY_BRANCH" = "$STAGING_BRANCH" ]; then
+            echo "::error title=Refusing staging::The recovery branch input equals the successful staging branch id."
+            exit 1
+          fi
+          if [ -z "${DIRECT_URL:-}" ]; then
+            echo "::error title=Missing secret::Repository secret RECOVERY_DIRECT is not set."
+            exit 1
+          fi
+          echo "Read-only recovery verification confirmed for branch \`$RECOVERY_BRANCH\`." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Read-only pre-migration state verification
+        run: |
+          set -euo pipefail
+          OUTDIR="${RUNNER_TEMP:-/tmp}"
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          fi
+
+          # SELECT-only helper; redacts DSNs/hosts on error.
+          q() {
+            local out
+            if ! out="$(psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "$1" 2>"$OUTDIR/psql.err")"; then
+              sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' "$OUTDIR/psql.err" >&2
+              return 1
+            fi
+            printf '%s' "$out"
+          }
+
+          echo "### Recovery verification (read-only)" >> "$GITHUB_STEP_SUMMARY"
+
+          BRANCH="$(q "SELECT current_setting('neon.branch_id', true)")"
+          if [ -z "$BRANCH" ]; then
+            echo "::error title=Branch unverified::Neon branch identity is not exposed by this connection"
+            exit 1
+          fi
+          if [ "$BRANCH" = "$PRODUCTION_BRANCH" ]; then
+            echo "::error title=PRODUCTION REACHED::RECOVERY_DIRECT resolves to production. Aborting; no writes performed."
+            exit 1
+          fi
+          if [ "$BRANCH" = "$STAGING_BRANCH" ]; then
+            echo "::error title=STAGING REACHED::RECOVERY_DIRECT resolves to the successful staging branch. Aborting."
+            exit 1
+          fi
+          if [ "$BRANCH" != "$RECOVERY_BRANCH" ]; then
+            echo "::error title=Branch mismatch::connected branch is not the supplied recovery branch"
+            exit 1
+          fi
+          echo "- branch OK: \`${BRANCH}\` (disposable recovery branch)" >> "$GITHUB_STEP_SUMMARY"
+
+          USERS="$(q "SELECT count(*) FROM \"User\"")"
+          USER_IDS="$(q "SELECT string_agg(id::text, ',' ORDER BY id) FROM \"User\"")"
+          USER_DATA="$(q "SELECT count(*) FROM \"User\" WHERE email IS NOT NULL AND username IS NOT NULL AND \"passwordHash\" IS NOT NULL AND \"passwordHash\" <> ''")"
+          CEOS="$(q "SELECT count(*) FROM \"CEO\"")"
+          CEO_IDS="$(q "SELECT string_agg(id::text, ',' ORDER BY id) FROM \"CEO\"")"
+          UCOLL="$(q "SELECT count(*) FROM (SELECT lower(username) FROM \"User\" GROUP BY lower(username) HAVING count(*)>1) x")"
+
+          ECON_TABLES="$(q "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('AppMeta','OwnedCeo','ReferralAttribution','IdempotencyKey')")"
+          ECON_COLS="$(q "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='CEO' AND column_name IN ('baseSpPerCycle','maxOwned','isStarter','rewardEligible','category','displayOrder')")"
+          ECON_ENUMS="$(q "SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace AND typname IN ('AcquisitionType','OwnedCeoStatus')")"
+          MIG_TABLE="$(q "SELECT to_regclass('public._prisma_migrations') IS NOT NULL")"
+          LOWER_IDX="$(q "SELECT to_regclass('public.\"User_username_lower_key\"') IS NOT NULL")"
+
+          CRYPTO="$(q "SELECT count(*) FROM \"CEO\" WHERE slug='crypto-whale'")"
+          INTERN="$(q "SELECT count(*) FROM \"CEO\" WHERE slug='intern-ceo'")"
+          TESTCEO="$(q "SELECT count(*) FROM \"CEO\" WHERE slug='test-ceo'")"
+
+          fail=0
+          [ "$USERS" = "2" ] || { echo "::error title=User count::expected 2, got $USERS"; fail=1; }
+          [ "$USER_IDS" = "2,4" ] || { echo "::error title=User ids::expected 2,4, got $USER_IDS"; fail=1; }
+          [ "$USER_DATA" = "2" ] || { echo "::error title=User data::existing User records not fully preserved"; fail=1; }
+          [ "$CEOS" = "8" ] || { echo "::error title=CEO count::expected 8, got $CEOS"; fail=1; }
+          [ "$CEO_IDS" = "2,3,4,5,6,7,8,10" ] || { echo "::error title=CEO ids::expected 2,3,4,5,6,7,8,10, got $CEO_IDS"; fail=1; }
+          [ "$UCOLL" = "0" ] || { echo "::error title=Collisions::case-insensitive username collisions present"; fail=1; }
+          [ "$ECON_TABLES" = "0" ] || { echo "::error title=Economy tables::expected none, found $ECON_TABLES"; fail=1; }
+          [ "$ECON_COLS" = "0" ] || { echo "::error title=Economy columns::expected none, found $ECON_COLS"; fail=1; }
+          [ "$ECON_ENUMS" = "0" ] || { echo "::error title=Economy enums::expected none, found $ECON_ENUMS"; fail=1; }
+          [ "$MIG_TABLE" = "f" ] || { echo "::error title=_prisma_migrations::expected absent"; fail=1; }
+          [ "$LOWER_IDX" = "f" ] || { echo "::error title=User_username_lower_key::expected absent"; fail=1; }
+          [ "$CRYPTO" = "0" ] || { echo "::error title=crypto-whale::expected absent pre-migration"; fail=1; }
+          [ "$INTERN" = "0" ] || { echo "::error title=intern-ceo::expected absent pre-migration"; fail=1; }
+          [ "$TESTCEO" = "1" ] || { echo "::error title=test-ceo::expected present (original data)"; fail=1; }
+
+          if [ "$fail" -ne 0 ]; then
+            echo "- ❌ recovery verification FAILED (state is not the expected pre-migration state)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "- User=2 (ids 2,4, data preserved); CEO=8 (ids 2,3,4,5,6,7,8,10)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- economy tables/columns/enums absent; \`_prisma_migrations\` absent; \`User_username_lower_key\` absent" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ✅ recovery verification PASSED: branch is at the pre-migration state" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build recovery verification report (artifact)
+        if: always()
+        run: |
+          set -euo pipefail
+          REPORT="${RUNNER_TEMP:-/tmp}/recovery-verification-report.md"
+          {
+            echo "# TycoonX — Neon recovery drill verification report (read-only)"
+            echo ""
+            echo "- Recovery branch: \`$RECOVERY_BRANCH\`"
+            echo "- Production branch (not connected): \`$PRODUCTION_BRANCH\`"
+            echo "- Staging branch (not connected): \`$STAGING_BRANCH\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Run: \`${{ github.run_id }}\`"
+            echo "- Result: **${{ job.status }}**"
+            echo ""
+            echo "## Captured job summary"
+            echo ""
+            cat "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          } > "$REPORT"
+
+      - name: Upload recovery verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-verification-report
+          path: ${{ runner.temp }}/recovery-verification-report.md
+          if-no-files-found: warn
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo ""
+            echo "---"
+            echo "READ-ONLY verification. No writes, no restore, no migration commands."
+            echo "Connection used: RECOVERY_DIRECT only; production and staging are never connected."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "**Result: ✅ PASS**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**Result: ❌ FAIL — inspect steps; see docs/PHASE_6B4D_RECOVERY_DRILL.md**" >> "$GITHUB_STEP_SUMMARY"
+          fi
