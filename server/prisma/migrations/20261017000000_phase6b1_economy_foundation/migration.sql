@@ -129,11 +129,13 @@ UPDATE "CEO" SET "baseSpPerCycle" = 600, "maxOwned" = 2  WHERE "slug" = 'crypto-
 
 -- Free Intern CEO starter template (idempotent by "slug").
 -- energyCost/rarity/category are illustrative defaults pending final sign-off.
+-- NOTE: "updatedAt" is NOT NULL with no database default on this table, so it is
+-- set explicitly here to avoid the not-null failure seen in the historical seed.
 INSERT INTO "CEO" (
     "name", "slug", "rarity", "priceUsd", "dailyRatePercent", "cycleHours", "energyCost", "isActive",
-    "baseSpPerCycle", "maxOwned", "isStarter", "rewardEligible", "category", "displayOrder"
+    "baseSpPerCycle", "maxOwned", "isStarter", "rewardEligible", "category", "displayOrder", "updatedAt"
 ) VALUES (
     'Intern CEO', 'intern-ceo', 'Common', 0.00, 0.0000, 4, 2, true,
-    10, 1, true, false, 'Starter', 0
+    10, 1, true, false, 'Starter', 0, CURRENT_TIMESTAMP
 )
 ON CONFLICT ("slug") DO NOTHING;

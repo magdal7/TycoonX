@@ -18,9 +18,8 @@ export interface ReferralResult {
  * Attributes a newly registered user to a referrer. No rewards are granted
  * here (Economy V2 grants referral milestones only via later, manual phases).
  *
- * The "code" is currently matched against the referrer's unique username, since
- * no dedicated referral-code column exists. If a dedicated code field is
- * introduced later, only the resolver below changes.
+ * The "code" is the referrer's permanent username, resolved case-insensitively
+ * (usernames are immutable and unique). No dedicated referral-code column exists.
  */
 export async function attributeReferral(
   prisma: PrismaClient,
@@ -29,8 +28,8 @@ export async function attributeReferral(
   const code = input.code?.trim()
   if (!code) return { attributed: false, reason: 'no_code' }
 
-  const referrer = await prisma.user.findUnique({
-    where: { username: code },
+  const referrer = await prisma.user.findFirst({
+    where: { username: { equals: code, mode: 'insensitive' } },
     select: { id: true },
   })
   if (!referrer) return { attributed: false, reason: 'referrer_not_found' }

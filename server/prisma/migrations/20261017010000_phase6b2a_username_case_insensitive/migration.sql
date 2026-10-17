@@ -1,0 +1,15 @@
+-- Phase 6B.2A — case-insensitive username uniqueness (additive, non-destructive).
+--
+-- Usernames are the permanent referral identifier. The existing "User_username_key"
+-- index is a case-sensitive btree, so "Alice" and "alice" would be distinct there.
+-- This adds a functional unique index on lower("username") to enforce
+-- case-insensitive uniqueness at the database level.
+--
+-- Preconditions verified read-only before proposing this index:
+--   * zero case-insensitive username collisions exist in the live database
+--   * the "username" column is TEXT and "lower(text)" is IMMUTABLE (index-safe)
+--
+-- Do NOT apply before a verified backup. Application-level case-insensitive checks
+-- (registration + referral resolution) are implemented independently and do not
+-- depend on this index.
+CREATE UNIQUE INDEX "User_username_lower_key" ON "User" (lower("username"));

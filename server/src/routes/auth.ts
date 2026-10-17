@@ -3,6 +3,7 @@ import { registerSchema, loginSchema } from '../validation/auth'
 import { hashPassword, comparePassword, signToken } from '../lib/auth'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, requireAuth } from '../middleware/auth'
+import { findRegistrationConflict } from '../services/registration'
 
 const router = Router()
 
@@ -17,8 +18,8 @@ router.post('/register', async (req: AuthRequest, res: Response) => {
   const parsed = registerSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors })
   const { email, username, password } = parsed.data
-  const existing = await prisma.user.findFirst({ where: { OR: [{ email }, { username }] } })
-  if (existing) return res.status(409).json({ error: 'user already exists' })
+  const conflict = await findRegistrationConflict(prisma, { email, username })
+  if (conflict) return res.status(409).json({ error: 'user already exists' })
   const passwordHash = await hashPassword(password)
   const user = await prisma.user.create({
     data: { email, username, passwordHash },

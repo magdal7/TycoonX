@@ -4,6 +4,7 @@ import type { PrismaClient } from '@prisma/client'
 import { grantStarterCeo } from './starterCeo'
 import { attributeReferral } from './referral'
 import { listOwnedCeos, countOwnedByTemplate } from './ownership'
+import { findRegistrationConflict } from './registration'
 
 type Acq = 'STARTER' | 'PURCHASE' | 'MISSION' | 'REWARD' | 'ADMIN'
 
@@ -18,7 +19,7 @@ interface TemplateRow {
   isStarter: boolean
   isActive: boolean
 }
-interface UserRow { id: number; username: string }
+interface UserRow { id: number; username: string; email: string }
 interface OwnedRow {
   id: number
   userId: number
@@ -64,6 +65,25 @@ class FakePrisma {
   user = {
     findUnique: async (args: any): Promise<UserRow | null> => {
       return this.users.find((u) => u.username === args?.where?.username) ?? null
+    },
+    findFirst: async (args: any): Promise<UserRow | null> => {
+      const w = args?.where ?? {}
+      const match = this.users.find((u) => {
+        if (w.username) {
+          const { equals, mode } = w.username as { equals: string; mode?: string }
+          const a = mode === 'insensitive' ? u.username.toLowerCase() : u.username
+          const b = mode === 'insensitive' ? equals.toLowerCase() : equals
+          if (a !== b) return false
+        }
+        if (w.email) {
+          const { equals, mode } = w.email as { equals: string; mode?: string }
+          const a = mode === 'insensitive' ? u.email.toLowerCase() : u.email
+          const b = mode === 'insensitive' ? equals.toLowerCase() : equals
+          if (a !== b) return false
+        }
+        return true
+      })
+      return match ?? null
     },
   }
 
@@ -176,7 +196,10 @@ function seed(f: FakePrisma): void {
       isActive: true,
     },
   )
-  f.users.push({ id: 100, username: 'alice' }, { id: 200, username: 'bob' })
+  f.users.push(
+    { id: 100, username: 'alice', email: 'alice@example.com' },
+    { id: 200, username: 'Bob', email: 'bob@example.com' },
+  )
 }
 
 const asClient = (f: FakePrisma): PrismaClient => f as unknown as PrismaClient
@@ -204,7 +227,7 @@ test('subsequent starter grant is idempotent', async () => {
 
 test('starter grant fails without a configured starter template', async () => {
   const f = new FakePrisma()
-  f.users.push({ id: 1, username: 'x' })
+  f.users.push({ id: 1, username: 'x', email: 'x@example.com' })
   await assert.rejects(() => grantStarterCeo(asClient(f), 1), /starter CEO template/)
 })
 
@@ -256,4 +279,61 @@ test('ownership read maps template economy fields', async () => {
   assert.equal(list[0].acquisitionType, 'STARTER')
   assert.equal(await countOwnedByTemplate(client, 100, 1), 1)
   assert.equal(await countOwnedByTemplate(client, 100, 2), 0)
+})
+
+test('referral resolves the referrer case-insensitively', async () => {
+  const f = new FakePrisma()
+  seed(f)
+  const r = await attributeReferral(asClient(f), { referredUserId: 200, code: 'ALICE' })
+  assert.equal(r.attributed, true)
+  assert.equal(f.referrals[0].referrerId, 100)
+})
+
+test('referral resolves a mixed-case stored username from a lower-case code', async () => {
+  const f = new FakePrisma()
+  seed(f)
+  const r = await attributeReferral(asClient(f), { referredUserId: 100, code: 'bob' })
+  assert.equal(r.attributed, true)
+  assert.equal(f.referrals[0].referrerId, 200)
+})
+
+test('registration conflict: case-insensitive username', async () => {
+  const f = new FakePrisma()
+  seed(f)
+  assert.equal(
+    await findRegistrationConflict(asClient(f), { email: 'new@example.com', username: 'ALICE' }),
+    'username',
+  )
+})
+
+test('registration conflict: case-insensitive email', async () => {
+  const f = new FakePrisma()
+  seed(f)
+  assert.equal(
+    await findRegistrationConflict(asClient(f), { email: 'ALICE@example.com', username: 'fresh' }),
+    'email',
+  )
+})
+
+test('registration conflict: none for a new identity', async () => {
+  const f = new FakePrisma()
+  seed(f)
+  assert.equal(
+    await findRegistrationConflict(asClient(f), { email: 'new@example.com', username: 'fresh' }),
+    null,
+  )
+})
+
+test('multiple owned CEO copies are listed individually', async () => {
+  const f = new FakePrisma()
+  seed(f)
+  const client = asClient(f)
+  await grantStarterCeo(client, 100)
+  await f.ownedCeo.create({
+    data: { userId: 100, templateId: 2, acquisitionType: 'PURCHASE', status: 'IDLE' },
+  })
+  const list = await listOwnedCeos(client, 100)
+  assert.equal(list.length, 2)
+  assert.equal(list.filter((o) => o.acquisitionType === 'STARTER').length, 1)
+  assert.equal(await countOwnedByTemplate(client, 100, 2), 1)
 })
