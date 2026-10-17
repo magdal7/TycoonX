@@ -163,8 +163,11 @@ async function verifyNeonIdentity(): Promise<void> {
 
 /** Confirms the Economy V2 tables, economy columns and unique indexes exist. */
 async function assertEconomySchema(): Promise<void> {
+  // NOTE: catalog fields such as information_schema.columns.column_name are of
+  // PostgreSQL's internal "name" type, which the Prisma driver adapter cannot
+  // deserialize. Always cast name-typed results (and array elements) to ::text.
   const tables = await db!.$queryRaw<Array<{ name: string; present: boolean }>>`
-    SELECT name, to_regclass('public.' || quote_ident(name)) IS NOT NULL AS present
+    SELECT name::text AS name, to_regclass('public.' || quote_ident(name)) IS NOT NULL AS present
     FROM (VALUES ${Prisma.join(REQUIRED_TABLES.map((t) => Prisma.sql`(${t})`))}) AS v(name)
   `
   const missingTables = tables.filter((r) => !r.present).map((r) => r.name)
@@ -173,7 +176,7 @@ async function assertEconomySchema(): Promise<void> {
   }
 
   const indexes = await db!.$queryRaw<Array<{ name: string; present: boolean }>>`
-    SELECT name, to_regclass('public.' || quote_ident(name)) IS NOT NULL AS present
+    SELECT name::text AS name, to_regclass('public.' || quote_ident(name)) IS NOT NULL AS present
     FROM (VALUES ${Prisma.join(
       ['OwnedCeo_starter_user_key', 'IdempotencyKey_userId_scope_key_key'].map(
         (i) => Prisma.sql`(${i})`,
@@ -186,7 +189,7 @@ async function assertEconomySchema(): Promise<void> {
   }
 
   const columns = await db!.$queryRaw<Array<{ column_name: string }>>`
-    SELECT column_name
+    SELECT column_name::text AS column_name
     FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'CEO'
       AND column_name IN (${Prisma.join(REQUIRED_CEO_COLUMNS)})
@@ -195,6 +198,23 @@ async function assertEconomySchema(): Promise<void> {
   const missingColumns = REQUIRED_CEO_COLUMNS.filter((c) => !found.has(c))
   if (missingColumns.length) {
     await failClosed(`Economy V2 schema incomplete; missing CEO columns: ${missingColumns.join(', ')}`)
+  }
+
+  // pg_enum.enumlabel is also a PostgreSQL "name" column: cast each element to
+  // text and verify the Economy V2 AcquisitionType enum exists with its labels.
+  const enumRows = await db!.$queryRaw<Array<{ label: string }>>`
+    SELECT e.enumlabel::text AS label
+    FROM pg_enum e
+    JOIN pg_type t ON t.oid = e.enumtypid
+    WHERE t.typname = 'AcquisitionType'
+    ORDER BY e.enumsortorder
+  `
+  const expectedLabels = ['STARTER', 'PURCHASE', 'MISSION', 'REWARD', 'ADMIN']
+  const labels = enumRows.map((r) => r.label)
+  if (labels.join(',') !== expectedLabels.join(',')) {
+    await failClosed(
+      `Economy V2 schema incomplete; AcquisitionType labels = [${labels.join(', ')}]`,
+    )
   }
 }
 
