@@ -1,8 +1,10 @@
 import type { PrismaClient } from '@prisma/client'
 import { claimIdempotencyKey, isUniqueViolation } from '../lib/idempotency'
+import { assertOwnershipCapacity } from './ownership'
 
 export const STARTER_SCOPE = 'starter_ceo'
 export const STARTER_KEY = 'v1'
+export const STARTER_TEMPLATE_MISSING = 'No active starter CEO template is configured'
 
 export interface StarterGrantResult {
   ownedCeoId: number
@@ -23,9 +25,9 @@ export async function grantStarterCeo(
   const template = await prisma.cEO.findFirst({
     where: { isStarter: true, isActive: true },
     orderBy: { id: 'asc' },
-    select: { id: true },
+    select: { id: true, maxOwned: true },
   })
-  if (!template) throw new Error('No active starter CEO template is configured')
+  if (!template) throw new Error(STARTER_TEMPLATE_MISSING)
 
   return prisma.$transaction(async (tx) => {
     const existing = await tx.ownedCeo.findFirst({
@@ -35,6 +37,8 @@ export async function grantStarterCeo(
     if (existing) {
       return { ownedCeoId: existing.id, templateId: existing.templateId, created: false }
     }
+
+    await assertOwnershipCapacity(tx, userId, template)
 
     await claimIdempotencyKey(tx, userId, STARTER_SCOPE, STARTER_KEY)
 

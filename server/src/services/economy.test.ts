@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import type { PrismaClient } from '@prisma/client'
 import { grantStarterCeo } from './starterCeo'
 import { attributeReferral } from './referral'
-import { listOwnedCeos, countOwnedByTemplate } from './ownership'
+import { listOwnedCeos, countOwnedByTemplate, assertOwnershipCapacity, OwnershipLimitError } from './ownership'
 import { findRegistrationConflict } from './registration'
 
 type Acq = 'STARTER' | 'PURCHASE' | 'MISSION' | 'REWARD' | 'ADMIN'
@@ -18,6 +18,7 @@ interface TemplateRow {
   cycleHours: number
   isStarter: boolean
   isActive: boolean
+  maxOwned: number
 }
 interface UserRow { id: number; username: string; email: string }
 interface OwnedRow {
@@ -183,6 +184,7 @@ function seed(f: FakePrisma): void {
       cycleHours: 4,
       isStarter: true,
       isActive: true,
+      maxOwned: 1,
     },
     {
       id: 2,
@@ -194,6 +196,7 @@ function seed(f: FakePrisma): void {
       cycleHours: 4,
       isStarter: false,
       isActive: true,
+      maxOwned: 2,
     },
   )
   f.users.push(
@@ -336,4 +339,66 @@ test('multiple owned CEO copies are listed individually', async () => {
   assert.equal(list.length, 2)
   assert.equal(list.filter((o) => o.acquisitionType === 'STARTER').length, 1)
   assert.equal(await countOwnedByTemplate(client, 100, 2), 1)
+})
+
+test('ownership capacity is enforced against the template maxOwned', async () => {
+  const f = new FakePrisma()
+  seed(f)
+  const client = asClient(f)
+  await grantStarterCeo(client, 100)
+
+  await assert.rejects(
+    () => assertOwnershipCapacity(client, 100, { id: 1, maxOwned: 1 }),
+    OwnershipLimitError,
+  )
+  await assertOwnershipCapacity(client, 100, { id: 2, maxOwned: 2 })
+  await f.ownedCeo.create({
+    data: { userId: 100, templateId: 2, acquisitionType: 'PURCHASE', status: 'IDLE' },
+  })
+  await f.ownedCeo.create({
+    data: { userId: 100, templateId: 2, acquisitionType: 'PURCHASE', status: 'IDLE' },
+  })
+  await assert.rejects(
+    () => assertOwnershipCapacity(client, 100, { id: 2, maxOwned: 2 }),
+    (error: unknown) => {
+      assert.ok(error instanceof OwnershipLimitError)
+      assert.equal(error.templateId, 2)
+      assert.equal(error.maxOwned, 2)
+      return true
+    },
+  )
+})
+
+test('starter provisioning respects maxOwned when capacity is exhausted', async () => {
+  const f = new FakePrisma()
+  seed(f)
+  f.owned.push({
+    id: 500,
+    userId: 100,
+    templateId: 1,
+    acquisitionType: 'ADMIN',
+    level: 1,
+    cycleLimit: null,
+    completedRewardCycles: 0,
+    status: 'IDLE',
+    acquiredAt: new Date(),
+  })
+  await assert.rejects(() => grantStarterCeo(asClient(f), 100), OwnershipLimitError)
+  assert.equal(f.owned.filter((o) => o.userId === 100 && o.acquisitionType === 'STARTER').length, 0)
+})
+
+test('starter grant is scoped per user and does not leak across users', async () => {
+  const f = new FakePrisma()
+  seed(f)
+  const client = asClient(f)
+  const a = await grantStarterCeo(client, 100)
+  const b = await grantStarterCeo(client, 200)
+  assert.equal(a.ownedCeoId === b.ownedCeoId, false)
+  assert.equal(f.owned.filter((o) => o.acquisitionType === 'STARTER').length, 2)
+  const listA = await listOwnedCeos(client, 100)
+  const listB = await listOwnedCeos(client, 200)
+  assert.equal(listA.length, 1)
+  assert.equal(listB.length, 1)
+  assert.equal(listA[0].id, a.ownedCeoId)
+  assert.equal(listB[0].id, b.ownedCeoId)
 })

@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client'
+import type { Prisma, PrismaClient } from '@prisma/client'
 
 export interface OwnedCeoView {
   id: number
@@ -72,4 +72,36 @@ export async function countOwnedByTemplate(
   templateId: number,
 ): Promise<number> {
   return prisma.ownedCeo.count({ where: { userId, templateId } })
+}
+
+/** Thrown when a user already holds the maximum allowed copies of a template. */
+export class OwnershipLimitError extends Error {
+  readonly templateId: number
+  readonly maxOwned: number
+
+  constructor(templateId: number, maxOwned: number) {
+    super(`ownership limit reached for template ${templateId} (max ${maxOwned})`)
+    this.name = 'OwnershipLimitError'
+    this.templateId = templateId
+    this.maxOwned = maxOwned
+  }
+}
+
+type OwnedCeoCounter = Pick<Prisma.TransactionClient, 'ownedCeo'>
+
+/**
+ * Server-side capacity guard. Call inside the same transaction that creates the
+ * OwnedCeo so the count and the insert cannot interleave with another writer.
+ * The client-supplied state is never trusted; only the persisted count and the
+ * template's own maxOwned are used.
+ */
+export async function assertOwnershipCapacity(
+  tx: OwnedCeoCounter,
+  userId: number,
+  template: { id: number; maxOwned: number },
+): Promise<void> {
+  const owned = await tx.ownedCeo.count({ where: { userId, templateId: template.id } })
+  if (owned >= template.maxOwned) {
+    throw new OwnershipLimitError(template.id, template.maxOwned)
+  }
 }

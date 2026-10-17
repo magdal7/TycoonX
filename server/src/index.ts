@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit'
 import { prisma } from './lib/prisma'
 import authRoutes from './routes/auth'
 import ceoRoutes from './routes/ceo'
+import { createGameCeoRouter } from './routes/game/ceos'
 import { requireAuth, requireAdmin } from './middleware/auth'
 
 const app: Application = express()
@@ -26,6 +27,9 @@ app.use('/api/auth', authLimiter)
 app.use('/api/auth', authRoutes)
 
 app.use('/api/ceos', ceoRoutes)
+
+const gameLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true })
+app.use('/api/game', gameLimiter, createGameCeoRouter(prisma))
 
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
   Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('db timeout')), ms))])
