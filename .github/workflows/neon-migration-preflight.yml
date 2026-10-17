@@ -19,10 +19,10 @@ jobs:
     timeout-minutes: 15
     env:
       # Connection string comes exclusively from the repository secret DIRECT_URL.
-      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT }}
       # DATABASE_URL is mapped to the same secret ONLY so `prisma validate` can resolve
       # env("DATABASE_URL") in schema.prisma. `prisma validate` does not connect to the DB.
-      DATABASE_URL: ${{ secrets.DIRECT_URL }}
+      DATABASE_URL: ${{ secrets.DIRECT }}
       EXPECTED_BRANCH: br-delicate-butterfly-b4et73g9
     steps:
       - name: Checkout
