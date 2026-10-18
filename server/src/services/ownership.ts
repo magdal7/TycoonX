@@ -9,11 +9,20 @@ export interface OwnedCeoView {
   acquisitionType: string
   level: number
   status: string
+  equipment: string
   cycleLimit: number | null
   completedRewardCycles: number
   baseSpPerCycle: number | null
-  energyCost: number
+  nominalSpPer24h: number | null
+  lifetimeCapSp: string | null
+  lifetimeEarnedSp: string
+  archivedAt: string | null
+  priceUsd: string
   cycleHours: number
+  cycleEndsAt: string | null
+  cycleRewardSp: string | null
+  canStart: boolean
+  canCollect: boolean
   acquiredAt: string
 }
 
@@ -31,8 +40,11 @@ export async function listOwnedCeos(
       acquisitionType: true,
       level: true,
       status: true,
+      equipment: true,
       cycleLimit: true,
       completedRewardCycles: true,
+      lifetimeEarnedSp: true,
+      archivedAt: true,
       acquiredAt: true,
       template: {
         select: {
@@ -40,29 +52,53 @@ export async function listOwnedCeos(
           name: true,
           rarity: true,
           baseSpPerCycle: true,
-          energyCost: true,
+          nominalSpPer24h: true,
+          lifetimeCapSp: true,
+          priceUsd: true,
           cycleHours: true,
         },
+      },
+      cycles: {
+        where: { status: 'PRODUCING' },
+        orderBy: { id: 'desc' },
+        take: 1,
+        select: { endsAt: true, rewardSpSnap: true },
       },
     },
   })
 
-  return rows.map((row) => ({
-    id: row.id,
-    templateId: row.templateId,
-    templateSlug: row.template.slug,
-    templateName: row.template.name,
-    rarity: row.template.rarity,
-    acquisitionType: row.acquisitionType,
-    level: row.level,
-    status: row.status,
-    cycleLimit: row.cycleLimit,
-    completedRewardCycles: row.completedRewardCycles,
-    baseSpPerCycle: row.template.baseSpPerCycle,
-    energyCost: row.template.energyCost,
-    cycleHours: row.template.cycleHours,
-    acquiredAt: row.acquiredAt.toISOString(),
-  }))
+  const now = Date.now()
+  return rows.map((row) => {
+    const open = row.cycles[0] ?? null
+    const exhausted = row.archivedAt != null || row.status === 'EXHAUSTED'
+    const producing = open != null && open.endsAt.getTime() > now
+    const ready = open != null && open.endsAt.getTime() <= now
+    return {
+      id: row.id,
+      templateId: row.templateId,
+      templateSlug: row.template.slug,
+      templateName: row.template.name,
+      rarity: row.template.rarity,
+      acquisitionType: row.acquisitionType,
+      level: row.level,
+      status: row.status,
+      equipment: row.equipment,
+      cycleLimit: row.cycleLimit,
+      completedRewardCycles: row.completedRewardCycles,
+      baseSpPerCycle: row.template.baseSpPerCycle,
+      nominalSpPer24h: row.template.nominalSpPer24h,
+      lifetimeCapSp: row.template.lifetimeCapSp?.toString() ?? null,
+      lifetimeEarnedSp: row.lifetimeEarnedSp.toString(),
+      archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
+      priceUsd: row.template.priceUsd.toString(),
+      cycleHours: row.template.cycleHours,
+      cycleEndsAt: open ? open.endsAt.toISOString() : null,
+      cycleRewardSp: open ? open.rewardSpSnap.toString() : null,
+      canStart: !exhausted && !open,
+      canCollect: ready,
+      acquiredAt: row.acquiredAt.toISOString(),
+    }
+  })
 }
 
 /** Count of a user's copies of a template; used later to enforce maxOwned. */

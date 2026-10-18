@@ -7,7 +7,7 @@ type AuthCtx = {
   user: User
   loading: boolean
   login: (email: string, password: string) => Promise<{ error?: string }>
-  register: (email: string, username: string, password: string) => Promise<{ error?: string }>
+  register: (email: string, username: string, password: string, ref?: string) => Promise<{ error?: string }>
   logout: () => Promise<void>
 }
 
@@ -49,11 +49,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return {}
   }
 
-  async function register(email: string, username: string, password: string) {
+  async function register(email: string, username: string, password: string, ref?: string) {
     const r = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, username, password }),
+      body: JSON.stringify({ email, username, password, ...(ref ? { ref } : {}) }),
       credentials: 'include',
     })
     const j = (await r.json().catch(() => ({}))) as { error?: string; user?: User }

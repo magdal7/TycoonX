@@ -5,6 +5,8 @@ export interface Ceo {
   rarity: string
   priceUsd: number
   dailyRatePercent: number
+  nominalSpPer24h: number | null
+  lifetimeCapSp: number | null
   cycleHours: number
   energyCost: number
   isActive: boolean
@@ -17,6 +19,8 @@ interface RawCeo {
   rarity: string
   priceUsd: string | number
   dailyRatePercent: string | number
+  nominalSpPer24h: number | null
+  lifetimeCapSp: string | number | null
   cycleHours: number
   energyCost: number
   isActive: boolean
@@ -33,7 +37,7 @@ export function dailyProjected(priceUsd: number, dailyRatePercent: number): numb
 }
 
 export async function fetchCeos(): Promise<Ceo[]> {
-  const res = await fetch('/api/ceos', { credentials: 'include' })
+  const res = await fetch('/api/ceos?isActive=true', { credentials: 'include' })
   if (!res.ok) {
     if (res.status === 401) throw new Error('Please sign in to view the CEO market.')
     throw new Error(`Failed to load the CEO market (status ${res.status}).`)
@@ -46,6 +50,8 @@ export async function fetchCeos(): Promise<Ceo[]> {
     rarity: c.rarity,
     priceUsd: toNumber(c.priceUsd),
     dailyRatePercent: toNumber(c.dailyRatePercent),
+    nominalSpPer24h: c.nominalSpPer24h ?? null,
+    lifetimeCapSp: c.lifetimeCapSp === null || c.lifetimeCapSp === undefined ? null : toNumber(c.lifetimeCapSp),
     cycleHours: c.cycleHours,
     energyCost: c.energyCost,
     isActive: c.isActive,

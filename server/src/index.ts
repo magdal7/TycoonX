@@ -7,6 +7,11 @@ import { prisma } from './lib/prisma'
 import authRoutes from './routes/auth'
 import ceoRoutes from './routes/ceo'
 import { createGameCeoRouter } from './routes/game/ceos'
+import { createGameProductionRouter } from './routes/game/production'
+import { createGameProgressionRouter } from './routes/game/progression'
+import { createGameWithdrawalRouter } from './routes/game/withdrawals'
+import { createAdminWithdrawalRouter } from './routes/admin/withdrawals'
+import { createPublicRouter } from './routes/public'
 import { requireAuth, requireAdmin } from './middleware/auth'
 
 const app: Application = express()
@@ -30,6 +35,12 @@ app.use('/api/ceos', ceoRoutes)
 
 const gameLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true })
 app.use('/api/game', gameLimiter, createGameCeoRouter(prisma))
+app.use('/api/game', gameLimiter, createGameProductionRouter(prisma))
+app.use('/api/game', gameLimiter, createGameProgressionRouter(prisma))
+app.use('/api/game', gameLimiter, createGameWithdrawalRouter(prisma))
+
+app.use('/api/public', createPublicRouter(prisma))
+app.use('/api/admin', createAdminWithdrawalRouter(prisma))
 
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
   Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('db timeout')), ms))])

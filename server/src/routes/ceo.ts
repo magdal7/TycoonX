@@ -19,6 +19,8 @@ function serializeCEO(ceo: any) {
     rarity: ceo.rarity,
     priceUsd: ceo.priceUsd?.toString?.() ?? ceo.priceUsd,
     dailyRatePercent: ceo.dailyRatePercent?.toString?.() ?? ceo.dailyRatePercent,
+    nominalSpPer24h: ceo.nominalSpPer24h ?? null,
+    lifetimeCapSp: ceo.lifetimeCapSp?.toString?.() ?? null,
     cycleHours: ceo.cycleHours,
     energyCost: ceo.energyCost,
     isActive: ceo.isActive,

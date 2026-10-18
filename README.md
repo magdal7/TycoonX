@@ -2,6 +2,13 @@
 
 Mobile-first PWA tech CEO tycoon game.
 
+## Docs
+
+- `docs/TYCOONX_V2_MASTER_SPEC.md` — canonical product rules (source of truth).
+- `docs/PROGRESS.md` — implementation status.
+- `docs/ARCHITECTURE.md` — current system map.
+- `docs/archive/` — superseded documentation.
+
 ## Stack
 
 - React + TypeScript + Vite (client)

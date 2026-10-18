@@ -4,7 +4,6 @@ import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Card } from '../components/ui/card'
-import { Badge } from '../components/ui/badge'
 
 type Props = { navigate: (p: string) => void }
 
@@ -19,9 +18,10 @@ export default function Register({ navigate }: Props) {
     const email = fd.get('email') as string
     const username = fd.get('username') as string
     const password = fd.get('password') as string
+    const ref = new URLSearchParams(window.location.search).get('ref') ?? undefined
     setLoading(true)
     setError('')
-    const res = await register(email, username, password)
+    const res = await register(email, username, password, ref)
     setLoading(false)
     if (res.error) setError(res.error || 'Registration failed')
     else navigate('/dashboard')
@@ -62,8 +62,8 @@ export default function Register({ navigate }: Props) {
                 <User className="h-5 w-5 text-gray-500" />
                 <label className="text-sm font-medium text-gray-300">Username</label>
               </div>
-              <Input name="username" type="text" required minLength={3} maxLength={30} pattern="[a-zA-Z0-9_]+" autoComplete="username" className="mt-1" />
-              <p className="text-[10px] text-gray-500 mt-1">3–30 characters, letters, numbers, underscores only</p>
+              <Input name="username" type="text" required minLength={3} maxLength={20} pattern="[a-zA-Z0-9_]+" autoComplete="username" className="mt-1" />
+              <p className="text-[10px] text-gray-500 mt-1">3–20 characters, letters, numbers, underscores only</p>
             </div>
 
             <div>
@@ -100,8 +100,7 @@ export default function Register({ navigate }: Props) {
           </div>
 
           <div className="mt-4">
-            <Badge variant="demo">DEMO DATA</Badge>
-            <p className="text-[10px] text-gray-500 text-center mt-1">No real earnings — UI preview only</p>
+            <p className="text-[10px] text-gray-500 text-center">Free to play · Email verification is not required for the MVP</p>
           </div>
         </Card>
       </div>

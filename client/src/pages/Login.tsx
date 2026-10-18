@@ -4,7 +4,6 @@ import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Card } from '../components/ui/card'
-import { Badge } from '../components/ui/badge'
 
 type Props = { navigate: (p: string) => void }
 
@@ -89,8 +88,7 @@ export default function Login({ navigate }: Props) {
           </div>
 
           <div className="mt-4">
-            <Badge variant="demo">DEMO DATA</Badge>
-            <p className="text-[10px] text-gray-500 text-center mt-1">No real earnings — UI preview only</p>
+            <p className="text-[10px] text-gray-500 text-center">Free to play · Production is a game mechanic</p>
           </div>
         </Card>
       </div>

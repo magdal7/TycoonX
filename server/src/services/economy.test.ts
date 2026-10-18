@@ -14,6 +14,9 @@ interface TemplateRow {
   name: string
   rarity: string
   baseSpPerCycle: number | null
+  nominalSpPer24h: number | null
+  lifetimeCapSp: number | null
+  priceUsd: number
   energyCost: number
   cycleHours: number
   isStarter: boolean
@@ -30,6 +33,9 @@ interface OwnedRow {
   cycleLimit: number | null
   completedRewardCycles: number
   status: string
+  equipment: string
+  lifetimeEarnedSp: bigint
+  archivedAt: Date | null
   acquiredAt: Date
 }
 interface ReferralRow { id: number; referrerId: number; referredUserId: number; code: string }
@@ -99,11 +105,11 @@ class FakePrisma {
         ) ?? null
       )
     },
-    findMany: async (args: any): Promise<Array<OwnedRow & { template: TemplateRow }>> => {
+    findMany: async (args: any): Promise<Array<OwnedRow & { template: TemplateRow; cycles: any[] }>> => {
       const w = args?.where ?? {}
       return this.owned
         .filter((o) => w.userId === undefined || o.userId === w.userId)
-        .map((o) => ({ ...o, template: this.templates.find((t) => t.id === o.templateId)! }))
+        .map((o) => ({ ...o, template: this.templates.find((t) => t.id === o.templateId)!, cycles: [] }))
     },
     count: async (args: any): Promise<number> => {
       const w = args?.where ?? {}
@@ -130,6 +136,9 @@ class FakePrisma {
         cycleLimit: null,
         completedRewardCycles: 0,
         status: d.status ?? 'IDLE',
+        equipment: 'STANDARD',
+        lifetimeEarnedSp: BigInt(0),
+        archivedAt: null,
         acquiredAt: new Date(),
       }
       this.owned.push(row)
@@ -196,6 +205,9 @@ function seed(f: FakePrisma): void {
       name: 'Intern CEO',
       rarity: 'Common',
       baseSpPerCycle: 10,
+      nominalSpPer24h: 10,
+      lifetimeCapSp: 40,
+      priceUsd: 0,
       energyCost: 2,
       cycleHours: 4,
       isStarter: true,
@@ -208,6 +220,9 @@ function seed(f: FakePrisma): void {
       name: 'Junior Developer',
       rarity: 'Common',
       baseSpPerCycle: 20,
+      nominalSpPer24h: 100,
+      lifetimeCapSp: 1200,
+      priceUsd: 5,
       energyCost: 10,
       cycleHours: 4,
       isStarter: false,
@@ -397,6 +412,9 @@ test('starter provisioning respects maxOwned when capacity is exhausted', async 
     cycleLimit: null,
     completedRewardCycles: 0,
     status: 'IDLE',
+    equipment: 'STANDARD',
+    lifetimeEarnedSp: BigInt(0),
+    archivedAt: null,
     acquiredAt: new Date(),
   })
   await assert.rejects(() => grantStarterCeo(asClient(f), 100), OwnershipLimitError)

@@ -8,7 +8,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'auto',
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024
       },
       manifest: {
         name: 'TycoonX',

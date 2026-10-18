@@ -3,6 +3,7 @@ import type { PrismaClient } from '@prisma/client'
 import { AuthRequest, requireAuth } from '../../middleware/auth'
 import { listOwnedCeos, OwnershipLimitError } from '../../services/ownership'
 import { grantStarterCeo, STARTER_TEMPLATE_MISSING } from '../../services/starterCeo'
+import { recordLogin } from '../../services/tasks'
 
 /**
  * GET /api/game/ceos/owned
@@ -51,6 +52,7 @@ export function onboardingHandler(db: PrismaClient) {
     try {
       const starter = await grantStarterCeo(db, userId)
       const owned = await listOwnedCeos(db, userId)
+      await recordLogin(db, userId)
       res.json({ onboarded: true, starter, owned })
     } catch (error) {
       if (error instanceof OwnershipLimitError) {

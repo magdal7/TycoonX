@@ -1,7 +1,8 @@
 # TycoonX — Game Art Pipeline
 
 **Phase:** 5H-3B (pipeline preparation — no artwork supplied yet)
-**Companion:** `docs/TYCOONX_ART_DIRECTION_V2.md` (look & composition), `docs/ISOMETRIC_VISUAL_PLAN.md`
+**Companion:** `docs/archive/ISOMETRIC_VISUAL_PLAN.md` (art direction superseded by the owner's full
+design authority in `docs/TYCOONX_V2_MASTER_SPEC.md` §10).
 (projection, architecture, renderer).
 
 This documents how to drop professionally illustrated isometric sprites into TycoonX. The final artwork

@@ -15,6 +15,9 @@ interface TemplateRow {
   name: string
   rarity: string
   baseSpPerCycle: number | null
+  nominalSpPer24h: number | null
+  lifetimeCapSp: number | null
+  priceUsd: number
   energyCost: number
   cycleHours: number
   isStarter: boolean
@@ -28,8 +31,11 @@ interface OwnedRow {
   acquisitionType: Acq
   level: number
   status: string
+  equipment: string
   cycleLimit: number | null
   completedRewardCycles: number
+  lifetimeEarnedSp: bigint
+  archivedAt: Date | null
   acquiredAt: Date
 }
 
@@ -59,11 +65,11 @@ class FakePrisma {
   }
 
   ownedCeo = {
-    findMany: async (args: any): Promise<Array<OwnedRow & { template: TemplateRow }>> => {
+    findMany: async (args: any): Promise<Array<OwnedRow & { template: TemplateRow; cycles: any[] }>> => {
       const w = args?.where ?? {}
       return this.owned
         .filter((o) => w.userId === undefined || o.userId === w.userId)
-        .map((o) => ({ ...o, template: this.templates.find((t) => t.id === o.templateId)! }))
+        .map((o) => ({ ...o, template: this.templates.find((t) => t.id === o.templateId)!, cycles: [] }))
     },
     findFirst: async (args: any): Promise<OwnedRow | null> => {
       const w = args?.where ?? {}
@@ -97,9 +103,12 @@ class FakePrisma {
         templateId: d.templateId,
         acquisitionType: d.acquisitionType,
         level: 1,
+        status: d.status ?? 'IDLE',
+        equipment: 'STANDARD',
         cycleLimit: null,
         completedRewardCycles: 0,
-        status: d.status ?? 'IDLE',
+        lifetimeEarnedSp: BigInt(0),
+        archivedAt: null,
         acquiredAt: new Date(),
       }
       this.owned.push(row)
@@ -117,6 +126,11 @@ class FakePrisma {
     },
   }
 
+  taskEvent = {
+    findFirst: async (_args: any): Promise<null> => null,
+    create: async (_args: any): Promise<{ id: number }> => ({ id: this.seq++ }),
+  }
+
   $transaction = async <T>(fn: (tx: FakePrisma) => Promise<T>): Promise<T> => fn(this)
 }
 
@@ -127,6 +141,9 @@ function seed(f: FakePrisma): void {
     name: 'Intern CEO',
     rarity: 'Common',
     baseSpPerCycle: 10,
+    nominalSpPer24h: 10,
+    lifetimeCapSp: 40,
+    priceUsd: 0,
     energyCost: 2,
     cycleHours: 4,
     isStarter: true,
@@ -208,9 +225,12 @@ test('starter handler returns 409 when the maxOwned capacity is already used', a
     templateId: 1,
     acquisitionType: 'ADMIN',
     level: 1,
+    status: 'IDLE',
+    equipment: 'STANDARD',
     cycleLimit: null,
     completedRewardCycles: 0,
-    status: 'IDLE',
+    lifetimeEarnedSp: BigInt(0),
+    archivedAt: null,
     acquiredAt: new Date(),
   })
   const res = mockRes()

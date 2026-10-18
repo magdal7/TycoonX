@@ -1,9 +1,11 @@
 import { Router, Response } from 'express'
-import { registerSchema, loginSchema } from '../validation/auth'
+import { loginSchema } from '../validation/auth'
+import { registerWithReferralSchema } from '../validation/game'
 import { hashPassword, comparePassword, signToken } from '../lib/auth'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, requireAuth } from '../middleware/auth'
 import { findRegistrationConflict } from '../services/registration'
+import { attributeReferral } from '../services/referral'
 
 const router = Router()
 
@@ -15,9 +17,9 @@ const cookieOpts = {
 }
 
 router.post('/register', async (req: AuthRequest, res: Response) => {
-  const parsed = registerSchema.safeParse(req.body)
+  const parsed = registerWithReferralSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors })
-  const { email, username, password } = parsed.data
+  const { email, username, password, ref } = parsed.data
   const conflict = await findRegistrationConflict(prisma, { email, username })
   if (conflict) return res.status(409).json({ error: 'user already exists' })
   const passwordHash = await hashPassword(password)
@@ -25,6 +27,14 @@ router.post('/register', async (req: AuthRequest, res: Response) => {
     data: { email, username, passwordHash },
     select: { id: true, email: true, username: true, role: true },
   })
+  // Referral attribution only; rewards remain disabled pending approved qualification.
+  if (ref) {
+    try {
+      await attributeReferral(prisma, { referredUserId: user.id, code: ref })
+    } catch {
+      /* attribution must never block registration */
+    }
+  }
   res.cookie('token', signToken({ sub: user.id, email: user.email, role: user.role }), cookieOpts)
   res.status(201).json({ user })
 })

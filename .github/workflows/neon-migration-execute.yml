@@ -1,34 +1,36 @@
 name: Neon Migration Execute (guarded, write)
 
-# Manually triggered ONLY. This workflow APPLIES the frozen Economy V2 migrations to the
-# production Neon branch and records Prisma migration history. It is write-capable and must
-# be dispatched only after the read-only preflight has passed and execution has been
-# explicitly approved. It is never triggered by push, pull_request, or schedule.
+# Manually triggered ONLY. Applies the two frozen V2.5 migrations to the production
+# Neon branch and records Prisma migration history. It is write-capable and must be
+# dispatched only after the read-only preflight has passed and execution has been
+# explicitly approved. Never triggered by push, pull_request, or schedule.
 #
-# Safety model (see docs/PHASE_6B4B_MIGRATION_EXECUTION_PLAN.md):
+# Production is already baselined through Phase 6B.2A (_prisma_migrations = 4 rows),
+# so this workflow does NOT re-baseline history and does NOT touch 6B.1/6B.2A. It
+# applies only:
+#   20261018000000_v25_economy_sp_production
+#   20261018010000_v25_progression
+#
+# Safety model:
 #   * required confirmation token input (fail-closed if absent/incorrect)
-#   * least-privilege permissions (contents: read) and a non-cancelling concurrency group
-#   * frozen SHA-256 checksum verification + transaction-safety scan before any write
-#   * exact production branch-id verification before any write
-#   * pre-migration state verification, including historical-schema match for safe baselining
-#   * historical baselining via `prisma migrate resolve --applied` (metadata only)
-#   * each economy migration applied in ONE transaction (psql --single-transaction)
+#   * least-privilege permissions (contents: read) + non-cancelling concurrency group
+#   * frozen SHA-256 verification + transaction-safety scan before any write
+#   * exact production branch AND project identity verification before any write
+#   * pre-migration state verification (baseline = 4 rows; V2.5 objects absent)
+#   * each migration applied in ONE transaction (psql --single-transaction)
 #   * history recorded ONLY after the migration's effects are verified
-#   * final history verification: names, per-row checksums, completion, no failed rows
-#   * credentials/SQL output are never streamed; captured output is redacted before printing
+#   * final verification: 6 rows, per-row checksums, completion, no failed rows
+#   * credentials/SQL output are never streamed; captured output is redacted
 #
-# NOT guaranteed (documented in the plan):
-#   * atomicity ACROSS a migration's SQL commit and its `_prisma_migrations` row (a small
-#     commit->resolve window exists; the job fails closed and requires manual recovery)
-#   * exclusion of external database writers during the run
-#   * no automatic retry/reapply: a re-dispatch after any partial success is refused by the
-#     pre-migration check, so recovery is always an explicit manual action.
+# NOT guaranteed (documented): atomicity across a migration's SQL commit and its
+# _prisma_migrations row (small commit->resolve window; job fails closed and requires
+# manual recovery), and exclusion of external database writers during the run.
 
 on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Type APPLY-ECONOMY-V2-br-delicate-butterfly-b4et73g9 to confirm a production migration'
+        description: 'Type APPLY-V25-br-delicate-butterfly-b4et73g9 to confirm a production migration'
         required: true
         type: string
 
@@ -41,30 +43,31 @@ concurrency:
 
 jobs:
   execute:
-    name: Guarded production migration
+    name: Guarded production migration (V2.5)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       # Connection string comes exclusively from the repository secret DIRECT.
-      # DIRECT must be the direct (non-pooled) Neon endpoint so the Prisma migration
-      # engine can reach it over TCP; it is also mapped to DATABASE_URL solely for
-      # schema env resolution.
+      # DIRECT must be the direct (non-pooled) Neon endpoint (TCP reachable from the runner).
       DATABASE_URL: ${{ secrets.DIRECT }}
       DIRECT_URL: ${{ secrets.DIRECT }}
       EXPECTED_BRANCH: br-delicate-butterfly-b4et73g9
       EXPECTED_PROJECT_ID: wandering-king-57462138
-      CONFIRM_TOKEN: APPLY-ECONOMY-V2-br-delicate-butterfly-b4et73g9
+      CONFIRM_TOKEN: APPLY-V25-br-delicate-butterfly-b4et73g9
       SCHEMA: server/prisma/schema.prisma
-      MIG_6B1: server/prisma/migrations/20261017000000_phase6b1_economy_foundation/migration.sql
-      MIG_6B2A: server/prisma/migrations/20261017010000_phase6b2a_username_case_insensitive/migration.sql
-      MIG_HIST_USER: 20240101000000_add_user_model
-      MIG_HIST_CEO: 20240102000000_create_ceo_model
-      MIG_6B1_NAME: 20261017000000_phase6b1_economy_foundation
-      MIG_6B2A_NAME: 20261017010000_phase6b2a_username_case_insensitive
+      MIG_V25_ECON: server/prisma/migrations/20261018000000_v25_economy_sp_production/migration.sql
+      MIG_V25_PROG: server/prisma/migrations/20261018010000_v25_progression/migration.sql
+      MIG_V25_ECON_NAME: 20261018000000_v25_economy_sp_production
+      MIG_V25_PROG_NAME: 20261018010000_v25_progression
+      BASELINE_HIST: "20240101000000_add_user_model,20240102000000_create_ceo_model,20261017000000_phase6b1_economy_foundation,20261017010000_phase6b2a_username_case_insensitive"
+      FINAL_HIST: "20240101000000_add_user_model,20240102000000_create_ceo_model,20261017000000_phase6b1_economy_foundation,20261017010000_phase6b2a_username_case_insensitive,20261018000000_v25_economy_sp_production,20261018010000_v25_progression"
       CHK_HIST_USER: 0cc0af4ab39b025d6953c196485bdfe76225c28729b529d9f3dbb46e6f7d7144
       CHK_HIST_CEO: 1a0fd8415489877c774f6e0a0c726734afbf773931e6d684be6cf7cfe2ab2107
       CHK_6B1: 1a04a9c5ba3bcc3fb66335c6ce79fbcea73915f106f7160f525da2ed559d7cb3
       CHK_6B2A: f44f174b372e040b694e0c30b2dd2c5d31a921f154cb4399753af992820cce82
+      CHK_V25_ECON: 7700cb1f5b1514ba982b6349af7dae2085b6a8a83fee4511f6da82e122a03209
+      CHK_V25_PROG: 36e26e87469b671a8b4093e8f007a4fa46413c63d1af5f3042a2f271367cad9a
+      CHK_LOCK: d6bae7899f05da956e1070ba5703455503208ef79e161acb18c93bfe3c6cd236
     steps:
       - name: Confirm intent (required token)
         env:
@@ -75,7 +78,7 @@ jobs:
             echo "::error title=Confirmation failed::The confirmation input did not match the required token. No action taken."
             exit 1
           fi
-          echo "Confirmation accepted for branch \`$EXPECTED_BRANCH\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "Confirmation accepted for branch \`$EXPECTED_BRANCH\` (V2.5 migration set)." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -96,9 +99,11 @@ jobs:
           declare -A EXPECTED=(
             ["server/prisma/migrations/20240101000000_add_user_model/migration.sql"]="$CHK_HIST_USER"
             ["server/prisma/migrations/20240102000000_create_ceo_model/migration.sql"]="$CHK_HIST_CEO"
-            ["$MIG_6B1"]="$CHK_6B1"
-            ["$MIG_6B2A"]="$CHK_6B2A"
-            ["server/prisma/migrations/migration_lock.toml"]="d6bae7899f05da956e1070ba5703455503208ef79e161acb18c93bfe3c6cd236"
+            ["server/prisma/migrations/20261017000000_phase6b1_economy_foundation/migration.sql"]="$CHK_6B1"
+            ["server/prisma/migrations/20261017010000_phase6b2a_username_case_insensitive/migration.sql"]="$CHK_6B2A"
+            ["$MIG_V25_ECON"]="$CHK_V25_ECON"
+            ["$MIG_V25_PROG"]="$CHK_V25_PROG"
+            ["server/prisma/migrations/migration_lock.toml"]="$CHK_LOCK"
           )
           for f in "${!EXPECTED[@]}"; do
             actual="$(sha256sum "$f" | awk '{print $1}')"
@@ -110,16 +115,15 @@ jobs:
             echo "- checksum OK: \`$f\`" >> "$GITHUB_STEP_SUMMARY"
           done
 
-          # The apply step wraps each frozen file in a single transaction. Statements that
-          # cannot run inside a transaction, or an embedded BEGIN/COMMIT, would silently
-          # break that guarantee, so refuse to proceed if any is present.
-          for f in "$MIG_6B1" "$MIG_6B2A"; do
+          # Each apply step wraps its file in a single transaction. Refuse any statement
+          # that cannot run inside one, or an embedded BEGIN/COMMIT.
+          for f in "$MIG_V25_ECON" "$MIG_V25_PROG"; do
             if grep -Eiq '(^|[^A-Za-z])(BEGIN|COMMIT|ROLLBACK)([^A-Za-z]|$)|CREATE[[:space:]]+INDEX[[:space:]]+CONCURRENTLY|CREATE[[:space:]]+DATABASE|DROP[[:space:]]+DATABASE|VACUUM|REINDEX[[:space:]]+.*CONCURRENTLY' "$f"; then
               echo "::error title=Transaction-unsafe SQL::$f contains statements incompatible with psql --single-transaction"
               exit 1
             fi
           done
-          echo "- both economy migrations are transaction-safe (no BEGIN/COMMIT/CONCURRENTLY/DDL-incompatible statements)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- both V2.5 migrations are transaction-safe (no BEGIN/COMMIT/CONCURRENTLY)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Pre-migration read-only checks
         run: |
@@ -129,7 +133,6 @@ jobs:
             sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
           fi
 
-          # Reads stderr to a file and redacts DSNs/hosts before printing on error.
           q() {
             local out
             if ! out="$(psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "$1" 2>"$OUTDIR/psql.err")"; then
@@ -141,9 +144,6 @@ jobs:
 
           echo "### Pre-migration state" >> "$GITHUB_STEP_SUMMARY"
 
-          # Authoritative identity comes from Neon's server-side session metadata, NOT from the
-          # workflow input or the connection-string label. Both the branch and the project must
-          # match before any write; if either is not exposed, fail closed as unverified.
           BRANCH="$(q "SELECT current_setting('neon.branch_id', true)")"
           PROJECT="$(q "SELECT current_setting('neon.project_id', true)")"
           if [ -z "$BRANCH" ]; then
@@ -160,109 +160,49 @@ jobs:
           fi
           echo "- branch OK: \`${BRANCH}\` (project \`${PROJECT}\`)" >> "$GITHUB_STEP_SUMMARY"
 
-          # Data preservation / pre-migration markers.
+          HIST="$(q "SELECT string_agg(migration_name, ',' ORDER BY started_at) FROM _prisma_migrations")"
+          INCOMPLETE="$(q "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL")"
           USERS="$(q "SELECT count(*) FROM \"User\"")"
-          USER_IDS="$(q "SELECT string_agg(id::text, ',' ORDER BY id) FROM \"User\"")"
           CEOS="$(q "SELECT count(*) FROM \"CEO\"")"
-          CEO_IDS="$(q "SELECT string_agg(id::text, ',' ORDER BY id) FROM \"CEO\"")"
+          OWNED="$(q "SELECT count(*) FROM \"OwnedCeo\"")"
           UCOLL="$(q "SELECT count(*) FROM (SELECT lower(username) FROM \"User\" GROUP BY lower(username) HAVING count(*)>1) x")"
-          MIG_TABLE="$(q "SELECT to_regclass('public._prisma_migrations') IS NOT NULL")"
-          APP_META="$(q "SELECT to_regclass('public.AppMeta') IS NOT NULL")"
-          OWNED="$(q "SELECT to_regclass('public.OwnedCeo') IS NOT NULL")"
-          ECON_COLS="$(q "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='CEO' AND column_name IN ('baseSpPerCycle','maxOwned','isStarter')")"
+          BASE_TABLES="$(q "SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('AppMeta','IdempotencyKey','OwnedCeo','ReferralAttribution')")"
           LOWER_IDX="$(q "SELECT to_regclass('public.\"User_username_lower_key\"') IS NOT NULL")"
-
-          # Historical-schema match, required before baselining the two historical migrations
-          # (their recorded effect is the schema, not their seed data).
-          HIST_ROLE="$(q "SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace AND typname='Role'")"
-          HIST_IDX="$(q "SELECT string_agg(indexname, ',' ORDER BY indexname) FROM pg_indexes WHERE schemaname='public' AND indexname IN ('User_email_key','User_username_key','CEO_slug_key')")"
-          USER_COLS="$(q "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='User' AND column_name IN ('id','email','username','passwordHash','role','createdAt','updatedAt')")"
-          CEO_COLS="$(q "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='CEO' AND column_name IN ('id','name','slug','rarity','priceUsd','dailyRatePercent','cycleHours','energyCost','isActive','createdAt','updatedAt')")"
+          ECON_COLS="$(q "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='CEO' AND column_name IN ('baseSpPerCycle','maxOwned','isStarter')")"
+          NEW_TABLES="$(q "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('ProductionCycle','SpAccount','SpLedgerEntry','ProgressAccount','TaskEvent','TaskClaim','AchievementClaim','UserProfile','WithdrawalRequest')")"
+          NEW_CEO_COLS="$(q "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='CEO' AND column_name IN ('nominalSpPer24h','lifetimeCapSp')")"
 
           fail=0
-          [ "$USERS" = "2" ] || { echo "::error title=Unexpected User count::expected 2"; fail=1; }
-          [ "$USER_IDS" = "2,4" ] || { echo "::error title=Unexpected User ids::expected 2,4"; fail=1; }
-          [ "$CEOS" = "8" ] || { echo "::error title=Unexpected CEO count::expected 8"; fail=1; }
-          [ "$CEO_IDS" = "2,3,4,5,6,7,8,10" ] || { echo "::error title=Unexpected CEO ids::expected 2,3,4,5,6,7,8,10"; fail=1; }
-          [ "$UCOLL" = "0" ] || { echo "::error title=Case-insensitive username collisions::none expected"; fail=1; }
-          [ "$MIG_TABLE" = "f" ] || { echo "::error title=Unexpected _prisma_migrations::database appears already baselined; refusing to reapply"; fail=1; }
-          [ "$APP_META" = "f" ] || { echo "::error title=Unexpected AppMeta::economy objects already present; refusing to reapply"; fail=1; }
-          [ "$OWNED" = "f" ] || { echo "::error title=Unexpected OwnedCeo::economy objects already present; refusing to reapply"; fail=1; }
-          [ "$ECON_COLS" = "0" ] || { echo "::error title=Unexpected economy columns::already present; refusing to reapply"; fail=1; }
-          [ "$LOWER_IDX" = "f" ] || { echo "::error title=Unexpected User_username_lower_key::already present; refusing to reapply"; fail=1; }
-          [ "$HIST_ROLE" = "1" ] || { echo "::error title=Historical schema::Role enum missing; historical baseline is not justified"; fail=1; }
-          [ "$HIST_IDX" = "CEO_slug_key,User_email_key,User_username_key" ] || { echo "::error title=Historical schema::historical unique indexes missing: $HIST_IDX"; fail=1; }
-          [ "$USER_COLS" = "7" ] || { echo "::error title=Historical schema::User columns do not match the historical migration"; fail=1; }
-          [ "$CEO_COLS" = "11" ] || { echo "::error title=Historical schema::CEO columns do not match the historical migration"; fail=1; }
+          [ "$HIST" = "$BASELINE_HIST" ] || { echo "::error title=Baseline history::expected exactly the 4 baseline rows; refusing to reapply"; fail=1; }
+          [ "$INCOMPLETE" = "0" ] || { echo "::error title=History::failed/incomplete rows present"; fail=1; }
+          [ "$USERS" -ge 3 ] || { echo "::error title=User count::expected >= 3"; fail=1; }
+          [ "$CEOS" = "10" ] || { echo "::error title=CEO count::expected 10"; fail=1; }
+          [ "$UCOLL" = "0" ] || { echo "::error title=Username collisions::none expected"; fail=1; }
+          [ "$BASE_TABLES" = "AppMeta,IdempotencyKey,OwnedCeo,ReferralAttribution" ] || { echo "::error title=Baseline tables::unexpected: $BASE_TABLES"; fail=1; }
+          [ "$LOWER_IDX" = "t" ] || { echo "::error title=Baseline index::User_username_lower_key missing"; fail=1; }
+          [ "$ECON_COLS" = "3" ] || { echo "::error title=Economy columns::6B.1 columns missing"; fail=1; }
+          [ "$NEW_TABLES" = "0" ] || { echo "::error title=V2.5 tables::already present; refusing to reapply"; fail=1; }
+          [ "$NEW_CEO_COLS" = "0" ] || { echo "::error title=V2.5 CEO columns::already present; refusing to reapply"; fail=1; }
 
           if [ "$fail" -ne 0 ]; then
             echo "- ❌ pre-migration state failed" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          echo "- User=2 (ids 2,4); CEO=8 (ids 2,3,4,5,6,7,8,10); 0 collisions; pre-migration state OK" >> "$GITHUB_STEP_SUMMARY"
-          echo "- historical schema matches (Role enum, User/CEO tables + unique indexes) -> safe to baseline" >> "$GITHUB_STEP_SUMMARY"
+          echo "- baseline OK: 4 migration rows; 6B.1 objects present; V2.5 objects absent; User=${USERS} CEO=${CEOS} OwnedCeo=${OWNED}" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Baseline historical migrations (metadata only)
+      - name: Apply V2.5 economy (single transaction)
         run: |
           set -euo pipefail
           OUTDIR="${RUNNER_TEMP:-/tmp}"
-          redact() {
-            sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g'
-          }
-          resolve() {
-            local name="$1"
-            if ! npx prisma migrate resolve --schema "$SCHEMA" --applied "$name" >"$OUTDIR/resolve.out" 2>"$OUTDIR/resolve.err"; then
-              { cat "$OUTDIR/resolve.err"; cat "$OUTDIR/resolve.out"; } | redact >&2
-              echo "::error title=Baseline failed::prisma migrate resolve failed for $name"
-              exit 1
-            fi
-            echo "- baselined (metadata only): \`$name\`" >> "$GITHUB_STEP_SUMMARY"
-          }
-          echo "### Historical baseline" >> "$GITHUB_STEP_SUMMARY"
-
-          # Records the two historical migrations as applied WITHOUT executing their SQL.
-          # This creates _prisma_migrations and prevents any future replay.
-          resolve "$MIG_HIST_USER"
-          resolve "$MIG_HIST_CEO"
-
-          q() {
-            local out
-            if ! out="$(psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "$1" 2>"$OUTDIR/psql.err")"; then
-              redact < "$OUTDIR/psql.err" >&2
-              return 1
-            fi
-            printf '%s' "$out"
-          }
-          ROWS="$(q "SELECT string_agg(migration_name, ',' ORDER BY migration_name) FROM _prisma_migrations")"
-          CHK_USER_ROW="$(q "SELECT checksum FROM _prisma_migrations WHERE migration_name='$MIG_HIST_USER'")"
-          CHK_CEO_ROW="$(q "SELECT checksum FROM _prisma_migrations WHERE migration_name='$MIG_HIST_CEO'")"
-
-          if [ "$ROWS" != "$MIG_HIST_USER,$MIG_HIST_CEO" ]; then
-            echo "::error title=Baseline verification failed::_prisma_migrations does not contain exactly the two historical rows"
-            echo "- ❌ baseline rows: ${ROWS}" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          if [ "$CHK_USER_ROW" != "$CHK_HIST_USER" ] || [ "$CHK_CEO_ROW" != "$CHK_HIST_CEO" ]; then
-            echo "::error title=Baseline checksum mismatch::recorded checksum does not match the frozen SHA-256"
-            echo "- ❌ baseline checksum mismatch" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          echo "- baseline OK: \`$ROWS\` (checksums match frozen SHA-256)" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Apply 6B1 economy foundation (single transaction)
-        run: |
-          set -euo pipefail
-          OUTDIR="${RUNNER_TEMP:-/tmp}"
-          # stdout+stderr are captured, never streamed; only a redacted tail is shown on failure.
-          if psql "$DIRECT_URL" -v ON_ERROR_STOP=1 --single-transaction -f "$MIG_6B1" >"$OUTDIR/6b1.out" 2>"$OUTDIR/6b1.err"; then
-            echo "- 6B1 applied inside a single transaction (psql output suppressed)" >> "$GITHUB_STEP_SUMMARY"
+          if psql "$DIRECT_URL" -v ON_ERROR_STOP=1 --single-transaction -f "$MIG_V25_ECON" >"$OUTDIR/econ.out" 2>"$OUTDIR/econ.err"; then
+            echo "- V2.5 economy applied inside a single transaction (psql output suppressed)" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::error title=6B1 apply failed::transaction rolled back; no schema changes were committed"
-            { cat "$OUTDIR/6b1.err"; cat "$OUTDIR/6b1.out"; } | tail -n 40 | sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' >&2
+            echo "::error title=V2.5 economy apply failed::transaction rolled back; no schema changes were committed"
+            { cat "$OUTDIR/econ.err"; cat "$OUTDIR/econ.out"; } | tail -n 40 | sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' >&2
             exit 1
           fi
 
-      - name: Verify 6B1 effects (read-only)
+      - name: Verify V2.5 economy effects (read-only)
         run: |
           set -euo pipefail
           OUTDIR="${RUNNER_TEMP:-/tmp}"
@@ -274,65 +214,68 @@ jobs:
             fi
             printf '%s' "$out"
           }
-
-          TABLES="$(q "SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('AppMeta','OwnedCeo','ReferralAttribution','IdempotencyKey')")"
-          ENUMS="$(q "SELECT string_agg(typname, ',' ORDER BY typname) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace AND typname IN ('AcquisitionType','OwnedCeoStatus')")"
-          COLS="$(q "SELECT string_agg(column_name, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema='public' AND table_name='CEO' AND column_name IN ('baseSpPerCycle','category','displayOrder','isStarter','maxOwned','rewardEligible')")"
-          IDX="$(q "SELECT string_agg(indexname, ',' ORDER BY indexname) FROM pg_indexes WHERE schemaname='public' AND indexname IN ('AppMeta_key_key','IdempotencyKey_userId_scope_key_key','OwnedCeo_starter_user_key','OwnedCeo_templateId_idx','OwnedCeo_userId_idx','OwnedCeo_userId_status_idx','ReferralAttribution_referredUserId_key','ReferralAttribution_referrerId_idx')")"
-          NOSELF="$(q "SELECT count(*) FROM pg_constraint WHERE conname='ReferralAttribution_no_self'")"
-          FKS="$(q "SELECT count(*) FROM pg_constraint WHERE contype='f' AND conrelid IN ('\"OwnedCeo\"'::regclass,'\"ReferralAttribution\"'::regclass,'\"IdempotencyKey\"'::regclass)")"
+          TABLES="$(q "SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('ProductionCycle','SpAccount','SpLedgerEntry','ProgressAccount')")"
+          CEO_COLS="$(q "SELECT string_agg(column_name, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema='public' AND table_name='CEO' AND column_name IN ('nominalSpPer24h','lifetimeCapSp')")"
+          OWNED_COLS="$(q "SELECT string_agg(column_name, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema='public' AND table_name='OwnedCeo' AND column_name IN ('equipment','lifetimeEarnedSp','archivedAt')")"
+          IDX="$(q "SELECT string_agg(indexname, ',' ORDER BY indexname) FROM pg_indexes WHERE schemaname='public' AND indexname IN ('ProductionCycle_open_owned_key','SpLedgerEntry_userId_sourceType_sourceId_bucket_key')")"
+          ACTIVE="$(q "SELECT count(*) FROM \"CEO\" WHERE \"isActive\"")"
+          ACTIVE_SLUGS="$(q "SELECT string_agg(slug, ',' ORDER BY id) FROM \"CEO\" WHERE \"isActive\"")"
+          WHALE_ACTIVE="$(q "SELECT \"isActive\" FROM \"CEO\" WHERE slug='crypto-whale'")"
+          TESTCEO_ACTIVE="$(q "SELECT \"isActive\" FROM \"CEO\" WHERE slug='test-ceo'")"
+          INTERN="$(q "SELECT \"nominalSpPer24h\"::text || ':' || \"lifetimeCapSp\"::text FROM \"CEO\" WHERE slug='intern-ceo'")"
+          JUNIOR="$(q "SELECT \"priceUsd\"::text || ':' || \"nominalSpPer24h\"::text || ':' || \"lifetimeCapSp\"::text FROM \"CEO\" WHERE slug='junior-developer'")"
+          TOP="$(q "SELECT \"priceUsd\"::text || ':' || \"nominalSpPer24h\"::text || ':' || \"lifetimeCapSp\"::text FROM \"CEO\" WHERE slug='tech-billionaire'")"
           CEOS="$(q "SELECT count(*) FROM \"CEO\"")"
           USERS="$(q "SELECT count(*) FROM \"User\"")"
-          PRESERVED="$(q "SELECT string_agg(id::text, ',' ORDER BY id) FROM \"CEO\" WHERE id IN (2,3,4,5,6,7,8,10)")"
-          NEWROWS="$(q "SELECT count(*) FROM \"CEO\" WHERE slug IN ('intern-ceo','crypto-whale')")"
-          INTERN="$(q "SELECT \"isStarter\"::text || ':' || \"baseSpPerCycle\"::text || ':' || \"maxOwned\"::text FROM \"CEO\" WHERE slug='intern-ceo'")"
-          WHALE="$(q "SELECT \"baseSpPerCycle\"::text || ':' || \"maxOwned\"::text FROM \"CEO\" WHERE slug='crypto-whale'")"
+          OWNED="$(q "SELECT count(*) FROM \"OwnedCeo\"")"
 
           fail=0
-          [ "$TABLES" = "AppMeta,IdempotencyKey,OwnedCeo,ReferralAttribution" ] || { echo "::error title=6B1 tables::unexpected tables: $TABLES"; fail=1; }
-          [ "$ENUMS" = "AcquisitionType,OwnedCeoStatus" ] || { echo "::error title=6B1 enums::unexpected enums: $ENUMS"; fail=1; }
-          [ "$COLS" = "baseSpPerCycle,category,displayOrder,isStarter,maxOwned,rewardEligible" ] || { echo "::error title=6B1 columns::unexpected columns: $COLS"; fail=1; }
-          [ "$IDX" = "AppMeta_key_key,IdempotencyKey_userId_scope_key_key,OwnedCeo_starter_user_key,OwnedCeo_templateId_idx,OwnedCeo_userId_idx,OwnedCeo_userId_status_idx,ReferralAttribution_referredUserId_key,ReferralAttribution_referrerId_idx" ] || { echo "::error title=6B1 indexes::unexpected indexes: $IDX"; fail=1; }
-          [ "$NOSELF" = "1" ] || { echo "::error title=6B1 check constraint::ReferralAttribution_no_self missing"; fail=1; }
-          [ "$FKS" = "5" ] || { echo "::error title=6B1 foreign keys::expected 5, got $FKS"; fail=1; }
+          [ "$TABLES" = "ProductionCycle,ProgressAccount,SpAccount,SpLedgerEntry" ] || { echo "::error title=V2.5 economy tables::unexpected: $TABLES"; fail=1; }
+          [ "$CEO_COLS" = "lifetimeCapSp,nominalSpPer24h" ] || { echo "::error title=V2.5 CEO columns::unexpected: $CEO_COLS"; fail=1; }
+          [ "$OWNED_COLS" = "archivedAt,equipment,lifetimeEarnedSp" ] || { echo "::error title=V2.5 OwnedCeo columns::unexpected: $OWNED_COLS"; fail=1; }
+          [ "$IDX" = "ProductionCycle_open_owned_key,SpLedgerEntry_userId_sourceType_sourceId_bucket_key" ] || { echo "::error title=V2.5 indexes::unexpected: $IDX"; fail=1; }
+          [ "$ACTIVE" = "8" ] || { echo "::error title=Catalog active tiers::expected 8, got $ACTIVE"; fail=1; }
+          [ "$ACTIVE_SLUGS" = "junior-developer,product-manager,marketing-director,startup-founder,ai-architect,cloud-executive,tech-billionaire,intern-ceo" ] || { echo "::error title=Catalog active slugs::unexpected: $ACTIVE_SLUGS"; fail=1; }
+          [ "$WHALE_ACTIVE" = "f" ] || { echo "::error title=crypto-whale::must be inactive"; fail=1; }
+          [ "$TESTCEO_ACTIVE" = "f" ] || { echo "::error title=test-ceo::must be inactive"; fail=1; }
+          [ "$INTERN" = "10:40" ] || { echo "::error title=intern-ceo::expected 10:40, got $INTERN"; fail=1; }
+          [ "$JUNIOR" = "0.99:100:1200" ] || { echo "::error title=junior-developer::expected 0.99:100:1200, got $JUNIOR"; fail=1; }
+          [ "$TOP" = "999.99:100000:2000000" ] || { echo "::error title=tech-billionaire::expected 999.99:100000:2000000, got $TOP"; fail=1; }
           [ "$CEOS" = "10" ] || { echo "::error title=CEO count::expected 10, got $CEOS"; fail=1; }
-          [ "$USERS" = "2" ] || { echo "::error title=User count::expected 2, got $USERS"; fail=1; }
-          [ "$PRESERVED" = "2,3,4,5,6,7,8,10" ] || { echo "::error title=CEO ids::existing ids not preserved: $PRESERVED"; fail=1; }
-          [ "$NEWROWS" = "2" ] || { echo "::error title=New CEO rows::intern-ceo/crypto-whale missing"; fail=1; }
-          [ "$INTERN" = "true:10:1" ] || { echo "::error title=intern-ceo values::expected true:10:1, got $INTERN"; fail=1; }
-          [ "$WHALE" = "600:2" ] || { echo "::error title=crypto-whale values::expected 600:2, got $WHALE"; fail=1; }
+          [ "$USERS" -ge 3 ] || { echo "::error title=User count::expected >= 3, got $USERS"; fail=1; }
+          [ "$OWNED" -ge 2 ] || { echo "::error title=OwnedCeo count::expected >= 2, got $OWNED"; fail=1; }
 
           if [ "$fail" -ne 0 ]; then
-            echo "::error title=6B1 verification failed::DDL is committed but history is NOT recorded. See recovery in docs/PHASE_6B4B_MIGRATION_EXECUTION_PLAN.md"
-            echo "- ❌ 6B1 verification failed (history not recorded)" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=V2.5 economy verification failed::DDL is committed but history is NOT recorded."
+            echo "- ❌ V2.5 economy verification failed (history not recorded)" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          echo "- ✅ 6B1 effects verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ✅ V2.5 economy effects verified (8 active tiers; caps/rates correct; history preserved)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Record 6B1 applied (metadata only)
+      - name: Record V2.5 economy applied (metadata only)
         run: |
           set -euo pipefail
           OUTDIR="${RUNNER_TEMP:-/tmp}"
-          if ! npx prisma migrate resolve --schema "$SCHEMA" --applied "$MIG_6B1_NAME" >"$OUTDIR/resolve.out" 2>"$OUTDIR/resolve.err"; then
+          if ! npx prisma migrate resolve --schema "$SCHEMA" --applied "$MIG_V25_ECON_NAME" >"$OUTDIR/resolve.out" 2>"$OUTDIR/resolve.err"; then
             { cat "$OUTDIR/resolve.err"; cat "$OUTDIR/resolve.out"; } | sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' >&2
-            echo "::error title=Record 6B1 failed::SQL is committed but history was NOT recorded. See recovery in docs/PHASE_6B4B_MIGRATION_EXECUTION_PLAN.md"
+            echo "::error title=Record V2.5 economy failed::SQL is committed but history was NOT recorded."
             exit 1
           fi
-          echo "- 6B1 recorded in _prisma_migrations" >> "$GITHUB_STEP_SUMMARY"
+          echo "- V2.5 economy recorded in _prisma_migrations" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Apply 6B2A username case-insensitive index (single transaction)
+      - name: Apply V2.5 progression (single transaction)
         run: |
           set -euo pipefail
           OUTDIR="${RUNNER_TEMP:-/tmp}"
-          if psql "$DIRECT_URL" -v ON_ERROR_STOP=1 --single-transaction -f "$MIG_6B2A" >"$OUTDIR/6b2a.out" 2>"$OUTDIR/6b2a.err"; then
-            echo "- 6B2A applied inside a single transaction (psql output suppressed)" >> "$GITHUB_STEP_SUMMARY"
+          if psql "$DIRECT_URL" -v ON_ERROR_STOP=1 --single-transaction -f "$MIG_V25_PROG" >"$OUTDIR/prog.out" 2>"$OUTDIR/prog.err"; then
+            echo "- V2.5 progression applied inside a single transaction (psql output suppressed)" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::error title=6B2A apply failed::transaction rolled back; no schema changes were committed"
-            { cat "$OUTDIR/6b2a.err"; cat "$OUTDIR/6b2a.out"; } | tail -n 40 | sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' >&2
+            echo "::error title=V2.5 progression apply failed::transaction rolled back; no schema changes were committed"
+            { cat "$OUTDIR/prog.err"; cat "$OUTDIR/prog.out"; } | tail -n 40 | sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' >&2
             exit 1
           fi
 
-      - name: Verify 6B2A effects (read-only)
+      - name: Verify V2.5 progression effects (read-only)
         run: |
           set -euo pipefail
           OUTDIR="${RUNNER_TEMP:-/tmp}"
@@ -344,28 +287,32 @@ jobs:
             fi
             printf '%s' "$out"
           }
-          IDX="$(q "SELECT to_regclass('public.\"User_username_lower_key\"') IS NOT NULL")"
-          UCOLL="$(q "SELECT count(*) FROM (SELECT lower(username) FROM \"User\" GROUP BY lower(username) HAVING count(*)>1) x")"
+          TABLES="$(q "SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('AchievementClaim','TaskClaim','TaskEvent','UserProfile','WithdrawalRequest')")"
+          ENUMS="$(q "SELECT string_agg(typname, ',' ORDER BY typname) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace AND typname IN ('TaskEventType','WithdrawalStatus')")"
+          IDX="$(q "SELECT string_agg(indexname, ',' ORDER BY indexname) FROM pg_indexes WHERE schemaname='public' AND indexname IN ('AchievementClaim_userId_trackKey_stage_key','TaskClaim_userId_taskKey_periodKey_key')")"
+
           fail=0
-          [ "$IDX" = "t" ] || { echo "::error title=6B2A index::User_username_lower_key missing"; fail=1; }
-          [ "$UCOLL" = "0" ] || { echo "::error title=6B2A collisions::case-insensitive username collisions appeared"; fail=1; }
+          [ "$TABLES" = "AchievementClaim,TaskClaim,TaskEvent,UserProfile,WithdrawalRequest" ] || { echo "::error title=V2.5 progression tables::unexpected: $TABLES"; fail=1; }
+          [ "$ENUMS" = "TaskEventType,WithdrawalStatus" ] || { echo "::error title=V2.5 progression enums::unexpected: $ENUMS"; fail=1; }
+          [ "$IDX" = "AchievementClaim_userId_trackKey_stage_key,TaskClaim_userId_taskKey_periodKey_key" ] || { echo "::error title=V2.5 progression indexes::unexpected: $IDX"; fail=1; }
+
           if [ "$fail" -ne 0 ]; then
-            echo "::error title=6B2A verification failed::index is committed but history is NOT recorded. See recovery in docs/PHASE_6B4B_MIGRATION_EXECUTION_PLAN.md"
-            echo "- ❌ 6B2A verification failed (history not recorded)" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=V2.5 progression verification failed::DDL is committed but history is NOT recorded."
+            echo "- ❌ V2.5 progression verification failed (history not recorded)" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          echo "- ✅ 6B2A effects verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ✅ V2.5 progression effects verified" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Record 6B2A applied (metadata only)
+      - name: Record V2.5 progression applied (metadata only)
         run: |
           set -euo pipefail
           OUTDIR="${RUNNER_TEMP:-/tmp}"
-          if ! npx prisma migrate resolve --schema "$SCHEMA" --applied "$MIG_6B2A_NAME" >"$OUTDIR/resolve.out" 2>"$OUTDIR/resolve.err"; then
+          if ! npx prisma migrate resolve --schema "$SCHEMA" --applied "$MIG_V25_PROG_NAME" >"$OUTDIR/resolve.out" 2>"$OUTDIR/resolve.err"; then
             { cat "$OUTDIR/resolve.err"; cat "$OUTDIR/resolve.out"; } | sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' >&2
-            echo "::error title=Record 6B2A failed::SQL is committed but history was NOT recorded. See recovery in docs/PHASE_6B4B_MIGRATION_EXECUTION_PLAN.md"
+            echo "::error title=Record V2.5 progression failed::SQL is committed but history was NOT recorded."
             exit 1
           fi
-          echo "- 6B2A recorded in _prisma_migrations" >> "$GITHUB_STEP_SUMMARY"
+          echo "- V2.5 progression recorded in _prisma_migrations" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Final verification (history names, checksums, completion)
         run: |
@@ -384,22 +331,18 @@ jobs:
           }
           echo "### Final verification" >> "$GITHUB_STEP_SUMMARY"
 
-          HIST="$(q "SELECT string_agg(migration_name, ',' ORDER BY migration_name) FROM _prisma_migrations")"
-          EXPECTED_HIST="$MIG_HIST_USER,$MIG_HIST_CEO,$MIG_6B1_NAME,$MIG_6B2A_NAME"
-          if [ "$HIST" != "$EXPECTED_HIST" ]; then
+          HIST="$(q "SELECT string_agg(migration_name, ',' ORDER BY started_at) FROM _prisma_migrations")"
+          if [ "$HIST" != "$FINAL_HIST" ]; then
             echo "::error title=Migration history::unexpected applied set: $HIST"
             exit 1
           fi
 
-          # No failed (finished_at NULL) and no rolled-back rows.
           INCOMPLETE="$(q "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL")"
           if [ "$INCOMPLETE" != "0" ]; then
             echo "::error title=Migration history::failed/incomplete migration rows present"
-            echo "- ❌ history contains incomplete/rolled-back rows" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
-          # Per-row checksum must equal the frozen SHA-256 of the migration file.
           verify_checksum() {
             local name="$1" expected="$2" actual
             actual="$(q "SELECT checksum FROM _prisma_migrations WHERE migration_name='$name'")"
@@ -409,14 +352,15 @@ jobs:
             fi
             echo "- checksum OK: \`$name\`" >> "$GITHUB_STEP_SUMMARY"
           }
-          verify_checksum "$MIG_HIST_USER" "$CHK_HIST_USER"
-          verify_checksum "$MIG_HIST_CEO" "$CHK_HIST_CEO"
-          verify_checksum "$MIG_6B1_NAME" "$CHK_6B1"
-          verify_checksum "$MIG_6B2A_NAME" "$CHK_6B2A"
+          verify_checksum "20240101000000_add_user_model" "$CHK_HIST_USER"
+          verify_checksum "20240102000000_create_ceo_model" "$CHK_HIST_CEO"
+          verify_checksum "20261017000000_phase6b1_economy_foundation" "$CHK_6B1"
+          verify_checksum "20261017010000_phase6b2a_username_case_insensitive" "$CHK_6B2A"
+          verify_checksum "$MIG_V25_ECON_NAME" "$CHK_V25_ECON"
+          verify_checksum "$MIG_V25_PROG_NAME" "$CHK_V25_PROG"
 
-          echo "- history OK: \`$HIST\` (all finished, no failed rows, checksums match)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- history OK: 6 rows (all finished, no failed rows, checksums match)" >> "$GITHUB_STEP_SUMMARY"
 
-          # prisma migrate status exits non-zero if any migration is pending.
           npx prisma migrate status --schema "$SCHEMA" 2>&1 | redact
           echo "- ✅ prisma migrate status: no pending migrations" >> "$GITHUB_STEP_SUMMARY"
 
@@ -429,12 +373,13 @@ jobs:
           {
             echo ""
             echo "---"
-            echo "Guarded write workflow. Baseline (metadata) + two transactional applies + history recording."
+            echo "Guarded write workflow for the V2.5 migration set: two transactional applies + history recording."
+            echo "Production is baselined at 4 rows; 6B.1/6B.2A are not touched. No re-baselining."
             echo "Credentials/SQL output are never streamed; captured output is redacted."
             echo "No automatic retry/reapply: re-dispatch is refused by the pre-migration check."
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ job.status }}" = "success" ]; then
             echo "**Result: ✅ PASS**" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "**Result: ❌ FAIL — inspect steps; recovery in docs/PHASE_6B4B_MIGRATION_EXECUTION_PLAN.md**" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Result: ❌ FAIL — inspect steps; recovery in docs/archive/PHASE_6B4E_PRODUCTION_READINESS.md**" >> "$GITHUB_STEP_SUMMARY"
           fi

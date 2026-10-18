@@ -1,7 +1,9 @@
 name: Neon Migration Preflight (read-only)
 
-# Manually triggered only. This workflow is READ-ONLY: it never runs migrations
-# and never executes INSERT/UPDATE/DELETE/CREATE/ALTER/DROP.
+# Manually triggered only. READ-ONLY: never runs migrations, never executes
+# INSERT/UPDATE/DELETE/CREATE/ALTER/DROP. Verifies the frozen V2.5 migration set,
+# the production branch/project identity, and the current 6B.2A baseline before a
+# production execution is authorized.
 on:
   workflow_dispatch:
 
@@ -18,12 +20,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      # Connection string comes exclusively from the repository secret DIRECT_URL.
+      # Connection string comes exclusively from the repository secret DIRECT.
       DIRECT_URL: ${{ secrets.DIRECT }}
       # DATABASE_URL is mapped to the same secret ONLY so `prisma validate` can resolve
       # env("DATABASE_URL") in schema.prisma. `prisma validate` does not connect to the DB.
       DATABASE_URL: ${{ secrets.DIRECT }}
       EXPECTED_BRANCH: br-delicate-butterfly-b4et73g9
+      EXPECTED_PROJECT_ID: wandering-king-57462138
+      BASELINE_HIST: "20240101000000_add_user_model,20240102000000_create_ceo_model,20261017000000_phase6b1_economy_foundation,20261017010000_phase6b2a_username_case_insensitive"
+      CHK_HIST_USER: 0cc0af4ab39b025d6953c196485bdfe76225c28729b529d9f3dbb46e6f7d7144
+      CHK_HIST_CEO: 1a0fd8415489877c774f6e0a0c726734afbf773931e6d684be6cf7cfe2ab2107
+      CHK_6B1: 1a04a9c5ba3bcc3fb66335c6ce79fbcea73915f106f7160f525da2ed559d7cb3
+      CHK_6B2A: f44f174b372e040b694e0c30b2dd2c5d31a921f154cb4399753af992820cce82
+      CHK_V25_ECON: 7700cb1f5b1514ba982b6349af7dae2085b6a8a83fee4511f6da82e122a03209
+      CHK_V25_PROG: 36e26e87469b671a8b4093e8f007a4fa46413c63d1af5f3042a2f271367cad9a
+      CHK_LOCK: d6bae7899f05da956e1070ba5703455503208ef79e161acb18c93bfe3c6cd236
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,8 +53,13 @@ jobs:
           set -euo pipefail
           echo "### Frozen migration checksums" >> "$GITHUB_STEP_SUMMARY"
           declare -A EXPECTED=(
-            ["server/prisma/migrations/20261017000000_phase6b1_economy_foundation/migration.sql"]="1a04a9c5ba3bcc3fb66335c6ce79fbcea73915f106f7160f525da2ed559d7cb3"
-            ["server/prisma/migrations/20261017010000_phase6b2a_username_case_insensitive/migration.sql"]="f44f174b372e040b694e0c30b2dd2c5d31a921f154cb4399753af992820cce82"
+            ["server/prisma/migrations/20240101000000_add_user_model/migration.sql"]="$CHK_HIST_USER"
+            ["server/prisma/migrations/20240102000000_create_ceo_model/migration.sql"]="$CHK_HIST_CEO"
+            ["server/prisma/migrations/20261017000000_phase6b1_economy_foundation/migration.sql"]="$CHK_6B1"
+            ["server/prisma/migrations/20261017010000_phase6b2a_username_case_insensitive/migration.sql"]="$CHK_6B2A"
+            ["server/prisma/migrations/20261018000000_v25_economy_sp_production/migration.sql"]="$CHK_V25_ECON"
+            ["server/prisma/migrations/20261018010000_v25_progression/migration.sql"]="$CHK_V25_PROG"
+            ["server/prisma/migrations/migration_lock.toml"]="$CHK_LOCK"
           )
           for f in "${!EXPECTED[@]}"; do
             actual="$(sha256sum "$f" | awk '{print $1}')"
@@ -68,14 +84,13 @@ jobs:
             exit 1
           fi
 
-      - name: Read-only database checks
+      - name: Read-only database checks (current 6B.2A baseline)
         run: |
           set -euo pipefail
           if ! command -v psql >/dev/null 2>&1; then
             sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
           fi
 
-          # Reads stderr to a file and redacts DSNs/hosts before printing on error.
           q() {
             local out
             if ! out="$(psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "$1" 2>psql.err)"; then
@@ -88,49 +103,56 @@ jobs:
           echo "### Database checks" >> "$GITHUB_STEP_SUMMARY"
 
           BRANCH="$(q "SELECT current_setting('neon.branch_id', true)")"
+          PROJECT="$(q "SELECT current_setting('neon.project_id', true)")"
           if [ -z "$BRANCH" ]; then
             echo "::error title=Branch unverified::Neon branch identity is not exposed by this connection"
-            echo "- ❌ branch identity UNVERIFIED (no neon.branch_id) — STOPPING" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           if [ "$BRANCH" != "$EXPECTED_BRANCH" ]; then
             echo "::error title=Branch mismatch::connected branch is not the expected production branch"
-            echo "- ❌ branch mismatch (expected production branch not matched)" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          echo "- ✅ branch OK: \`${BRANCH}\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$PROJECT" ] || [ "$PROJECT" != "$EXPECTED_PROJECT_ID" ]; then
+            echo "::error title=Project mismatch::connected project is not $EXPECTED_PROJECT_ID"
+            exit 1
+          fi
+          echo "- ✅ branch OK: \`${BRANCH}\` (project \`${PROJECT}\`)" >> "$GITHUB_STEP_SUMMARY"
 
+          HIST="$(q "SELECT string_agg(migration_name, ',' ORDER BY started_at) FROM _prisma_migrations")"
+          INCOMPLETE="$(q "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL")"
           USERS="$(q "SELECT count(*) FROM \"User\"")"
           CEOS="$(q "SELECT count(*) FROM \"CEO\"")"
-          USER_IDS="$(q "SELECT string_agg(id::text, ',' ORDER BY id) FROM \"User\"")"
-          CEO_IDS="$(q "SELECT string_agg(id::text, ',' ORDER BY id) FROM \"CEO\"")"
-          CEO_SLUGS="$(q "SELECT string_agg(slug, ',' ORDER BY id) FROM \"CEO\"")"
+          OWNED="$(q "SELECT count(*) FROM \"OwnedCeo\"")"
           UCOLL="$(q "SELECT count(*) FROM (SELECT lower(username) FROM \"User\" GROUP BY lower(username) HAVING count(*)>1) x")"
-          MIG_TABLE="$(q "SELECT to_regclass('public._prisma_migrations') IS NOT NULL")"
-          APP_META="$(q "SELECT to_regclass('public.AppMeta') IS NOT NULL")"
-          OWNED_CEO="$(q "SELECT to_regclass('public.OwnedCeo') IS NOT NULL")"
+          BASE_TABLES="$(q "SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('AppMeta','IdempotencyKey','OwnedCeo','ReferralAttribution')")"
+          LOWER_IDX="$(q "SELECT to_regclass('public.\"User_username_lower_key\"') IS NOT NULL")"
+          ECON_COLS="$(q "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='CEO' AND column_name IN ('baseSpPerCycle','maxOwned','isStarter')")"
+          NEW_TABLES="$(q "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('ProductionCycle','SpAccount','SpLedgerEntry','ProgressAccount','TaskEvent','TaskClaim','AchievementClaim','UserProfile','WithdrawalRequest')")"
+          NEW_CEO_COLS="$(q "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='CEO' AND column_name IN ('nominalSpPer24h','lifetimeCapSp')")"
+          NEW_OWNED_COLS="$(q "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='OwnedCeo' AND column_name IN ('equipment','lifetimeEarnedSp','archivedAt')")"
 
-          echo "- Users: ${USERS} (ids: ${USER_IDS})" >> "$GITHUB_STEP_SUMMARY"
-          echo "- CEOs: ${CEOS} (ids: ${CEO_IDS})" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Username case-insensitive collisions: ${UCOLL}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Users: ${USERS}; CEOs: ${CEOS}; OwnedCeo: ${OWNED}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- _prisma_migrations: ${HIST}" >> "$GITHUB_STEP_SUMMARY"
 
           fail=0
-          [ "$USERS" = "2" ] || { echo "::error title=Unexpected User count::expected 2"; fail=1; }
-          [ "$USER_IDS" = "2,4" ] || { echo "::error title=Unexpected User ids::expected 2,4"; fail=1; }
-          [ "$CEOS" = "8" ] || { echo "::error title=Unexpected CEO count::expected 8"; fail=1; }
-          [ "$CEO_IDS" = "2,3,4,5,6,7,8,10" ] || { echo "::error title=Unexpected CEO ids::expected 2,3,4,5,6,7,8,10"; fail=1; }
-          [ "$UCOLL" = "0" ] || { echo "::error title=Case-insensitive username collisions::none expected"; fail=1; }
-          # Pre-migration state: these must NOT exist yet.
-          [ "$MIG_TABLE" = "f" ] || { echo "::error title=Unexpected _prisma_migrations::DB is not in the expected pre-migration state"; fail=1; }
-          [ "$APP_META" = "f" ] || { echo "::error title=Unexpected AppMeta::DB is not in the expected pre-migration state"; fail=1; }
-          [ "$OWNED_CEO" = "f" ] || { echo "::error title=Unexpected OwnedCeo::DB is not in the expected pre-migration state"; fail=1; }
+          [ "$HIST" = "$BASELINE_HIST" ] || { echo "::error title=Baseline history::expected exactly the 4 baseline rows"; fail=1; }
+          [ "$INCOMPLETE" = "0" ] || { echo "::error title=History::failed/incomplete rows present"; fail=1; }
+          [ "$USERS" -ge 3 ] || { echo "::error title=User count::expected >= 3"; fail=1; }
+          [ "$CEOS" = "10" ] || { echo "::error title=CEO count::expected 10"; fail=1; }
+          [ "$UCOLL" = "0" ] || { echo "::error title=Username collisions::none expected"; fail=1; }
+          [ "$BASE_TABLES" = "AppMeta,IdempotencyKey,OwnedCeo,ReferralAttribution" ] || { echo "::error title=Baseline tables::unexpected: $BASE_TABLES"; fail=1; }
+          [ "$LOWER_IDX" = "t" ] || { echo "::error title=Baseline index::User_username_lower_key missing"; fail=1; }
+          [ "$ECON_COLS" = "3" ] || { echo "::error title=Economy columns::6B.1 columns missing"; fail=1; }
+          # The two V2.5 migrations must NOT be applied yet.
+          [ "$NEW_TABLES" = "0" ] || { echo "::error title=V2.5 tables::already present; DB is not in the expected pre-V2.5 state"; fail=1; }
+          [ "$NEW_CEO_COLS" = "0" ] || { echo "::error title=V2.5 CEO columns::already present; refusing"; fail=1; }
+          [ "$NEW_OWNED_COLS" = "0" ] || { echo "::error title=V2.5 OwnedCeo columns::already present; refusing"; fail=1; }
 
           if [ "$fail" -ne 0 ]; then
             echo "- ❌ one or more database checks failed" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          echo "- ✅ User/CEO counts, ids and pre-migration state OK" >> "$GITHUB_STEP_SUMMARY"
-          echo "  (CEO slugs: ${CEO_SLUGS})" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ✅ baseline verified: 4 migration rows; 6B.1 objects present; V2.5 objects absent" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Prisma validate
         run: |
@@ -159,7 +181,7 @@ jobs:
           {
             echo ""
             echo "---"
-            echo "Read-only preflight. No migrations, no writes, no history changes."
+            echo "Read-only preflight for the V2.5 migration set. No migrations, no writes, no history changes."
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ job.status }}" = "success" ]; then
             echo "**Result: ✅ PASS**" >> "$GITHUB_STEP_SUMMARY"

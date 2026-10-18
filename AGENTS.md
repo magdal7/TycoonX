@@ -1,7 +1,20 @@
 # AGENTS.md — TycoonX
 
 Standalone mobile-first PWA tech-CEO tycoon game. npm workspaces monorepo: `client`, `server`, `shared`.
-No Telegram, purchases, real earnings, or OxaPay integration yet. CEO daily rates are simulation-only.
+
+## Product rules (canonical)
+- **`docs/TYCOONX_V2_MASTER_SPEC.md` is the single product-rules source of truth.** Read it before any
+  economy, gameplay, or security change. Do not duplicate its rules elsewhere.
+- `docs/PROGRESS.md` tracks implementation status (done / next / blockers).
+- MVP economy (owner-confirmed): 1 USDT = 1,000 SP; eight CEO tiers with finite **lifetime Earned-SP
+  caps**; unlimited copies; manual production cycles; equipment 4h/6h/8h costing SP; separate
+  **Earned SP / Bonus SP / XP**; Bonus SP non-withdrawable and spent first; referral rewards require
+  approved qualification. **Energy and Tech Parts are removed**; buildings/projects/employees are
+  Coming Soon.
+- OxaPay is the **selected future gateway** (planning only). Real deposits, withdrawals, and payouts are
+  **NOT activated**. Never commit keys or activate payment flows without explicit owner approval.
+- Email verification and password recovery are **deferred** for the MVP; keep auth extensible.
+- Do not invent or alter financial rewards, conversion rates, caps, fees, or production rates.
 
 ## Architecture
 - `client/` React 18 + TS + Vite + Tailwind + lucide-react + vite-plugin-pwa. Routing is a custom history

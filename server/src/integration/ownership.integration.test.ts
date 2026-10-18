@@ -7,6 +7,7 @@ import { PrismaNeon } from '@prisma/adapter-neon'
 import { Pool } from '@neondatabase/serverless'
 import { grantStarterCeo } from '../services/starterCeo'
 import { OwnershipLimitError } from '../services/ownership'
+import { startProduction, collectProduction, ProductionError } from '../services/production'
 
 /**
  * PostgreSQL integration tests for starter provisioning.
@@ -34,7 +35,7 @@ import { OwnershipLimitError } from '../services/ownership'
  * `itest_` are created and they are removed in `after`.
  */
 
-const EXPECTED_BRANCH_ID = 'br-floral-resonance-b4ruvusw'
+const EXPECTED_BRANCH_ID = 'br-cold-star-b4bbaq8u'
 const EXPECTED_PROJECT_ID = 'wandering-king-57462138'
 
 const PROTECTED_BRANCHES = [
@@ -50,6 +51,15 @@ const REQUIRED_TABLES = [
   'ReferralAttribution',
   'IdempotencyKey',
   'AppMeta',
+  'ProductionCycle',
+  'SpAccount',
+  'SpLedgerEntry',
+  'ProgressAccount',
+  'TaskEvent',
+  'TaskClaim',
+  'AchievementClaim',
+  'UserProfile',
+  'WithdrawalRequest',
 ]
 
 const REQUIRED_CEO_COLUMNS = [
@@ -59,6 +69,15 @@ const REQUIRED_CEO_COLUMNS = [
   'rewardEligible',
   'category',
   'displayOrder',
+  'nominalSpPer24h',
+  'lifetimeCapSp',
+]
+
+const REQUIRED_INDEXES = [
+  'OwnedCeo_starter_user_key',
+  'IdempotencyKey_userId_scope_key_key',
+  'ProductionCycle_open_owned_key',
+  'SpLedgerEntry_userId_sourceType_sourceId_bucket_key',
 ]
 
 interface Target {
@@ -133,6 +152,14 @@ async function createUser(): Promise<number> {
 const ITEST_USERNAME_PREFIX = 'itest_'
 
 async function cleanupUser(userId: number): Promise<void> {
+  await db!.productionCycle.deleteMany({ where: { userId } })
+  await db!.spLedgerEntry.deleteMany({ where: { userId } })
+  await db!.spAccount.deleteMany({ where: { userId } })
+  await db!.progressAccount.deleteMany({ where: { userId } })
+  await db!.taskEvent.deleteMany({ where: { userId } })
+  await db!.taskClaim.deleteMany({ where: { userId } })
+  await db!.achievementClaim.deleteMany({ where: { userId } })
+  await db!.userProfile.deleteMany({ where: { userId } })
   await db!.idempotencyKey.deleteMany({ where: { userId } })
   await db!.referralAttribution.deleteMany({ where: { referrerId: userId } })
   await db!.referralAttribution.deleteMany({ where: { referredUserId: userId } })
@@ -152,6 +179,14 @@ async function sweepLeftoverTestUsers(): Promise<void> {
   })
   const ids = leftovers.map((u) => u.id)
   if (ids.length === 0) return
+  await db!.productionCycle.deleteMany({ where: { userId: { in: ids } } })
+  await db!.spLedgerEntry.deleteMany({ where: { userId: { in: ids } } })
+  await db!.spAccount.deleteMany({ where: { userId: { in: ids } } })
+  await db!.progressAccount.deleteMany({ where: { userId: { in: ids } } })
+  await db!.taskEvent.deleteMany({ where: { userId: { in: ids } } })
+  await db!.taskClaim.deleteMany({ where: { userId: { in: ids } } })
+  await db!.achievementClaim.deleteMany({ where: { userId: { in: ids } } })
+  await db!.userProfile.deleteMany({ where: { userId: { in: ids } } })
   await db!.idempotencyKey.deleteMany({ where: { userId: { in: ids } } })
   await db!.referralAttribution.deleteMany({ where: { referrerId: { in: ids } } })
   await db!.referralAttribution.deleteMany({ where: { referredUserId: { in: ids } } })
@@ -200,9 +235,7 @@ async function assertEconomySchema(): Promise<void> {
   const indexes = await db!.$queryRaw<Array<{ name: string; present: boolean }>>`
     SELECT name::text AS name, to_regclass('public.' || quote_ident(name)) IS NOT NULL AS present
     FROM (VALUES ${Prisma.join(
-      ['OwnedCeo_starter_user_key', 'IdempotencyKey_userId_scope_key_key'].map(
-        (i) => Prisma.sql`(${i})`,
-      ),
+      REQUIRED_INDEXES.map((i) => Prisma.sql`(${i})`),
     )}) AS v(name)
   `
   const missingIndexes = indexes.filter((r) => !r.present).map((r) => r.name)
@@ -272,6 +305,8 @@ before(async () => {
         isActive: true,
         isStarter: true,
         maxOwned: 1,
+        nominalSpPer24h: 10,
+        lifetimeCapSp: 40,
       },
       select: { id: true },
     })
@@ -385,6 +420,90 @@ test('the partial unique index rejects a second STARTER row', { skip }, async ()
       }),
     )
     assert.equal(await db!.ownedCeo.count({ where: { userId, acquisitionType: 'STARTER' } }), 1)
+  } finally {
+    await cleanupUser(userId)
+  }
+})
+
+async function expireCycle(cycleId: string): Promise<void> {
+  await db!.productionCycle.update({
+    where: { id: BigInt(cycleId) },
+    data: { endsAt: new Date(Date.now() - 1000) },
+  })
+}
+
+test('production start -> collect credits exactly once; duplicate collect is a no-op', { skip }, async () => {
+  const userId = await createUser()
+  try {
+    const { ownedCeoId } = await grantStarterCeo(db!, userId)
+    const started = await startProduction(db!, userId, ownedCeoId)
+    assert.equal(started.cycle.rewardSp, '1') // floor(10 SP/24h * 4h / 24) = 1
+    assert.equal(started.cycle.cycleHours, 4)
+    assert.equal((await db!.ownedCeo.findUniqueOrThrow({ where: { id: ownedCeoId } })).status, 'PRODUCING')
+
+    await expireCycle(started.cycle.id)
+    const first = await collectProduction(db!, userId, ownedCeoId)
+    assert.equal(first.rewardSp, '1')
+    assert.equal(first.alreadyCollected, false)
+
+    const acct = await db!.spAccount.findUniqueOrThrow({ where: { userId } })
+    assert.equal(acct.earnedSp, 1n)
+    assert.equal(acct.lifetimeEarnedSp, 1n)
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'CYCLE_CLAIM' } }), 1)
+
+    // Duplicate collection must not credit again.
+    const replay = await collectProduction(db!, userId, ownedCeoId)
+    assert.equal(replay.alreadyCollected, true)
+    assert.equal((await db!.spAccount.findUniqueOrThrow({ where: { userId } })).earnedSp, 1n)
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'CYCLE_CLAIM' } }), 1)
+
+    // A copy can start a fresh cycle after collecting the previous one.
+    const restarted = await startProduction(db!, userId, ownedCeoId)
+    assert.equal(restarted.replayed, false)
+    assert.equal(restarted.cycle.rewardSp, '1')
+  } finally {
+    await cleanupUser(userId)
+  }
+})
+
+test('collect before the cycle ends is rejected', { skip }, async () => {
+  const userId = await createUser()
+  try {
+    const { ownedCeoId } = await grantStarterCeo(db!, userId)
+    await startProduction(db!, userId, ownedCeoId)
+    await assert.rejects(
+      () => collectProduction(db!, userId, ownedCeoId),
+      (e: unknown) => e instanceof ProductionError && e.code === 'not_ready',
+    )
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'CYCLE_CLAIM' } }), 0)
+  } finally {
+    await cleanupUser(userId)
+  }
+})
+
+test('reaching the lifetime cap archives the copy and blocks further starts', { skip }, async () => {
+  const userId = await createUser()
+  try {
+    const { ownedCeoId } = await grantStarterCeo(db!, userId)
+    // Intern cap is 40 SP; leave 1 SP of headroom.
+    await db!.ownedCeo.update({ where: { id: ownedCeoId }, data: { lifetimeEarnedSp: 39n } })
+
+    const started = await startProduction(db!, userId, ownedCeoId)
+    await expireCycle(started.cycle.id)
+    const result = await collectProduction(db!, userId, ownedCeoId)
+    assert.equal(result.status, 'EXHAUSTED')
+
+    const owned = await db!.ownedCeo.findUniqueOrThrow({ where: { id: ownedCeoId } })
+    assert.equal(owned.status, 'EXHAUSTED')
+    assert.ok(owned.archivedAt)
+    assert.equal(owned.lifetimeEarnedSp, 40n)
+    const acct = await db!.spAccount.findUniqueOrThrow({ where: { userId } })
+    assert.equal(acct.earnedSp, 1n) // only the 1 SP of remaining headroom was produced
+
+    await assert.rejects(
+      () => startProduction(db!, userId, ownedCeoId),
+      (e: unknown) => e instanceof ProductionError && e.code === 'exhausted',
+    )
   } finally {
     await cleanupUser(userId)
   }
