@@ -4,16 +4,17 @@ Canonical status file. Product rules live in `docs/TYCOONX_V2_MASTER_SPEC.md` (d
 Last updated: 2026-10-18.
 
 ## Verified current state
-- **Repo:** git repository, default branch `master`. Monorepo `client` / `server` / `shared`.
+- **Repo:** git repository, default branch `master`, HEAD `d95f94e` (V2.5 economy/progression backend,
+  UI redesign, V2.5 migration workflows). Monorepo `client` / `server` / `shared`.
 - **Auth (implemented):** register/login/logout/me; JWT httpOnly `token` cookie (7d); bcrypt (12); Zod;
-  `/api/auth` rate limit. Email verification/password recovery **deferred** (MVP decision).
-- **CEO catalog API (implemented):** `GET/POST/PUT/DELETE /api/ceos`; Decimal→string serialization.
-- **Economy schema foundation (implemented in code + frozen migration, NOT applied to production):**
-  `OwnedCeo`, `ReferralAttribution`, `IdempotencyKey`, `AppMeta`; additive `CEO` economy columns
-  (`baseSpPerCycle`, `maxOwned`, `isStarter`, `rewardEligible`, `category`, `displayOrder`).
-- **Ownership backend (implemented, unit-tested):** `GET /api/game/ceos/owned`,
+  `/api/auth` rate limit. Username validation matches the approved rule (3–20 chars, `[A-Za-z0-9_]`).
+  Email verification/password recovery **deferred** (MVP decision).
+- **CEO catalog API (implemented):** `GET/POST/PUT/DELETE /api/ceos`; Decimal→string serialization;
+  active-row reads via `GET /api/ceos?isActive=true`.
+- **Ownership backend (implemented, unit + integration tested):** `GET /api/game/ceos/owned`,
   `POST /api/game/ceos/starter`, `POST /api/game/onboarding`; idempotent, concurrency-safe starter.
-- **Economy foundation (implemented in code + frozen migration, NOT applied):**
+  Routes are mounted under `/api/game` and align with the client API layer (`client/src/lib/game.ts`).
+- **Economy foundation (implemented; migration applied to production):**
   - Separate **Earned SP / Bonus SP** accounts + immutable `SpLedgerEntry` (Bonus spent first).
   - **Lifetime Earned-SP caps** on `OwnedCeo` (archived/`EXHAUSTED` on exhaustion).
   - **Equipment** tiers Standard 4h / Extended 6h (500 SP) / Advanced 8h (1,500 SP), SP-priced, level-gated.
@@ -21,9 +22,8 @@ Last updated: 2026-10-18.
     `/bulk-collect`; server-authoritative, snapshot reward, exactly-once claim, concurrency guards.
   - **XP/levels/ranks** (`ProgressAccount`, approved formula, 224,420 XP to level 50) and `GET /resources`,
     `GET /sp/ledger`.
-  - Pure game math in `server/src/lib/gameMath.ts`; migration
-    `20261018000000_v25_economy_sp_production` (catalog seed block flagged REVIEW REQUIRED).
-- **Progression & retention (implemented in code + frozen migration, NOT applied):**
+  - Pure game math in `server/src/lib/gameMath.ts`.
+- **Progression & retention (implemented; migration applied to production):**
   - **Daily/weekly tasks** via an append-only `TaskEvent` log + idempotent `TaskClaim`; approved XP values
     (165 XP/day, 1,250 XP/week), UTC 00:00 / Monday-00:00 periods, manual Claim / Claim All.
   - **Achievements**: 5 tracks × 4 stages, derived lifetime counters, XP-only one-time claims.
@@ -33,23 +33,30 @@ Last updated: 2026-10-18.
     (`REFERRAL_REWARDS_ENABLED=false`) pending approved qualification.
   - **Withdrawal request/review states** (gross Earned-SP lock, min 3,000 SP, 0.30 USDT fee) with
     **payouts disabled**; admin review queue never transfers crypto.
-  - Migrations `20261018000000_v25_economy_sp_production`, `20261018010000_v25_progression`.
-  - Client API layer extended in `client/src/lib/game.ts`.
-- **Tests:** `npm test --workspace=server` — **65/65 unit pass**. Integration tests exist but **self-skip**
-  without `TEST_DATABASE_URL` (skipped ≠ verified).
-- **Catalog migration (owner-approved 2026-10-18):** `20261018000000_v25_economy_sp_production` maps the
-  eight approved tiers onto existing slugs (junior-developer→CEO2 … tech-billionaire→CEO8), retires the
-  surplus `crypto-whale` row (inactive, not deleted), and preserves ids/ownership. Catalog reads/UI now
-  request active rows only (`GET /api/ceos?isActive=true`). **Not applied to any database.**
+- **Production database (verified 2026-10-18, read-only):** production branch
+  `br-delicate-butterfly-b4et73g9` / project `wandering-king-57462138` has **six `_prisma_migrations`
+  rows**: the four baseline migrations plus both V2.5 migrations recorded applied at
+  `2026-10-18T18:38:47Z` (`20261018000000_v25_economy_sp_production`) and `2026-10-18T18:38:52Z`
+  (`20261018010000_v25_progression`). V2.5 tables/columns/enums present; catalog shows **8 active CEO
+  tiers** (10 rows total; `crypto-whale` and `test-ceo` inactive); `User=3` / `OwnedCeo=2` preserved.
 - **UI redesign (V2.5):** new design system (tokens, glass panels, animations), app shell with sidebar +
   mobile bottom nav, and API-connected pages: Landing (marketing), Home (production: start/collect/bulk,
   equipment, lifetime caps, archived state), Market (active tiers), Collection (owned fleet), Tasks
   (daily/weekly + Claim All), Achievements, Leaderboard + public profiles, Profile (referrals, featured
   badges), Wallet (balances, SP ledger, withdrawal requests with payouts disabled). Legacy demo pages
   removed. Client API layer in `client/src/lib/game.ts`.
-- **Client:** Landing/Login/Register; real Market (`pages/CEOs.tsx` + `lib/ceos.ts`); new typed game API
-  layer `client/src/lib/game.ts`. Dashboard/Empire/Tasks/Wallet/Profile still **demo-only**. Production PWA
-  build **now passes** (workbox precache limit raised); `game/` remains a visual-only prototype.
+- **Tests:**
+  - `npm test --workspace=server` — **65/65 unit pass**.
+  - `npm run test:integration --workspace=server` — **8/8 pass** against isolated branch
+    `br-cold-star-b4bbaq8u` (identity-guarded + schema-guarded; ownership + production start/collect,
+    duplicate-collection prevention, lifetime-cap exhaustion).
+  - `npm run test:smoke --workspace=server` — **23/23 pass** (HTTP end-to-end against the isolated
+    branch; fail-closed branch/project identity checks; deterministic child shutdown with startup,
+    request, shutdown and global-watchdog timeouts).
+  - Integration/smoke self-skip when `TEST_DATABASE_URL` is unset and refuse to run against protected
+    (production/staging/recovery) branches.
+- **Builds:** server `tsc` typecheck **passes**; client production PWA build **passes** (workbox precache
+  limit raised).
 
 ## Docs layout (reconciled 2026-10-18)
 - `docs/TYCOONX_V2_MASTER_SPEC.md` — canonical product rules.
@@ -58,33 +65,29 @@ Last updated: 2026-10-18.
 - `docs/archive/` — superseded docs retained for reference (see `docs/archive/README.md`).
 
 ## Blockers (owner action required)
-1. **Two V2.5 migrations pending on production.** Production
-   (`br-delicate-butterfly-b4et73g9` / `wandering-king-57462138`) is baselined at 4 migration rows
-   (through Phase 6B.2A). Pending: `20261018000000_v25_economy_sp_production` and
-   `20261018010000_v25_progression`. **Do not apply without owner approval.**
-2. **Production execution workflows rewritten for V2.5** (`neon-migration-preflight.yml`,
-   `neon-migration-execute.yml`): current-baseline pre-checks, 6-file checksums, two transactional
-   applies, history recording, 6-row final verification. YAML parses; a local read-only preflight
-   mirroring the workflow passed all 13 checks (branch/project/baseline/counts/V2.5-objects-absent).
-3. **Backup/PITR gate unverified (owner).** No Neon API credential is available here, so a fresh
-   production backup branch and the PITR/restore window for this migration window could not be
-   confirmed. Required before dispatch.
-4. **Isolated validation done:** branch `br-cold-star-b4bbaq8u`; both migrations applied; real-Postgres
-   integration suite **8/8** (starter/ownership + production start/collect, duplicate-collection
-   prevention, lifetime-cap exhaustion); 8 active tiers; `crypto-whale`/`test-ceo` inactive;
-   `User=3`/`CEO=10`/`OwnedCeo=2` preserved. Note: Prisma CLI cannot reach Neon over TCP:5432 from this
-   host (`P1001`), so the isolated apply used the serverless (HTTPS) driver and did not record
-   `_prisma_migrations`; production uses the standard workflow (records history).
-5. **Client production build passes** (PWA precache limit raised); no build blocker.
+1. **Resolved: V2.5 migrations applied.** Both V2.5 migrations are recorded applied on production
+   (see Verified current state). No re-apply is needed; the execution workflow is fail-closed against a
+   second apply.
+2. **Execution workflows** (`neon-migration-preflight.yml`, `neon-migration-execute.yml`) remain the
+   standard production path: branch/project identity, frozen checksums, confirmation token, single-
+   transaction applies, history recording, final verification. Do not re-dispatch for this migration set.
+3. **Backup/PITR gate** should be confirmed with the owner for any future migration window (no Neon API
+   credential is available here).
+4. **Application deployment not configured.** No hosting/deployment config exists in the repository; the
+   server and client are not deployed by any tracked config. Production currently means the migrated
+   database only.
+5. **Payments disabled.** OxaPay is planning only; deposits, withdrawals, payouts and referral rewards
+   remain **disabled** pending owner approval and go-live gates.
 
 ## Not implemented yet (see Master Spec §0/§3–§9)
 Admin-created **special tasks**; **OxaPay** integration (planning only, not activated); admin UI; real
-purchases; production deployment.
+purchases; application (server/client) deployment.
 
 ## Next
 1. Documentation reconciliation — **done**.
-2. Economy foundation + production-cycle engine + XP/levels — **done (unit-tested; migration not applied)**.
+2. Economy foundation + production-cycle engine + XP/levels — **done (unit + integration tested; migration applied)**.
 3. Tasks, achievements, leaderboard, public profiles, referral rewards, withdrawal requests — **done**.
 4. Catalog mapping + full UI redesign wired to real APIs — **done**.
-5. **Apply migrations to an isolated PostgreSQL branch and run the integration harness** (needs operator
-   credentials), then production execution with explicit owner approval.
+5. Production migration execution — **done** (both V2.5 migrations applied; six migration records).
+6. **Remaining:** application deployment (server + client hosting) and admin UI are not configured;
+   OxaPay integration and all real-money flows stay disabled pending explicit owner approval.

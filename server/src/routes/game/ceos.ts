@@ -68,8 +68,8 @@ export function onboardingHandler(db: PrismaClient) {
 
 export function createGameCeoRouter(db: PrismaClient): Router {
   const router = Router()
-  router.get('/owned', requireAuth, listOwnedCeosHandler(db))
-  router.post('/starter', requireAuth, grantStarterCeoHandler(db))
+  router.get('/ceos/owned', requireAuth, listOwnedCeosHandler(db))
+  router.post('/ceos/starter', requireAuth, grantStarterCeoHandler(db))
   router.post('/onboarding', requireAuth, onboardingHandler(db))
   return router
 }

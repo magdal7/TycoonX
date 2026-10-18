@@ -1,0 +1,282 @@
+import 'dotenv/config'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
+import { Pool } from '@neondatabase/serverless'
+
+/**
+ * HTTP end-to-end smoke test for the TycoonX API.
+ *
+ * This is a black-box companion to ownership.integration.test.ts: it boots the
+ * real Express server against a disposable Neon test branch and exercises the
+ * full public API surface (auth -> onboarding -> owned fleet -> production ->
+ * tasks -> achievements -> leaderboard -> referrals -> withdrawals).
+ *
+ * Safety (fail-closed, mirrors the integration suite):
+ *   1. string guard: TEST_DATABASE_URL must be set, must not reference a
+ *      protected branch, and must not equal DATABASE_URL/DIRECT_URL;
+ *   2. host guard: the target must be a Neon host (or localhost);
+ *   3. identity guard: `current_setting('neon.branch_id'/'neon.project_id')`
+ *      read from the connected server must equal the expected isolated branch.
+ * It never applies migrations, never creates/resets a branch, and only creates
+ * rows tagged `itest_smoke_` that are removed in the final block. If no safe
+ * target is configured the run is skipped (exit 0).
+ *
+ * The server is spawned directly with the current Node binary and `--import tsx`
+ * (no shell), so `child.pid` is the real server process and can be terminated
+ * deterministically. Startup, per-request, shutdown and a global watchdog all
+ * have explicit timeouts so this script can never hang indefinitely.
+ *
+ *   $env:TEST_DATABASE_URL = "<isolated branch direct connection string>"
+ *   npm run test:smoke --workspace=server
+ */
+
+const EXPECTED_BRANCH_ID = 'br-cold-star-b4bbaq8u'
+const EXPECTED_PROJECT_ID = 'wandering-king-57462138'
+
+const PROTECTED_BRANCHES = [
+  'br-delicate-butterfly-b4et73g9', // production
+  'br-dawn-cherry-b4dnrhm5', // staging
+  'br-long-king-b4s8l0yv', // recovery drill
+]
+
+const STARTUP_TIMEOUT_MS = 30_000
+const REQUEST_TIMEOUT_MS = 15_000
+const SHUTDOWN_GRACE_MS = 5_000
+const OVERALL_TIMEOUT_MS = 180_000
+
+const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+const testUrl = process.env.TEST_DATABASE_URL
+if (!testUrl) {
+  console.log(JSON.stringify({ skipped: true, reason: 'TEST_DATABASE_URL is not set' }))
+  process.exit(0)
+}
+for (const branch of PROTECTED_BRANCHES) {
+  if (testUrl.includes(branch)) {
+    console.error(`Refusing smoke test: TEST_DATABASE_URL references a protected Neon branch (${branch}).`)
+    process.exit(1)
+  }
+}
+if (testUrl === process.env.DATABASE_URL || testUrl === process.env.DIRECT_URL) {
+  console.error('Refusing smoke test: TEST_DATABASE_URL must not equal DATABASE_URL or DIRECT_URL.')
+  process.exit(1)
+}
+
+let testHost
+try {
+  testHost = new URL(testUrl).hostname
+} catch {
+  console.error('Refusing smoke test: TEST_DATABASE_URL is not a valid URL.')
+  process.exit(1)
+}
+const isLocal = testHost === 'localhost' || testHost === '127.0.0.1' || testHost === '::1'
+if (!isLocal && !testHost.endsWith('.neon.tech')) {
+  console.error(`Refusing smoke test: host ${testHost} is neither local nor a Neon branch.`)
+  process.exit(1)
+}
+
+const PORT = 4100 + Math.floor(Math.random() * 500)
+const BASE = `http://localhost:${PORT}`
+const pool = new Pool({ connectionString: testUrl })
+
+const results = []
+const step = (name, ok, detail) => results.push({ name, ok, ...(detail !== undefined ? { detail } : {}) })
+
+let server = null
+let serverLog = ''
+
+const watchdog = setTimeout(() => {
+  step('global watchdog', false, `exceeded ${OVERALL_TIMEOUT_MS} ms`)
+  try { server?.kill('SIGKILL') } catch { /* ignore */ }
+  const pass = results.every((r) => r.ok)
+  console.log(JSON.stringify({ allPass: pass, timedOut: true, passed: results.filter((r) => r.ok).length, total: results.length, results }, null, 2))
+  process.exit(1)
+}, OVERALL_TIMEOUT_MS)
+
+function cookieFrom(res) {
+  const all = res.headers.getSetCookie ? res.headers.getSetCookie() : []
+  const token = all.find((c) => c.startsWith('token='))
+  return token ? token.split(';')[0] : ''
+}
+
+async function api(route, { method = 'GET', body, cookie } = {}) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  try {
+    const res = await fetch(BASE + route, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    })
+    let json = null
+    try { json = await res.json() } catch { /* empty */ }
+    return { status: res.status, json, cookie: cookieFrom(res) }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Identity guard: confirm the connected server is the expected isolated branch
+// before the server is started or any row is written.
+async function verifyNeonIdentity() {
+  const r = await pool.query(
+    "SELECT current_setting('neon.branch_id', true) AS branch, current_setting('neon.project_id', true) AS project",
+  )
+  const branch = (r.rows[0]?.branch ?? '').trim()
+  const project = (r.rows[0]?.project ?? '').trim()
+  if (!branch || !project) throw new Error('connected server did not expose neon identity settings')
+  if (branch !== EXPECTED_BRANCH_ID) throw new Error(`branch mismatch: connected "${branch}", expected "${EXPECTED_BRANCH_ID}"`)
+  if (project !== EXPECTED_PROJECT_ID) throw new Error(`project mismatch: connected "${project}", expected "${EXPECTED_PROJECT_ID}"`)
+}
+
+async function waitForHealth() {
+  const deadline = Date.now() + STARTUP_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    if (server?.exitCode !== null) return false
+    try {
+      const r = await fetch(BASE + '/api/health', { signal: AbortSignal.timeout(2_000) })
+      if (r.ok) return true
+    } catch { /* not up yet */ }
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  return false
+}
+
+async function stopServer() {
+  const child = server
+  if (!child || child.exitCode !== null) return
+  child.kill('SIGTERM')
+  await new Promise((resolve) => {
+    const grace = setTimeout(() => {
+      try { child.kill('SIGKILL') } catch { /* ignore */ }
+      resolve()
+    }, SHUTDOWN_GRACE_MS)
+    child.once('exit', () => { clearTimeout(grace); resolve() })
+  })
+}
+
+const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+const email = `itest_smoke_${stamp}@example.com`
+const username = `itsmk_${stamp.replace(/_/g, '')}`.slice(0, 20)
+const password = 'Passw0rd!123'
+
+try {
+  await verifyNeonIdentity()
+
+  server = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
+    cwd: serverRoot,
+    env: { ...process.env, DATABASE_URL: testUrl, DIRECT_URL: testUrl, PORT: String(PORT), NODE_ENV: 'development' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  server.stdout.on('data', (d) => (serverLog += d.toString()))
+  server.stderr.on('data', (d) => (serverLog += d.toString()))
+  server.on('error', (e) => (serverLog += `spawn error: ${e.message}\n`))
+
+  const up = await waitForHealth()
+  step('server starts (health ok)', up, up ? undefined : serverLog.slice(-300))
+  if (!up) throw new Error('server did not start')
+
+  // Registration
+  const reg = await api('/api/auth/register', { method: 'POST', body: { email, username, password } })
+  step('register', reg.status === 201 && !!reg.json?.user, { status: reg.status })
+  const cookie = reg.cookie
+  step('register sets auth cookie', cookie.startsWith('token='))
+
+  // Onboarding -> starter CEO
+  const onb = await api('/api/game/onboarding', { method: 'POST', cookie })
+  step('onboarding grants starter', onb.status === 200 && onb.json?.owned?.length === 1, { status: onb.status, owned: onb.json?.owned?.length })
+  const ownedId = onb.json?.owned?.[0]?.id
+
+  // Resources
+  const res0 = await api('/api/game/resources', { cookie })
+  step('resources (Earned/Bonus/XP)', res0.status === 200 && res0.json?.sp?.earnedSp === '0' && res0.json?.progress?.level === 1, res0.json)
+
+  // Owned fleet view
+  const fleet = await api('/api/game/ceos/owned', { cookie })
+  step('owned fleet readable', fleet.status === 200 && fleet.json?.owned?.length === 1 && fleet.json.owned[0].canStart === true, { status: fleet.status, owned: fleet.json?.owned?.length, canStart: fleet.json?.owned?.[0]?.canStart })
+
+  // Start production
+  const start = await api(`/api/game/ceos/${ownedId}/start`, { method: 'POST', cookie })
+  step('production start', start.status === 200 && start.json?.cycle?.rewardSp === '1', start.json)
+  const cycleId = start.json?.cycle?.id
+
+  // Duplicate start rejected
+  const start2 = await api(`/api/game/ceos/${ownedId}/start`, { method: 'POST', cookie })
+  step('duplicate start rejected (409)', start2.status === 409)
+
+  // Collect before end rejected
+  const early = await api(`/api/game/ceos/${ownedId}/collect`, { method: 'POST', cookie })
+  step('early collect rejected (409)', early.status === 409)
+
+  // Expire the cycle directly on the isolated branch, then collect
+  await pool.query(`UPDATE "ProductionCycle" SET "endsAt" = now() - interval '1 second' WHERE id = $1`, [cycleId])
+  const collect = await api(`/api/game/ceos/${ownedId}/collect`, { method: 'POST', cookie })
+  step('production collect credits 1 SP', collect.status === 200 && collect.json?.rewardSp === '1' && collect.json?.alreadyCollected === false, collect.json)
+
+  const collect2 = await api(`/api/game/ceos/${ownedId}/collect`, { method: 'POST', cookie })
+  step('duplicate collect is a no-op', collect2.status === 200 && collect2.json?.alreadyCollected === true)
+
+  const res1 = await api('/api/game/resources', { cookie })
+  step('SP balance updated to 1', res1.json?.sp?.earnedSp === '1' && res1.json?.sp?.lifetimeEarnedSp === '1')
+
+  // Tasks
+  const tasks = await api('/api/game/tasks', { cookie })
+  const loginDone = tasks.json?.daily?.find((t) => t.key === 'daily_login')?.completed === true
+  step('daily login task completed', tasks.status === 200 && loginDone)
+  const claim = await api('/api/game/tasks/claim', { method: 'POST', cookie, body: { taskKey: 'daily_login' } })
+  step('claim daily task awards XP', claim.status === 200 && claim.json?.xpAwarded === 10, claim.json)
+  const res2 = await api('/api/game/resources', { cookie })
+  step('XP/level reflected', res2.json?.progress?.xp === 10 && res2.json?.progress?.rank === 'Rookie')
+
+  // Achievements
+  const ach = await api('/api/game/achievements', { cookie })
+  step('achievements listed (5 tracks)', ach.status === 200 && ach.json?.tracks?.length === 5)
+
+  // Leaderboard + public profile
+  const lb = await api('/api/public/leaderboard')
+  step('leaderboard includes player', lb.status === 200 && lb.json?.entries?.some((e) => e.username === username))
+  const me = await api('/api/game/leaderboard/me', { cookie })
+  step('player rank returned', me.status === 200 && typeof me.json?.rank === 'number')
+  const prof = await api(`/api/public/profile/${username}`)
+  step('public profile (no private data)', prof.status === 200 && prof.json?.username === username && prof.json?.email === undefined)
+
+  // Referrals + withdrawals (disabled)
+  const ref = await api('/api/game/referrals', { cookie })
+  step('referrals: rewards disabled', ref.status === 200 && ref.json?.rewardsEnabled === false)
+  const wd = await api('/api/game/withdrawals', { cookie })
+  step('withdrawals: payouts disabled', wd.status === 200 && wd.json?.payoutsEnabled === false && Array.isArray(wd.json?.withdrawals))
+
+  // Login + logout
+  const login = await api('/api/auth/login', { method: 'POST', body: { email, password } })
+  step('login', login.status === 200 && !!login.json?.user)
+  const logout = await api('/api/auth/logout', { method: 'POST', cookie })
+  step('logout', logout.status === 200)
+} catch (e) {
+  step('smoke run', false, String(e?.name === 'AbortError' ? `request timeout after ${REQUEST_TIMEOUT_MS} ms` : e?.message || e))
+} finally {
+  clearTimeout(watchdog)
+  // Clean up the isolated-branch test rows only.
+  try {
+    const users = await pool.query(`SELECT id FROM "User" WHERE email LIKE 'itest_smoke_%'`)
+    const ids = users.rows.map((r) => r.id)
+    if (ids.length) {
+      for (const t of ['ProductionCycle', 'SpLedgerEntry', 'SpAccount', 'ProgressAccount', 'TaskEvent', 'TaskClaim', 'AchievementClaim', 'UserProfile', 'IdempotencyKey']) {
+        await pool.query(`DELETE FROM "${t}" WHERE "userId" = ANY($1)`, [ids])
+      }
+      await pool.query(`DELETE FROM "ReferralAttribution" WHERE "referrerId" = ANY($1) OR "referredUserId" = ANY($1)`, [ids])
+      await pool.query(`DELETE FROM "OwnedCeo" WHERE "userId" = ANY($1)`, [ids])
+      await pool.query(`DELETE FROM "User" WHERE id = ANY($1)`, [ids])
+    }
+  } catch (e) {
+    step('cleanup', false, String(e?.message || e))
+  }
+  await pool.end().catch(() => {})
+  await stopServer()
+}
+
+const allPass = results.every((r) => r.ok)
+console.log(JSON.stringify({ allPass, passed: results.filter((r) => r.ok).length, total: results.length, results }, null, 2))
+process.exit(allPass ? 0 : 1)
