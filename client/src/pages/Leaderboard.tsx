@@ -54,7 +54,7 @@ export default function Leaderboard() {
               key={e.userId}
               type="button"
               onClick={() => openProfile(e.username)}
-              className={`flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-white/5 ${i !== 0 ? 'border-t border-line' : ''}`}
+              className={`flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-white/5 ${i !== 0 ? 'border-t border-line' : ''} ${e.rank === 1 ? 'bg-gold/5' : e.rank <= 3 ? 'bg-primary/5' : ''}`}
             >
               <span className={`w-7 shrink-0 text-center text-sm font-black ${rankMedal(e.rank)}`}>{e.rank}</span>
               <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-line bg-surface-2 text-xs font-bold">

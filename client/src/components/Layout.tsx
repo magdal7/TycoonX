@@ -14,9 +14,11 @@ import {
   Coins,
   Sparkles,
   UserPlus,
-  ShieldCheck
+  ShieldCheck,
+  Map
 } from 'lucide-react'
 import { Link, useRouter } from './router'
+import { Logo, LogoMark } from './Logo'
 import { useResources } from '../lib/resources'
 import { usePublicSettings, type FeatureSettings } from '../lib/siteSettings'
 import { formatNumber } from '../lib/format'
@@ -39,6 +41,7 @@ const PRIMARY: NavItem[] = [
 ]
 
 const SECONDARY: NavItem[] = [
+  { id: 'world', label: 'Empire Map', href: '/dashboard/world', Icon: Map },
   { id: 'achievements', label: 'Achievements', href: '/dashboard/achievements', Icon: Sparkles, feature: 'achievements' },
   { id: 'leaderboard', label: 'Leaderboard', href: '/dashboard/leaderboard', Icon: Trophy, feature: 'leaderboard' },
   { id: 'referrals', label: 'Referrals', href: '/dashboard/referrals', Icon: UserPlus },
@@ -78,9 +81,7 @@ export function Layout({ children }: LayoutProps) {
         }`}
       >
         <div className="flex h-16 items-center gap-2 border-b border-line px-4">
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary to-accent text-sm font-black">
-            TX
-          </div>
+          <LogoMark size={32} className="shrink-0" />
           {!collapsed && <span className="text-lg font-black tracking-tighter text-gradient">TycoonX</span>}
         </div>
 
@@ -141,7 +142,7 @@ export function Layout({ children }: LayoutProps) {
             <Menu className="h-6 w-6" />
           </button>
           <div className="flex items-center gap-2 md:hidden">
-            <div className="grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-primary to-accent text-xs font-black">TX</div>
+            <LogoMark size={28} />
           </div>
           <span className="hidden text-sm font-semibold text-white md:block">{activeLabel}</span>
 
@@ -200,7 +201,7 @@ export function Layout({ children }: LayoutProps) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-6 flex items-center justify-between">
-              <span className="text-lg font-black tracking-tighter text-gradient">TycoonX</span>
+              <Logo size={32} />
               <button type="button" onClick={() => setMobileOpen(false)} className="text-muted hover:text-white" aria-label="Close menu">
                 <X className="h-6 w-6" />
               </button>

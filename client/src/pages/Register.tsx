@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Card } from '../components/ui/card'
+import { LogoMark } from '../components/Logo'
 import { usePublicSettings } from '../lib/siteSettings'
 
 type Props = { navigate: (p: string) => void }
@@ -63,9 +64,7 @@ export default function Register({ navigate }: Props) {
 
       <div className="max-w-sm mx-auto">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-accent mb-4">
-            <span className="text-white font-bold text-lg">TX</span>
-          </div>
+          <LogoMark size={48} className="mx-auto mb-4" />
           <h1 className="text-2xl font-bold tracking-tight">Create account</h1>
           <p className="text-gray-400 text-sm mt-2">Start building your TycoonX empire</p>
         </div>

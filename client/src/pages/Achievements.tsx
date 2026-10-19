@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Sparkles, Award, AlertTriangle, RefreshCw, CheckCircle2, Lock } from 'lucide-react'
 import { Card } from '../components/ui/card'
+import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Progress, SectionHeading, EmptyState, CardSkeleton } from '../components/ui/kit'
 import { useApi } from '../lib/useApi'
@@ -38,14 +39,18 @@ function StageChip({ stage, onClick, busy }: { stage: AchievementStage; onClick:
 export default function Achievements() {
   const { data, loading, error, reload } = useApi(() => fetchAchievements(), [])
   const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState('')
+
+  const claimable = (data ?? []).flatMap((t) => t.stages).filter((s) => s.achieved && !s.claimed).length
 
   async function claim(trackKey: string, stage: string) {
     setBusy(true)
+    setNotice('')
     try {
       await claimAchievement(trackKey, stage)
       reload()
     } catch {
-      /* ignore */
+      setNotice('Could not claim — try again.')
     } finally {
       setBusy(false)
     }
@@ -53,7 +58,23 @@ export default function Achievements() {
 
   return (
     <div className="space-y-5 animate-fade-in">
-      <SectionHeading eyebrow="Trophies" title="Achievements" description="Permanent, cumulative milestones. Rewards are XP only." right={<Sparkles className="h-5 w-5 text-accent" />} />
+      <SectionHeading
+        eyebrow="Trophies"
+        title="Achievements"
+        description="Permanent, cumulative milestones. Rewards are XP only."
+        right={
+          <div className="flex items-center gap-2">
+            {claimable > 0 && <Badge variant="success">{claimable} ready</Badge>}
+            <Sparkles className="h-5 w-5 text-accent" />
+          </div>
+        }
+      />
+
+      {notice && (
+        <div className="flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-red-300">
+          <AlertTriangle className="h-4 w-4" /> {notice}
+        </div>
+      )}
 
       {loading ? (
         <div className="grid gap-3 sm:grid-cols-2">{Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)}</div>

@@ -1,4 +1,6 @@
-export type BuildingType = 'hq' | 'server'
+export type BuildingType = 'hq' | 'server' | 'labs' | 'tower'
+
+export type BuildingStatus = 'operating' | 'upgrading'
 
 export interface Footprint {
   w: number
@@ -25,6 +27,7 @@ export interface BuildingDef {
   nextUpgrade: string
   accent: string
   palette: IsoPalette
+  status: BuildingStatus
 }
 
 export type PlotStatus = 'locked' | 'available'

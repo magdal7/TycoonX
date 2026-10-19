@@ -39,6 +39,7 @@ export default function BuildingPanel({
 
       <div className="flex flex-wrap gap-2">
         <Badge variant="demo">PREVIEW</Badge>
+        {view.upgrading && <Badge variant="warning">Upgrading</Badge>}
         {view.level !== null && (
           <Badge variant="default">
             Level {view.level}/{view.maxLevel} (demo)
@@ -46,6 +47,19 @@ export default function BuildingPanel({
         )}
         <Badge variant="default">Footprint {view.footprint}</Badge>
       </div>
+
+      {view.level !== null && view.maxLevel !== null && (
+        <div className="flex items-center gap-1.5">
+          {Array.from({ length: view.maxLevel }, (_, i) => (
+            <span
+              key={i}
+              className="h-2 w-6 rounded-full"
+              style={{ backgroundColor: i < (view.level ?? 0) ? view.accent : 'rgba(148,163,184,0.16)' }}
+            />
+          ))}
+          <span className="ml-1 text-[10px] text-muted">L{view.level}/{view.maxLevel}</span>
+        </div>
+      )}
 
       <div className="rounded-lg border border-gray-800/60 bg-gray-900/30 p-3">
         <div className="flex items-center justify-between text-xs">

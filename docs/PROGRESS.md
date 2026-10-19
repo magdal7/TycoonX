@@ -5,8 +5,8 @@ Last updated: 2026-10-19.
 
 ## Verified current state
 - **Repo:** git repository, default branch `master` (V2.5 economy/progression backend, UI redesign,
-  migration workflows, plus Steps 1–6: registration, missions, admin/special tasks, admin management,
-  referrals, and wallet/purchases). Monorepo `client` / `server` / `shared`.
+  migration workflows, plus Steps 1–7: registration, missions, admin/special tasks, admin management,
+  referrals, wallet/purchases, and final game UI/UX). Monorepo `client` / `server` / `shared`.
 - **Auth (implemented):** register/login/logout/me; JWT httpOnly `token` cookie (7d); bcrypt (12); Zod;
   `/api/auth` rate limit. Username validation matches the approved rule (3–20 chars, `[A-Za-z0-9_]`).
   Email verification/password recovery **deferred** (MVP decision).
@@ -124,6 +124,20 @@ Last updated: 2026-10-19.
     server-validated Buy action that reports payments are disabled.
   - Migration `20261019050000_v25_wallet_purchases` (PaymentIntent / PaymentWebhookEvent / CeoPurchase +
     4 enums + `SpSourceType.DEPOSIT_CREDIT`) **applied to the isolated test branch only**.
+- **Final game UI/UX (V2.5 Step 7, client-only):**
+  - **Brand identity**: shared `Logo`/`LogoMark` component (SVG `icon.svg` + `favicon.svg`), used across
+    Landing/Login/Register/player shell/admin shell; unified PWA manifest (`manifest.webmanifest` +
+    `public/manifest.json`) with refined name/description and SVG + maskable PNG icons; `viewport-fit=cover`.
+  - **Empire map**: `/dashboard/world` is now reachable from the nav ("Empire Map"); four visually distinct
+    isometric buildings (HQ / Data / Labs / Tower) with upgrade-state ring/glow, level pips, a color legend
+    and a live HUD (real level/XP/SP via `useResources`; no energy). Tap-to-inspect building panel shows
+    level pips and upgrading state.
+  - **CEO cards & feedback**: live per-second production countdowns, pulsing "Ready to collect" state, and
+    success toasts on start/collect/bulk/equip actions (Home).
+  - **Page polish**: Achievements surfaces claimable count + claim error feedback; Leaderboard highlights
+    the top-3 podium; Wallet/Missions/Referrals retain their existing loading/empty/error states.
+  - **Consistency**: reused existing components/tokens; **no backend, schema, economy, price or reward
+    changes**; admin panel unchanged (only the brand mark).
 - **Production database (verified 2026-10-18, read-only):** production branch
   `br-delicate-butterfly-b4et73g9` / project `wandering-king-57462138` has **six `_prisma_migrations`
   rows**: the four baseline migrations plus both V2.5 migrations recorded applied at
@@ -239,6 +253,21 @@ application (server/client) deployment.
 10. **V2.5 Step 4 (admin management) — done.** See "Admin Management — Step 4" below.
 11. **V2.5 Step 5 (referral system) — done.** See "Referral System — Step 5" below.
 12. **V2.5 Step 6 (wallet + CEO purchases) — done.** See "Wallet + Purchases — Step 6" below.
+13. **V2.5 Step 7 (final game UI/UX) — done.** See "Game UI/UX — Step 7" below.
+
+## Game UI/UX — Step 7 (2026-10-19)
+Client-only polish (no backend/economy/schema changes):
+1. **Brand identity**: shared `Logo`/`LogoMark` (SVG icon + favicon) across auth, player and admin shells;
+   unified PWA manifest with SVG + maskable PNG icons and refined metadata.
+2. **Empire map**: reachable via nav; four distinct isometric buildings with upgrade states, level pips and
+   a legend; live HUD using real level/XP/SP (energy removed).
+3. **CEO cards/timers/feedback**: per-second countdowns, pulsing ready state, and action success toasts.
+4. **Page polish**: Achievements claim feedback + claimable count; Leaderboard podium tint.
+5. **Consistency/mobile**: reused existing components/tokens; responsive layouts and empty/loading/error
+   states retained; admin panel unchanged apart from the brand mark.
+
+Verification: client PWA build passes (server untouched; unit/integration/smoke unaffected). No financial
+logic, schema, prices, rewards or production rules changed.
 
 ## Wallet + Purchases — Step 6 (2026-10-19)
 Extended the existing wallet/ledger/admin systems (no rebuild) with:

@@ -14,6 +14,7 @@ import {
   Settings
 } from 'lucide-react'
 import { Link, useRouter } from './router'
+import { LogoMark } from './Logo'
 
 const NAV = [
   { href: '/admin', label: 'Dashboard', Icon: LayoutDashboard },
@@ -40,9 +41,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen bg-bg text-white">
       <aside className="hidden shrink-0 flex-col border-r border-line bg-surface-2/60 backdrop-blur md:flex md:w-60">
         <div className="flex h-16 items-center gap-2 border-b border-line px-4">
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary to-accent text-sm font-black">
-            TX
-          </div>
+          <LogoMark size={32} className="shrink-0" />
           <span className="text-sm font-black tracking-tight">Admin Console</span>
         </div>
         <nav className="flex-1 space-y-1 p-2" aria-label="Admin">

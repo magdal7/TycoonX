@@ -13,6 +13,14 @@ export interface SelectionView {
   status: string
   accent: string
   actionLabel: string
+  upgrading: boolean
+}
+
+const BUILDING_SUBTITLE: Record<string, string> = {
+  hq: 'Headquarters',
+  server: 'Data facility',
+  labs: 'Research facility',
+  tower: 'Prestige tower'
 }
 
 export function describeSelection(world: WorldState, selected: Selected): SelectionView | null {
@@ -20,19 +28,21 @@ export function describeSelection(world: WorldState, selected: Selected): Select
   if (selected.kind === 'building') {
     const b = world.buildings.find((x) => x.id === selected.id)
     if (!b) return null
+    const upgrading = b.status === 'upgrading'
     return {
       kind: 'building',
       id: b.id,
       name: b.name,
-      subtitle: b.type === 'hq' ? 'Headquarters' : 'Facility',
+      subtitle: BUILDING_SUBTITLE[b.type] ?? 'Facility',
       description: b.description,
       level: b.level,
       maxLevel: b.maxLevel,
       nextUpgrade: b.nextUpgrade,
       footprint: `${b.footprint.w} × ${b.footprint.h}`,
-      status: 'Operating (preview)',
+      status: upgrading ? 'Upgrading (preview)' : 'Operating (preview)',
       accent: b.accent,
-      actionLabel: `Upgrade to L${Math.min(b.level + 1, b.maxLevel)}`
+      actionLabel: upgrading ? 'Upgrading…' : `Upgrade to L${Math.min(b.level + 1, b.maxLevel)}`,
+      upgrading
     }
   }
   const p = world.plots.find((x) => x.id === selected.id)
@@ -49,6 +59,7 @@ export function describeSelection(world: WorldState, selected: Selected): Select
     footprint: `${p.footprint.w} × ${p.footprint.h}`,
     status: p.status === 'locked' ? 'Locked' : 'Available (preview)',
     accent: p.status === 'locked' ? '#F59E0B' : '#3478FF',
-    actionLabel: 'Build facility'
+    actionLabel: 'Build facility',
+    upgrading: false
   }
 }

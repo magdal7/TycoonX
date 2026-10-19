@@ -11,7 +11,7 @@ export default function GameHome({ navigate }: { navigate: (p: string) => void }
 
   return (
     <div className="space-y-4">
-      <GameHud onClassic={() => navigate('/dashboard/classic')} />
+      <GameHud onEmpire={() => navigate('/dashboard')} />
       <div className="flex flex-col gap-4 lg:flex-row">
         <div className="min-w-0 lg:flex-1">
           <GameCanvas world={world} selected={selected} onSelect={setSelected} />

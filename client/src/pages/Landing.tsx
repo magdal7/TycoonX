@@ -16,6 +16,7 @@ import {
   Lock
 } from 'lucide-react'
 import { Badge } from '../components/ui/badge'
+import { Logo } from '../components/Logo'
 import { CeoAvatar } from '../components/CeoAvatar'
 import { formatNumber, formatUsd } from '../lib/format'
 
@@ -56,8 +57,7 @@ export default function Landing({ navigate, authed }: Props) {
       <header className="sticky top-0 z-40 border-b border-line bg-bg/80 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 md:px-6">
           <div className="flex items-center gap-2">
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-primary to-accent text-sm font-black">TX</div>
-            <span className="text-lg font-black tracking-tighter text-gradient">TycoonX</span>
+            <Logo size={32} />
           </div>
           <nav className="ml-6 hidden items-center gap-6 text-sm text-muted md:flex">
             <a href="#how" className="transition-colors hover:text-white">How it works</a>

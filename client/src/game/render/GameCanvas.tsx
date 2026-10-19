@@ -204,6 +204,26 @@ function IsoBuilding({
           />
         </>
       )}
+      {b.status === 'upgrading' && (
+        <g className="motion-safe:animate-pulse">
+          <polygon points={top} fill="none" stroke="#F5C451" strokeWidth="2" strokeDasharray="5 4" opacity="0.9" />
+          <circle cx={antTop.x} cy={antTop.y - 12} r="4" fill="#F5C451" />
+        </g>
+      )}
+      {Array.from({ length: b.maxLevel }, (_, i) => {
+        const x = ctr.x + (i - (b.maxLevel - 1) / 2) * 8
+        return (
+          <circle
+            key={`pip${i}`}
+            cx={x}
+            cy={D.y + 12}
+            r="3"
+            fill={i < b.level ? b.accent : 'rgba(148,163,184,0.28)'}
+            stroke="#0b1020"
+            strokeWidth="1"
+          />
+        )
+      })}
       {useSprite && variant ? (
         <SpriteImage
           href={spriteSrc('buildings', variant.file)}
@@ -481,9 +501,14 @@ export default function GameCanvas({
         <ellipse cx="380" cy="232" rx="300" ry="150" fill="url(#groundGlow)" />
         {items.map((it) => it.node)}
       </svg>
-      <p className="px-3 pb-3 text-[10px] text-gray-500">
-        PREVIEW — isometric prototype. No purchases, upgrades or production logic yet.
-      </p>
+      <div className="flex flex-wrap items-center gap-3 px-3 pb-3 text-[10px] text-muted">
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#3478FF]" /> HQ</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#16A879]" /> Data</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#8B5CF6]" /> Labs</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#F5C451]" /> Tower</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#F59E0B]" /> Locked plot</span>
+        <span className="ml-auto">PREVIEW — tap a building to inspect. No purchases or production logic.</span>
+      </div>
     </div>
   )
 }

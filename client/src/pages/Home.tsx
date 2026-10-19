@@ -31,11 +31,23 @@ import {
   upgradeEquipment,
   type OwnedCeo
 } from '../lib/game'
-import { formatNumber, timeUntil } from '../lib/format'
+import { formatNumber } from '../lib/format'
 
 const EQUIP_LABEL: Record<string, string> = { STANDARD: 'Standard · 4h', EXTENDED: 'Extended · 6h', ADVANCED: 'Advanced · 8h' }
 const EQUIP_COST: Record<string, number> = { EXTENDED: 500, ADVANCED: 1500 }
 const EQUIP_LEVEL: Record<string, number> = { EXTENDED: 5, ADVANCED: 12 }
+
+function countdown(iso: string, now: number): string {
+  const diff = new Date(iso).getTime() - now
+  if (diff <= 0) return 'ready'
+  const s = Math.floor(diff / 1000)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) return `${h}h ${m}m`
+  if (m > 0) return `${m}m ${sec}s`
+  return `${sec}s`
+}
 
 function statusBadge(ceo: OwnedCeo) {
   if (ceo.archivedAt || ceo.status === 'EXHAUSTED') return <Badge variant="warning">Archived</Badge>
@@ -48,11 +60,12 @@ export default function Home() {
   const resources = useResources()
   const fleet = useApi(() => fetchOwnedCeos(), [])
   const [busy, setBusy] = useState<Record<number, boolean>>({})
-  const [, setTick] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
   const [notice, setNotice] = useState('')
+  const [flash, setFlash] = useState('')
 
   useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 30000)
+    const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
   }, [])
 
@@ -61,11 +74,16 @@ export default function Home() {
   const progress = resources.data?.progress
   const level = progress?.level ?? 1
 
-  async function run(id: number, fn: () => Promise<unknown>) {
+  async function run(id: number, fn: () => Promise<unknown>, success?: (r: any) => string) {
     setBusy((b) => ({ ...b, [id]: true }))
     setNotice('')
+    setFlash('')
     try {
-      await fn()
+      const r = await fn()
+      if (success) {
+        setFlash(success(r))
+        window.setTimeout(() => setFlash(''), 4000)
+      }
       resources.reload()
       fleet.reload()
     } catch (e) {
@@ -79,9 +97,12 @@ export default function Home() {
     const ids = owned.filter((c) => (kind === 'start' ? c.canStart : c.canCollect)).map((c) => c.id)
     if (ids.length === 0) return
     setNotice('')
+    setFlash('')
     try {
       if (kind === 'start') await bulkStart(ids)
       else await bulkCollect(ids)
+      setFlash(kind === 'start' ? `Started ${ids.length} cycle${ids.length === 1 ? '' : 's'}` : `Collected ${ids.length} cycle${ids.length === 1 ? '' : 's'}`)
+      window.setTimeout(() => setFlash(''), 4000)
       resources.reload()
       fleet.reload()
     } catch (e) {
@@ -140,6 +161,12 @@ export default function Home() {
         </div>
       )}
 
+      {flash && (
+        <div className="flex animate-slide-up items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
+          <Download className="h-4 w-4" /> {flash}
+        </div>
+      )}
+
       {/* Bulk actions */}
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => runBulk('start')} disabled={startable === 0} iconLeft={<Play className="h-4 w-4" />}>
@@ -172,10 +199,11 @@ export default function Home() {
               key={ceo.id}
               ceo={ceo}
               level={level}
+              now={now}
               busy={!!busy[ceo.id]}
-              onStart={() => run(ceo.id, () => startCycle(ceo.id))}
-              onCollect={() => run(ceo.id, () => collectCycle(ceo.id))}
-              onUpgrade={(target) => run(ceo.id, () => upgradeEquipment(ceo.id, target))}
+              onStart={() => run(ceo.id, () => startCycle(ceo.id), (r) => `Cycle started · ${r.cycleHours}h`)}
+              onCollect={() => run(ceo.id, () => collectCycle(ceo.id), (r) => `Collected +${formatNumber(r.rewardSp)} SP`)}
+              onUpgrade={(target) => run(ceo.id, () => upgradeEquipment(ceo.id, target), () => `Equipment upgraded to ${target}`)}
             />
           ))}
         </div>
@@ -197,6 +225,7 @@ export default function Home() {
 function FleetCard({
   ceo,
   level,
+  now,
   busy,
   onStart,
   onCollect,
@@ -204,6 +233,7 @@ function FleetCard({
 }: {
   ceo: OwnedCeo
   level: number
+  now: number
   busy: boolean
   onStart: () => void
   onCollect: () => void
@@ -248,9 +278,9 @@ function FleetCard({
         {archived ? (
           <span className="inline-flex items-center gap-1.5 text-muted"><Archive className="h-3.5 w-3.5" /> Archived — cap reached, ownership retained</span>
         ) : ceo.canCollect ? (
-          <span className="text-success">Cycle complete · {formatNumber(ceo.cycleRewardSp ?? 0)} SP ready</span>
+          <span className="inline-flex items-center gap-1.5 font-semibold text-success motion-safe:animate-pulse"><Download className="h-3.5 w-3.5" /> Ready · {formatNumber(ceo.cycleRewardSp ?? 0)} SP</span>
         ) : ceo.cycleEndsAt ? (
-          <span className="text-muted">Producing · ready in {timeUntil(ceo.cycleEndsAt)}</span>
+          <span className="text-muted">Producing · ready in {countdown(ceo.cycleEndsAt, now)}</span>
         ) : (
           <span className="text-muted">Idle — start a cycle to produce</span>
         )}
