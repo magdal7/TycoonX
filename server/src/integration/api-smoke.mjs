@@ -179,8 +179,8 @@ try {
   step('server starts (health ok)', up, up ? undefined : serverLog.slice(-300))
   if (!up) throw new Error('server did not start')
 
-  // Registration
-  const reg = await api('/api/auth/register', { method: 'POST', body: { email, username, password } })
+  // Registration (policy acceptance is mandatory)
+  const reg = await api('/api/auth/register', { method: 'POST', body: { email, username, password, acceptTerms: true } })
   step('register', reg.status === 201 && !!reg.json?.user, { status: reg.status })
   const cookie = reg.cookie
   step('register sets auth cookie', cookie.startsWith('token='))
@@ -263,7 +263,7 @@ try {
     const users = await pool.query(`SELECT id FROM "User" WHERE email LIKE 'itest_smoke_%'`)
     const ids = users.rows.map((r) => r.id)
     if (ids.length) {
-      for (const t of ['ProductionCycle', 'SpLedgerEntry', 'SpAccount', 'ProgressAccount', 'TaskEvent', 'TaskClaim', 'AchievementClaim', 'UserProfile', 'IdempotencyKey']) {
+      for (const t of ['ProductionCycle', 'SpLedgerEntry', 'SpAccount', 'ProgressAccount', 'TaskEvent', 'TaskClaim', 'AchievementClaim', 'UserProfile', 'PolicyConsent', 'IdempotencyKey']) {
         await pool.query(`DELETE FROM "${t}" WHERE "userId" = ANY($1)`, [ids])
       }
       await pool.query(`DELETE FROM "ReferralAttribution" WHERE "referrerId" = ANY($1) OR "referredUserId" = ANY($1)`, [ids])

@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "node --import tsx --test src/lib/idempotency.test.ts src/lib/gameMath.test.ts src/lib/tasks.test.ts src/lib/achievements.test.ts src/services/economy.test.ts src/services/production.test.ts src/services/progression.test.ts src/middleware/auth.test.ts src/routes/game/ceos.test.ts",
+    "test": "node --import tsx --test src/lib/idempotency.test.ts src/lib/gameMath.test.ts src/lib/tasks.test.ts src/lib/achievements.test.ts src/services/economy.test.ts src/services/production.test.ts src/services/progression.test.ts src/services/referral.test.ts src/validation/auth.test.ts src/middleware/auth.test.ts src/routes/game/ceos.test.ts",
     "test:integration": "node --import tsx --test src/integration/ownership.integration.test.ts",
     "test:smoke": "node src/integration/api-smoke.mjs",
     "prisma:generate": "prisma generate",

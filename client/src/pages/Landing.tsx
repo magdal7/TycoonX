@@ -255,6 +255,8 @@ export default function Landing({ navigate, authed }: Props) {
           <span className="flex items-center gap-3">
             <a href="#faq" className="hover:text-white">FAQ</a>
             <a href="#how" className="hover:text-white">How it works</a>
+            <a href="/terms" onClick={(e) => { e.preventDefault(); navigate('/terms') }} className="hover:text-white">Terms</a>
+            <a href="/privacy" onClick={(e) => { e.preventDefault(); navigate('/privacy') }} className="hover:text-white">Privacy</a>
           </span>
         </div>
       </footer>

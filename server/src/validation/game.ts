@@ -12,9 +12,14 @@ export const ownedCeoIdParamSchema = z.object({
   id: z.coerce.number().int().positive(),
 })
 
-/** Registration payload with optional referral code (wiring lands in Phase 6B.2). */
+/**
+ * Registration payload with an optional referral code and mandatory policy
+ * acceptance. The client sends a single checkbox state; the server records the
+ * authoritative policy versions from `lib/policies` (never client-supplied).
+ */
 export const registerWithReferralSchema = registerSchema.extend({
   ref: referralCodeSchema.optional(),
+  acceptTerms: z.literal(true),
 })
 
 export const equipmentTargetSchema = z.enum(['STANDARD', 'EXTENDED', 'ADVANCED'])

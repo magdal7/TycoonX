@@ -3,6 +3,7 @@ import { Home as HomeIcon } from 'lucide-react'
 import { useAuth } from './context/AuthContext'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import Policy from './pages/Policy'
 import Landing from './pages/Landing'
 import GameHome from './game/GameHome'
 import Home from './pages/Home'
@@ -16,12 +17,14 @@ import Profile from './pages/Profile'
 import { RouterProvider } from './components/router'
 import { Layout } from './components/Layout'
 
-type Page = '/' | '/login' | '/register'
+type Page = '/' | '/login' | '/register' | '/terms' | '/privacy'
 
 function getPath(): Page {
   const p = window.location.pathname.replace(/\/+$/, '')
   if (p === '/login') return '/login'
   if (p === '/register') return '/register'
+  if (p === '/terms') return '/terms'
+  if (p === '/privacy') return '/privacy'
   return '/'
 }
 
@@ -91,6 +94,10 @@ export default function App() {
         <Login navigate={navigate} />
       ) : page === '/register' ? (
         <Register navigate={navigate} />
+      ) : page === '/terms' ? (
+        <Policy kind="terms" navigate={navigate} />
+      ) : page === '/privacy' ? (
+        <Policy kind="privacy" navigate={navigate} />
       ) : (
         <RouterProvider
           fallback={<NotFound navigate={navigate} />}

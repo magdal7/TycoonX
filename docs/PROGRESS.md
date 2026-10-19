@@ -1,7 +1,7 @@
 # TycoonX — Implementation Status (PROGRESS)
 
 Canonical status file. Product rules live in `docs/TYCOONX_V2_MASTER_SPEC.md` (do not duplicate rules here).
-Last updated: 2026-10-18.
+Last updated: 2026-10-19.
 
 ## Verified current state
 - **Repo:** git repository, default branch `master`, HEAD `d95f94e` (V2.5 economy/progression backend,
@@ -9,6 +9,14 @@ Last updated: 2026-10-18.
 - **Auth (implemented):** register/login/logout/me; JWT httpOnly `token` cookie (7d); bcrypt (12); Zod;
   `/api/auth` rate limit. Username validation matches the approved rule (3–20 chars, `[A-Za-z0-9_]`).
   Email verification/password recovery **deferred** (MVP decision).
+- **Registration (V2.5 Step 1, implemented):** confirm-password matching (client), optional **Referral
+  Code** auto-populated from `?ref=CODE` and editable, mandatory ToS/Privacy acceptance with working
+  `/terms` + `/privacy` pages. Server-side: consent recorded atomically with account creation
+  (`PolicyConsent` rows with server-authoritative policy versions + DB acceptance timestamp); referral
+  codes validated server-side with **self-referrals rejected** (code cannot equal the new username) and
+  valid attribution stored; referral rewards stay **disabled**. New client policy pages use the existing
+  responsive dark theme. New migration `20261019000000_v25_registration_policy_consent` created but
+  **NOT applied** to any database (dev-only; additive `PolicyConsent` table).
 - **CEO catalog API (implemented):** `GET/POST/PUT/DELETE /api/ceos`; Decimal→string serialization;
   active-row reads via `GET /api/ceos?isActive=true`.
 - **Ownership backend (implemented, unit + integration tested):** `GET /api/game/ceos/owned`,
@@ -46,7 +54,8 @@ Last updated: 2026-10-18.
   badges), Wallet (balances, SP ledger, withdrawal requests with payouts disabled). Legacy demo pages
   removed. Client API layer in `client/src/lib/game.ts`.
 - **Tests:**
-  - `npm test --workspace=server` — **65/65 unit pass**.
+  - `npm test --workspace=server` — **73/73 unit pass** (incl. new referral-attribution + registration
+    consent/validation tests).
   - `npm run test:integration --workspace=server` — **8/8 pass** against isolated branch
     `br-cold-star-b4bbaq8u` (identity-guarded + schema-guarded; ownership + production start/collect,
     duplicate-collection prevention, lifetime-cap exhaustion).
@@ -78,6 +87,10 @@ Last updated: 2026-10-18.
    database only.
 5. **Payments disabled.** OxaPay is planning only; deposits, withdrawals, payouts and referral rewards
    remain **disabled** pending owner approval and go-live gates.
+6. **Registration consent migration pending (owner action).** `20261019000000_v25_registration_policy_consent`
+   (additive `PolicyConsent` table) is created locally and **not applied** to any database. Registration
+   records consent in the same transaction as the account, so the table must exist before this feature is
+   run against a database; apply via the standard guarded migration workflow after a verified backup.
 
 ## Not implemented yet (see Master Spec §0/§3–§9)
 Admin-created **special tasks**; **OxaPay** integration (planning only, not activated); admin UI; real
@@ -91,3 +104,6 @@ purchases; application (server/client) deployment.
 5. Production migration execution — **done** (both V2.5 migrations applied; six migration records).
 6. **Remaining:** application deployment (server + client hosting) and admin UI are not configured;
    OxaPay integration and all real-money flows stay disabled pending explicit owner approval.
+7. **V2.5 Step 1 (registration)** — **done** (confirm password, referral prefill/manual entry, ToS/Privacy
+   consent + pages, server-side referral validation and consent recording; unit + build verified). The
+   `PolicyConsent` migration still needs owner-approved application to any environment.

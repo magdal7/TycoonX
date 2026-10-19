@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Mail, Lock, User, ArrowLeft, ChevronRight } from 'lucide-react'
+import { Mail, Lock, User, ArrowLeft, ChevronRight, Gift } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -11,6 +11,7 @@ export default function Register({ navigate }: Props) {
   const { register } = useAuth()
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [ref, setRef] = useState(() => new URLSearchParams(window.location.search).get('ref') ?? '')
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -18,10 +19,28 @@ export default function Register({ navigate }: Props) {
     const email = fd.get('email') as string
     const username = fd.get('username') as string
     const password = fd.get('password') as string
-    const ref = new URLSearchParams(window.location.search).get('ref') ?? undefined
+    const confirmPassword = fd.get('confirmPassword') as string
+    const acceptTerms = fd.get('acceptTerms') === 'on'
+    const referral = ref.trim()
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match')
+      return
+    }
+    if (!acceptTerms) {
+      setError('You must accept the Terms of Service and Privacy Policy')
+      return
+    }
+
     setLoading(true)
     setError('')
-    const res = await register(email, username, password, ref)
+    const res = await register({
+      email,
+      username,
+      password,
+      acceptTerms,
+      ...(referral ? { ref: referral } : {}),
+    })
     setLoading(false)
     if (res.error) setError(res.error || 'Registration failed')
     else navigate('/dashboard')
@@ -74,6 +93,48 @@ export default function Register({ navigate }: Props) {
               <Input name="password" type="password" required minLength={8} autoComplete="new-password" showPasswordToggle className="mt-1" />
               <p className="text-[10px] text-gray-500 mt-1">At least 8 characters</p>
             </div>
+
+            <div>
+              <div className="flex items-center gap-2">
+                <Lock className="h-5 w-5 text-gray-500" />
+                <label className="text-sm font-medium text-gray-300">Confirm password</label>
+              </div>
+              <Input name="confirmPassword" type="password" required minLength={8} autoComplete="new-password" showPasswordToggle className="mt-1" />
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2">
+                <Gift className="h-5 w-5 text-gray-500" />
+                <label className="text-sm font-medium text-gray-300">Referral code <span className="font-normal text-gray-500">(optional)</span></label>
+              </div>
+              <Input
+                name="ref"
+                type="text"
+                maxLength={64}
+                pattern="[a-zA-Z0-9_]*"
+                autoComplete="off"
+                placeholder="e.g. a friend's username"
+                value={ref}
+                onChange={(e) => setRef(e.target.value)}
+                className="mt-1"
+              />
+              <p className="text-[10px] text-gray-500 mt-1">Referral rewards stay disabled until qualification is approved.</p>
+            </div>
+
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                name="acceptTerms"
+                required
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-600 bg-gray-800/50 text-primary focus:ring-primary focus:ring-offset-0"
+              />
+              <span className="text-xs leading-relaxed text-gray-400">
+                I agree to the{' '}
+                <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-accent underline">Terms of Service</a>
+                {' '}and{' '}
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-accent underline">Privacy Policy</a>.
+              </span>
+            </label>
 
             {error && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-900/20 border border-red-500/30">

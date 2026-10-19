@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { loginSchema } from '../validation/auth'
 import { registerWithReferralSchema } from '../validation/game'
 import { hashPassword, comparePassword, signToken } from '../lib/auth'
+import { POLICY_VERSIONS } from '../lib/policies'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, requireAuth } from '../middleware/auth'
 import { findRegistrationConflict } from '../services/registration'
@@ -23,14 +24,30 @@ router.post('/register', async (req: AuthRequest, res: Response) => {
   const conflict = await findRegistrationConflict(prisma, { email, username })
   if (conflict) return res.status(409).json({ error: 'user already exists' })
   const passwordHash = await hashPassword(password)
-  const user = await prisma.user.create({
-    data: { email, username, passwordHash },
-    select: { id: true, email: true, username: true, role: true },
+  // Create the account and its policy consent atomically. The recorded policy
+  // versions are server-authoritative and the timestamp is the DB acceptance time.
+  const user = await prisma.$transaction(async (tx) => {
+    const created = await tx.user.create({
+      data: { email, username, passwordHash },
+      select: { id: true, email: true, username: true, role: true },
+    })
+    await tx.policyConsent.create({
+      data: {
+        userId: created.id,
+        termsVersion: POLICY_VERSIONS.terms,
+        privacyVersion: POLICY_VERSIONS.privacy,
+      },
+    })
+    return created
   })
   // Referral attribution only; rewards remain disabled pending approved qualification.
   if (ref) {
     try {
-      await attributeReferral(prisma, { referredUserId: user.id, code: ref })
+      await attributeReferral(prisma, {
+        referredUserId: user.id,
+        referredUsername: user.username,
+        code: ref,
+      })
     } catch {
       /* attribution must never block registration */
     }

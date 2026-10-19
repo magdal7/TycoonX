@@ -3,11 +3,19 @@ import { ensureOnboarding } from '../lib/ceos'
 
 type User = { id: number; email: string; username: string; role: string } | null
 
+type RegisterInput = {
+  email: string
+  username: string
+  password: string
+  ref?: string
+  acceptTerms: boolean
+}
+
 type AuthCtx = {
   user: User
   loading: boolean
   login: (email: string, password: string) => Promise<{ error?: string }>
-  register: (email: string, username: string, password: string, ref?: string) => Promise<{ error?: string }>
+  register: (input: RegisterInput) => Promise<{ error?: string }>
   logout: () => Promise<void>
 }
 
@@ -49,11 +57,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return {}
   }
 
-  async function register(email: string, username: string, password: string, ref?: string) {
+  async function register(input: RegisterInput) {
+    const { email, username, password, ref, acceptTerms } = input
     const r = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, username, password, ...(ref ? { ref } : {}) }),
+      body: JSON.stringify({ email, username, password, acceptTerms, ...(ref ? { ref } : {}) }),
       credentials: 'include',
     })
     const j = (await r.json().catch(() => ({}))) as { error?: string; user?: User }
