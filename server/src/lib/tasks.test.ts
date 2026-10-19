@@ -85,3 +85,32 @@ test('the daily bonus completes only when all five dailies are done', () => {
   assert.equal(board.daily.every((t) => t.completed), true)
   assert.equal(board.dailyBonus.completed, true)
 })
+
+test('claimed state is surfaced only for the matching period', () => {
+  const events = eventsForDay('2026-10-18', { LOGIN: 1, CYCLE_START: 3, CYCLE_COLLECT: 3 })
+  const day = utcDayKey(NOW)
+  const week = utcWeekKey(NOW)
+
+  const board = computeTaskBoard(events, NOW, [
+    { taskKey: 'daily_login', periodKey: day },
+    { taskKey: 'weekly_start_15', periodKey: week },
+    { taskKey: 'daily_bonus', periodKey: day },
+  ])
+  assert.equal(board.daily.find((t) => t.key === 'daily_login')!.claimed, true)
+  assert.equal(board.daily.find((t) => t.key === 'daily_start_3')!.claimed, false)
+  assert.equal(board.weekly.find((t) => t.key === 'weekly_start_15')!.claimed, true)
+  assert.equal(board.dailyBonus.claimed, true)
+  assert.equal(board.weeklyBonus.claimed, false)
+})
+
+test('claims from a previous period never leak into the current board', () => {
+  const events = eventsForDay('2026-10-18', { LOGIN: 1 })
+  const stale = computeTaskBoard(events, NOW, [
+    { taskKey: 'daily_login', periodKey: '2000-01-01' },
+    { taskKey: 'weekly_visitor', periodKey: '2000-W01' },
+  ])
+  assert.equal(stale.daily.every((t) => !t.claimed), true)
+  assert.equal(stale.weekly.every((t) => !t.claimed), true)
+  assert.equal(stale.dailyBonus.claimed, false)
+})
+

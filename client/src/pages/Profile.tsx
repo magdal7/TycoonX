@@ -6,13 +6,14 @@ import { Button } from '../components/ui/button'
 import { Progress, Stat, SectionHeading } from '../components/ui/kit'
 import { useAuth } from '../context/AuthContext'
 import { useApi } from '../lib/useApi'
-import { fetchAchievements, fetchReferrals, fetchResources, setFeaturedBadges } from '../lib/game'
+import { useResources } from '../lib/resources'
+import { fetchAchievements, fetchReferrals, setFeaturedBadges } from '../lib/game'
 import { formatNumber } from '../lib/format'
 import { Link } from '../components/router'
 
 export default function Profile() {
   const { user, logout } = useAuth()
-  const resources = useApi(() => fetchResources(), [])
+  const resources = useResources()
   const referrals = useApi(() => fetchReferrals(), [])
   const achievements = useApi(() => fetchAchievements(), [])
   const [featured, setFeatured] = useState<string[]>([])

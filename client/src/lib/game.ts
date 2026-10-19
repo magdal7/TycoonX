@@ -165,6 +165,15 @@ export interface TaskState {
   xp: number
   progress: number
   completed: boolean
+  claimed: boolean
+  periodKey: string
+}
+
+export interface BonusState {
+  key: string
+  xp: number
+  completed: boolean
+  claimed: boolean
   periodKey: string
 }
 
@@ -173,21 +182,36 @@ export interface TaskBoard {
   week: string
   daily: TaskState[]
   weekly: TaskState[]
-  dailyBonus: { key: string; xp: number; completed: boolean; periodKey: string }
-  weeklyBonus: { key: string; xp: number; completed: boolean; periodKey: string }
+  dailyBonus: BonusState
+  weeklyBonus: BonusState
+}
+
+export interface ClaimResult {
+  taskKey: string
+  xpAwarded: number
+  claimed: boolean
+  alreadyClaimed: boolean
+  claimable: boolean
+  board: TaskBoard
+}
+
+export interface ClaimAllResult {
+  claimed: string[]
+  xpAwarded: number
+  board: TaskBoard
 }
 
 export const fetchTasks = (): Promise<TaskBoard> => request('/api/game/tasks')
 
 export const claimTask = (taskKey: string) =>
-  request<{ taskKey: string; xpAwarded: number }>('/api/game/tasks/claim', {
+  request<ClaimResult>('/api/game/tasks/claim', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ taskKey }),
   })
 
 export const claimAllTasks = () =>
-  request<{ claimed: string[]; xpAwarded: number }>('/api/game/tasks/claim-all', { method: 'POST' })
+  request<ClaimAllResult>('/api/game/tasks/claim-all', { method: 'POST' })
 
 export interface AchievementStage {
   stage: string

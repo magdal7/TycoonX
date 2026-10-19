@@ -15,8 +15,7 @@ import {
   Sparkles
 } from 'lucide-react'
 import { Link, useRouter } from './router'
-import { useApi } from '../lib/useApi'
-import { fetchResources } from '../lib/game'
+import { useResources } from '../lib/resources'
 import { formatNumber } from '../lib/format'
 import { useAuth } from '../context/AuthContext'
 
@@ -55,7 +54,7 @@ export function Layout({ children }: LayoutProps) {
   const { user } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
-  const { data: resources } = useApi(() => fetchResources(), [])
+  const { data: resources } = useResources()
 
   const all = [...PRIMARY, ...SECONDARY]
   const activeLabel = all.find((i) => isActive(currentPath, i.href))?.label ?? 'TycoonX'

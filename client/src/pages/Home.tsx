@@ -21,12 +21,12 @@ import { Progress, Stat, SectionHeading, EmptyState, CardSkeleton } from '../com
 import { CeoAvatar, RARITY_FRAME } from '../components/CeoAvatar'
 import { rarityStyle } from '../lib/ceos'
 import { useApi } from '../lib/useApi'
+import { useResources } from '../lib/resources'
 import {
   bulkCollect,
   bulkStart,
   collectCycle,
   fetchOwnedCeos,
-  fetchResources,
   startCycle,
   upgradeEquipment,
   type OwnedCeo
@@ -45,7 +45,7 @@ function statusBadge(ceo: OwnedCeo) {
 }
 
 export default function Home() {
-  const resources = useApi(() => fetchResources(), [])
+  const resources = useResources()
   const fleet = useApi(() => fetchOwnedCeos(), [])
   const [busy, setBusy] = useState<Record<number, boolean>>({})
   const [, setTick] = useState(0)

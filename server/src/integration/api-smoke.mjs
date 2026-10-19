@@ -228,8 +228,48 @@ try {
   step('daily login task completed', tasks.status === 200 && loginDone)
   const claim = await api('/api/game/tasks/claim', { method: 'POST', cookie, body: { taskKey: 'daily_login' } })
   step('claim daily task awards XP', claim.status === 200 && claim.json?.xpAwarded === 10, claim.json)
+  step(
+    'claim response surfaces claimed state (button -> Done)',
+    claim.json?.board?.daily?.find((t) => t.key === 'daily_login')?.claimed === true,
+  )
+
+  // Re-claiming the same task must be an idempotent success, never a duplicate reward.
+  const reclaim = await api('/api/game/tasks/claim', { method: 'POST', cookie, body: { taskKey: 'daily_login' } })
+  step(
+    'duplicate claim is idempotent (already claimed, 0 XP)',
+    reclaim.status === 200 && reclaim.json?.alreadyClaimed === true && reclaim.json?.xpAwarded === 0,
+    reclaim.json,
+  )
+
+  // Concurrent duplicate claims (distinct task) must award exactly once.
+  const [cc1, cc2] = await Promise.all([
+    api('/api/game/tasks/claim', { method: 'POST', cookie, body: { taskKey: 'daily_start_1' } }),
+    api('/api/game/tasks/claim', { method: 'POST', cookie, body: { taskKey: 'daily_start_1' } }),
+  ])
+  const concurrentAwarded = [cc1, cc2].filter((r) => r.status === 200 && r.json?.xpAwarded === 15)
+  const concurrentIdempotent = [cc1, cc2].filter((r) => r.status === 200 && r.json?.xpAwarded === 0)
+  step(
+    'concurrent duplicate claims award exactly once',
+    concurrentAwarded.length === 1 && concurrentIdempotent.length === 1,
+    { cc1: cc1.json, cc2: cc2.json },
+  )
+
   const res2 = await api('/api/game/resources', { cookie })
-  step('XP/level reflected', res2.json?.progress?.xp === 10 && res2.json?.progress?.rank === 'Rookie')
+  step('XP/level reflected', res2.json?.progress?.xp === 25 && res2.json?.progress?.rank === 'Rookie', res2.json)
+
+  // Claim All is idempotent and returns the refreshed board.
+  const claimAll = await api('/api/game/tasks/claim-all', { method: 'POST', cookie })
+  step(
+    'claim-all returns claimed list and board',
+    claimAll.status === 200 && Array.isArray(claimAll.json?.claimed) && !!claimAll.json?.board,
+    { xpAwarded: claimAll.json?.xpAwarded, claimed: claimAll.json?.claimed },
+  )
+  const claimAllAgain = await api('/api/game/tasks/claim-all', { method: 'POST', cookie })
+  step(
+    'claim-all replay awards nothing',
+    claimAllAgain.status === 200 && claimAllAgain.json?.xpAwarded === 0 && claimAllAgain.json?.claimed?.length === 0,
+    claimAllAgain.json,
+  )
 
   // Achievements
   const ach = await api('/api/game/achievements', { cookie })

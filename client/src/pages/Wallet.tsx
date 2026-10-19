@@ -5,11 +5,11 @@ import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Stat, SectionHeading, EmptyState, Skeleton } from '../components/ui/kit'
 import { useApi } from '../lib/useApi'
+import { useResources } from '../lib/resources'
 import {
   cancelWithdrawal,
   createWithdrawal,
   fetchLedger,
-  fetchResources,
   fetchWithdrawals
 } from '../lib/game'
 import { formatNumber } from '../lib/format'
@@ -26,7 +26,7 @@ const STATUS_TONE: Record<string, 'warning' | 'success' | 'demo' | 'default'> = 
 }
 
 export default function Wallet() {
-  const resources = useApi(() => fetchResources(), [])
+  const resources = useResources()
   const withdrawals = useApi(() => fetchWithdrawals(), [])
   const ledger = useApi(() => fetchLedger(), [])
   const [gross, setGross] = useState('')

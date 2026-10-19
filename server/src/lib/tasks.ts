@@ -68,7 +68,26 @@ export interface TaskState {
   xp: number
   progress: number
   completed: boolean
+  claimed: boolean
   periodKey: string
+}
+
+export interface BonusState {
+  key: string
+  xp: number
+  completed: boolean
+  claimed: boolean
+  periodKey: string
+}
+
+/** Minimal shape of a persisted TaskClaim used when computing claimed state. */
+export interface ClaimLike {
+  taskKey: string
+  periodKey: string
+}
+
+function claimedKeySet(claims: ClaimLike[]): Set<string> {
+  return new Set(claims.map((c) => `${c.taskKey}:${c.periodKey}`))
 }
 
 function countEvents(events: TaskEventLike[], type: string | undefined, predicate: (e: TaskEventLike) => boolean): number {
@@ -103,14 +122,23 @@ export interface TaskBoard {
   week: string
   daily: TaskState[]
   weekly: TaskState[]
-  dailyBonus: { key: string; xp: number; completed: boolean; periodKey: string }
-  weeklyBonus: { key: string; xp: number; completed: boolean; periodKey: string }
+  dailyBonus: BonusState
+  weeklyBonus: BonusState
 }
 
-/** Computes the full task board for "now" from the user's raw task events (UTC periods). */
-export function computeTaskBoard(events: TaskEventLike[], now: Date = new Date()): TaskBoard {
+/**
+ * Computes the full task board for "now" from the user's raw task events (UTC
+ * periods). `claims` are the user's persisted TaskClaim rows; only those for the
+ * current day/week affect `claimed`, so prior-period claims never leak forward.
+ */
+export function computeTaskBoard(
+  events: TaskEventLike[],
+  now: Date = new Date(),
+  claims: ClaimLike[] = [],
+): TaskBoard {
   const day = utcDayKey(now)
   const week = utcWeekKey(now)
+  const claimed = claimedKeySet(claims)
   const inDay = (e: TaskEventLike) => utcDayKey(e.createdAt) === day
   const inWeek = (e: TaskEventLike) => utcWeekKey(e.createdAt) === week
 
@@ -124,6 +152,7 @@ export function computeTaskBoard(events: TaskEventLike[], now: Date = new Date()
       xp: t.xp,
       progress: Math.min(count, t.goal),
       completed: count >= t.goal,
+      claimed: claimed.has(`${t.key}:${day}`),
       periodKey: day,
     }
   })
@@ -141,6 +170,7 @@ export function computeTaskBoard(events: TaskEventLike[], now: Date = new Date()
       xp: t.xp,
       progress: Math.min(value, t.goal),
       completed: value >= t.goal,
+      claimed: claimed.has(`${t.key}:${week}`),
       periodKey: week,
     }
   })
@@ -154,12 +184,14 @@ export function computeTaskBoard(events: TaskEventLike[], now: Date = new Date()
       key: 'daily_bonus',
       xp: DAILY_BONUS_XP,
       completed: daily.every((t) => t.completed),
+      claimed: claimed.has(`daily_bonus:${day}`),
       periodKey: day,
     },
     weeklyBonus: {
       key: 'weekly_bonus',
       xp: WEEKLY_BONUS_XP,
       completed: weekly.every((t) => t.completed),
+      claimed: claimed.has(`weekly_bonus:${week}`),
       periodKey: week,
     },
   }

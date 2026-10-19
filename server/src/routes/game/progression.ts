@@ -24,13 +24,24 @@ export function createGameProgressionRouter(db: PrismaClient): Router {
   router.post('/tasks/claim', async (req: AuthRequest, res: Response) => {
     const parsed = claimTaskSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors })
-    const xpAwarded = await claimTask(db, req.user!.id, parsed.data.taskKey)
-    if (xpAwarded === 0) return res.status(409).json({ error: 'task not claimable' })
-    res.json({ taskKey: parsed.data.taskKey, xpAwarded })
+    try {
+      const result = await claimTask(db, req.user!.id, parsed.data.taskKey)
+      // A completed task that was already claimed is a successful no-op, not an error.
+      if (!result.claimable) {
+        return res.status(409).json({ error: 'task not claimable', board: result.board })
+      }
+      res.json(result)
+    } catch {
+      res.status(500).json({ error: 'internal error' })
+    }
   })
 
   router.post('/tasks/claim-all', async (req: AuthRequest, res: Response) => {
-    res.json(await claimAllTasks(db, req.user!.id))
+    try {
+      res.json(await claimAllTasks(db, req.user!.id))
+    } catch {
+      res.status(500).json({ error: 'internal error' })
+    }
   })
 
   router.get('/achievements', async (req: AuthRequest, res: Response) => {
@@ -40,9 +51,13 @@ export function createGameProgressionRouter(db: PrismaClient): Router {
   router.post('/achievements/claim', async (req: AuthRequest, res: Response) => {
     const parsed = achievementClaimSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors })
-    const xpAwarded = await claimAchievement(db, req.user!.id, parsed.data.trackKey, parsed.data.stage)
-    if (xpAwarded === 0) return res.status(409).json({ error: 'achievement not claimable' })
-    res.json({ trackKey: parsed.data.trackKey, stage: parsed.data.stage, xpAwarded })
+    try {
+      const xpAwarded = await claimAchievement(db, req.user!.id, parsed.data.trackKey, parsed.data.stage)
+      if (xpAwarded === 0) return res.status(409).json({ error: 'achievement not claimable' })
+      res.json({ trackKey: parsed.data.trackKey, stage: parsed.data.stage, xpAwarded })
+    } catch {
+      res.status(500).json({ error: 'internal error' })
+    }
   })
 
   router.get('/leaderboard/me', async (req: AuthRequest, res: Response) => {

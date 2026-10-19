@@ -4,8 +4,8 @@ Canonical status file. Product rules live in `docs/TYCOONX_V2_MASTER_SPEC.md` (d
 Last updated: 2026-10-19.
 
 ## Verified current state
-- **Repo:** git repository, default branch `master`, HEAD `d95f94e` (V2.5 economy/progression backend,
-  UI redesign, V2.5 migration workflows). Monorepo `client` / `server` / `shared`.
+- **Repo:** git repository, default branch `master` (V2.5 economy/progression backend, UI redesign,
+  migration workflows, plus Step 1 registration and Step 2 missions fixes). Monorepo `client` / `server` / `shared`.
 - **Auth (implemented):** register/login/logout/me; JWT httpOnly `token` cookie (7d); bcrypt (12); Zod;
   `/api/auth` rate limit. Username validation matches the approved rule (3–20 chars, `[A-Za-z0-9_]`).
   Email verification/password recovery **deferred** (MVP decision).
@@ -39,6 +39,9 @@ Last updated: 2026-10-19.
 - **Progression & retention (implemented; migration applied to production):**
   - **Daily/weekly tasks** via an append-only `TaskEvent` log + idempotent `TaskClaim`; approved XP values
     (165 XP/day, 1,250 XP/week), UTC 00:00 / Monday-00:00 periods, manual Claim / Claim All.
+    **Step 2 hardening:** the board now returns per-task `claimed` state; Claim / Claim All are
+    concurrency-safe (per-user `pg_advisory_xact_lock` + P2002 catch) and return the refreshed board so
+    the UI updates in one round trip; duplicate/already-claimed claims are idempotent successes.
   - **Achievements**: 5 tracks × 4 stages, derived lifetime counters, XP-only one-time claims.
   - **Leaderboard + public profiles** (`/api/public/leaderboard`, `/api/public/profile/:username`; no
     private data) + featured badges/avatar (`UserProfile`).
@@ -59,18 +62,19 @@ Last updated: 2026-10-19.
   badges), Wallet (balances, SP ledger, withdrawal requests with payouts disabled). Legacy demo pages
   removed. Client API layer in `client/src/lib/game.ts`.
 - **Tests:**
-  - `npm test --workspace=server` — **73/73 unit pass** (incl. new referral-attribution + registration
-    consent/validation tests).
+  - `npm test --workspace=server` — **78/78 unit pass** (incl. task claimed-state + concurrent-duplicate-claim
+    regression tests, referral-attribution, and registration consent/validation tests).
   - `npm run test:integration --workspace=server` — **8/8 pass** against isolated branch
     `br-cold-star-b4bbaq8u` (identity-guarded + schema-guarded; ownership + production start/collect,
     duplicate-collection prevention, lifetime-cap exhaustion).
-  - `npm run test:smoke --workspace=server` — **23/23 pass** (HTTP end-to-end against the isolated
-    branch; fail-closed branch/project identity checks; deterministic child shutdown with startup,
-    request, shutdown and global-watchdog timeouts).
+  - `npm run test:smoke --workspace=server` — **28/28 pass** (HTTP end-to-end against the isolated
+    branch; now also asserts claim→`claimed`, idempotent duplicate claim, concurrent duplicate claim
+    awards once, and claim-all replay; fail-closed branch/project identity checks; deterministic child
+    shutdown with startup, request, shutdown and global-watchdog timeouts).
   - Integration/smoke self-skip when `TEST_DATABASE_URL` is unset and refuse to run against protected
     (production/staging/recovery) branches.
   - Re-verified 2026-10-19 after applying the consent migration to the isolated branch: integration
-    **8/8** and smoke **23/23** (registration now sends `acceptTerms`; smoke cleans up `PolicyConsent`).
+    **8/8** and smoke **28/28** (registration now sends `acceptTerms`; smoke cleans up `PolicyConsent`).
 - **Builds:** server `tsc` typecheck **passes**; client production PWA build **passes** (workbox precache
   limit raised).
 
@@ -118,9 +122,40 @@ purchases; application (server/client) deployment.
    OxaPay integration and all real-money flows stay disabled pending explicit owner approval.
 7. **V2.5 Step 1 (registration) — done and branch-verified.** Confirm password, referral prefill/manual
    entry, ToS/Privacy consent + pages, server-side referral validation and consent recording. Unit
-   **73/73**, integration **8/8**, smoke **23/23** (consent migration applied to the isolated test branch
+   **78/78**, integration **8/8**, smoke **28/28** (consent migration applied to the isolated test branch
    only). Production application of the migration and the unresolved referral rules below remain owner
    decisions.
+8. **V2.5 Step 2 (missions & rewards) — done.** See "Missions — Step 2 fixes" below. Special tasks
+   (Step 3) are intentionally **not** implemented.
+
+## Missions — Step 2 fixes (2026-10-19)
+Reported bug: **Claim did not reliably change to Done.** Root causes and fixes:
+1. **No claimed state was surfaced.** `GET /api/game/tasks` only returned `completed` (derived from
+   events), never the `TaskClaim` rows. After claiming, `completed` stayed true, so the button never
+   changed and a second click hit a 409. Fix: `computeTaskBoard` now takes the user's claims and returns
+   a `claimed` flag per task/bonus (`server/src/lib/tasks.ts`, `services/tasks.ts`).
+2. **Concurrent duplicate claims raised an unhandled unique violation (P2002) → 500/hang.** Fix: claim
+   writes are serialized per user with `pg_advisory_xact_lock` inside the transaction, plus a defensive
+   P2002 catch that reports "already claimed" instead of erroring (`services/tasks.ts`). Uses
+   `$executeRaw` (not `$queryRaw`) to avoid deserializing the lock's `void` result.
+3. **Task/achievement routes had no async error handling.** Fix: try/catch with explicit status codes;
+   already-claimed is a **200 success** (idempotent), only truly incomplete tasks are 409
+   (`routes/game/progression.ts`).
+4. **UI could not show Done / distinguish already-claimed / update immediately.** Fix: `Tasks.tsx` now
+   tracks claimed state from the server-returned board, updates state from the claim response (no page
+   refresh), shows per-task loading, success/info/error notices, and disables claimed buttons ("Done").
+   Claim All returns the refreshed board and is disabled when nothing is claimable.
+5. **XP balance did not refresh.** Fix: new `client/src/lib/resources.ts` (`useResources` +
+   `notifyResourcesChanged`) so a shared resources view (Tasks XP stat, Layout, Home, Profile, Wallet)
+   refetches immediately after a claim.
+6. **Reset/availability verified** by regression tests: stale previous-period claims never leak into the
+   current board; current-day/week completion is unchanged.
+
+Verification: unit **78/78**, integration **8/8**, smoke **28/28** (isolated branch only); server `tsc`
+and client PWA build pass. No schema/migration change and no economy/reward value was altered.
+
+Remaining (out of Step 2 scope): Special Tasks (Step 3); admin UI; application deployment.
+
 
 ## Registration — remaining requirements before production-ready
 Registration code and schema are complete and verified on the isolated branch. It is **not production-ready**
