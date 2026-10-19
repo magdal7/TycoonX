@@ -14,6 +14,10 @@ import Achievements from './pages/Achievements'
 import Leaderboard from './pages/Leaderboard'
 import Wallet from './pages/Wallet'
 import Profile from './pages/Profile'
+import { AdminLayout } from './components/AdminLayout'
+import AdminDashboard from './pages/admin/AdminDashboard'
+import AdminSpecialTasks from './pages/admin/AdminSpecialTasks'
+import AdminAudit from './pages/admin/AdminAudit'
 import { RouterProvider } from './components/router'
 import { Layout } from './components/Layout'
 
@@ -58,9 +62,13 @@ export default function App() {
     if (loading) return
     const p = window.location.pathname
     const isDashboard = p === '/dashboard' || p.startsWith('/dashboard/')
-    if (!user && isDashboard) {
+    const isAdmin = p === '/admin' || p.startsWith('/admin/')
+    if (!user && (isDashboard || isAdmin)) {
       window.history.replaceState(null, '', '/login')
       setPage('/login')
+    } else if (user && isAdmin && user.role !== 'ADMIN') {
+      window.history.replaceState(null, '', '/dashboard')
+      setPage('/')
     } else if (user && (p === '/login' || p === '/register')) {
       window.history.replaceState(null, '', '/dashboard')
       setPage('/')
@@ -111,7 +119,10 @@ export default function App() {
             { path: '/dashboard/leaderboard', element: wrap(<Leaderboard />) },
             { path: '/dashboard/wallet', element: wrap(<Wallet />) },
             { path: '/dashboard/profile', element: wrap(<Profile />) },
-            { path: '/dashboard/world', element: wrap(<GameHome navigate={navigate} />) }
+            { path: '/dashboard/world', element: wrap(<GameHome navigate={navigate} />) },
+            { path: '/admin', element: <AdminLayout><AdminDashboard /></AdminLayout> },
+            { path: '/admin/special-tasks', element: <AdminLayout><AdminSpecialTasks /></AdminLayout> },
+            { path: '/admin/audit', element: <AdminLayout><AdminAudit /></AdminLayout> }
           ]}
         />
       )}

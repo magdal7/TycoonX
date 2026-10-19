@@ -5,7 +5,8 @@ Last updated: 2026-10-19.
 
 ## Verified current state
 - **Repo:** git repository, default branch `master` (V2.5 economy/progression backend, UI redesign,
-  migration workflows, plus Step 1 registration and Step 2 missions fixes). Monorepo `client` / `server` / `shared`.
+  migration workflows, plus Step 1 registration, Step 2 missions, and Step 3 admin/special tasks).
+  Monorepo `client` / `server` / `shared`.
 - **Auth (implemented):** register/login/logout/me; JWT httpOnly `token` cookie (7d); bcrypt (12); Zod;
   `/api/auth` rate limit. Username validation matches the approved rule (3–20 chars, `[A-Za-z0-9_]`).
   Email verification/password recovery **deferred** (MVP decision).
@@ -49,6 +50,23 @@ Last updated: 2026-10-19.
     (`REFERRAL_REWARDS_ENABLED=false`) pending approved qualification.
   - **Withdrawal request/review states** (gross Earned-SP lock, min 3,000 SP, 0.30 USDT fee) with
     **payouts disabled**; admin review queue never transfers crypto.
+- **Admin foundation + special tasks (V2.5 Step 3, implemented):**
+  - **Admin authz**: `/api/admin/*` is server-guarded by `requireAuth` + `requireAdmin`; there is **no
+    public admin registration** (registration always creates `USER`; admins are provisioned out-of-band).
+  - **Admin console UI** at `/admin` (client-guarded + API-guarded): dashboard, special-task management,
+    and audit log. Player layout exposes an "Admin console" link only when `role === 'ADMIN'`.
+  - **SpecialTask** campaigns: title, description, link, proof instructions, XP and/or Bonus SP reward,
+    verification mode (MANUAL/AUTO), minimum level, optional max completions (participant cap), start/expiry
+    windows; lifecycle DRAFT → PUBLISHED → PAUSED/EXPIRED → ARCHIVED.
+  - **Submissions**: `SpecialTaskSubmission` with states PENDING/APPROVED/REJECTED/CLAIMED and a
+    `claimedAt`; up to 3 proof attempts; slot reserved at first submission and released on final rejection.
+  - **Exactly-once rewards**: claim uses an `APPROVED → CLAIMED` conditional transition; Bonus SP goes
+    through the existing `SpLedgerEntry` with `sourceType=SPECIAL_TASK_REWARD` and `sourceId=submissionId`
+    (unique backstop); XP via `awardXp`. Server-authoritative; no payment/referral activation.
+  - **Audit + abuse protection**: every admin mutation writes an `AdminAuditLog` row; unusually high
+    rewards (> 5,000 XP or Bonus SP) require explicit confirmation; submit endpoint is rate-limited (15/min).
+  - **Player UI**: a **Special Tasks** panel is the first section on the Missions page with clear states
+    (Available, Pending, Approved/ready-to-claim, Completed, Rejected, Expired, Locked, Full).
 - **Production database (verified 2026-10-18, read-only):** production branch
   `br-delicate-butterfly-b4et73g9` / project `wandering-king-57462138` has **six `_prisma_migrations`
   rows**: the four baseline migrations plus both V2.5 migrations recorded applied at
@@ -62,19 +80,20 @@ Last updated: 2026-10-19.
   badges), Wallet (balances, SP ledger, withdrawal requests with payouts disabled). Legacy demo pages
   removed. Client API layer in `client/src/lib/game.ts`.
 - **Tests:**
-  - `npm test --workspace=server` — **78/78 unit pass** (incl. task claimed-state + concurrent-duplicate-claim
-    regression tests, referral-attribution, and registration consent/validation tests).
+  - `npm test --workspace=server` — **99/99 unit pass** (incl. special-task lifecycle/submission/review/
+    exactly-once-reward + concurrency tests, task claimed-state + concurrent-duplicate-claim tests,
+    referral-attribution, and registration consent/validation tests).
   - `npm run test:integration --workspace=server` — **8/8 pass** against isolated branch
-    `br-cold-star-b4bbaq8u` (identity-guarded + schema-guarded; ownership + production start/collect,
-    duplicate-collection prevention, lifetime-cap exhaustion).
-  - `npm run test:smoke --workspace=server` — **28/28 pass** (HTTP end-to-end against the isolated
-    branch; now also asserts claim→`claimed`, idempotent duplicate claim, concurrent duplicate claim
-    awards once, and claim-all replay; fail-closed branch/project identity checks; deterministic child
-    shutdown with startup, request, shutdown and global-watchdog timeouts).
+    `br-cold-star-b4bbaq8u` (identity-guarded + schema-guarded incl. the Step 3 tables; ownership +
+    production start/collect, duplicate-collection prevention, lifetime-cap exhaustion).
+  - `npm run test:smoke --workspace=server` — **40/40 pass** (HTTP end-to-end against the isolated
+    branch; now also covers non-admin 403, admin create/publish, player submit, duplicate-submit rejection,
+    admin approve, exactly-once claim, reward credit, and audit logging; plus the Step 2 claim assertions).
   - Integration/smoke self-skip when `TEST_DATABASE_URL` is unset and refuse to run against protected
     (production/staging/recovery) branches.
-  - Re-verified 2026-10-19 after applying the consent migration to the isolated branch: integration
-    **8/8** and smoke **28/28** (registration now sends `acceptTerms`; smoke cleans up `PolicyConsent`).
+  - Re-verified 2026-10-19 after applying the Step 3 migration to the isolated branch: unit **99/99**,
+    integration **8/8** and smoke **40/40** (special-task flow; smoke cleans up `PolicyConsent`,
+    `SpecialTask`, `AdminAuditLog`).
 - **Builds:** server `tsc` typecheck **passes**; client production PWA build **passes** (workbox precache
   limit raised).
 
@@ -107,10 +126,15 @@ Last updated: 2026-10-19.
 7. **Referral economics unresolved (owner action).** Before referral rewards can be activated, the owner
    must confirm: the **commission currency**, the **qualification criteria**, and **refund/chargeback
    handling**. Rewards stay disabled (`REFERRAL_REWARDS_ENABLED=false`) until then.
+8. **Special tasks migration — applied to test only (owner action for prod).**
+   `20261019020000_v25_special_tasks` (additive `SpecialTask` / `SpecialTaskSubmission` / `AdminAuditLog`
+   tables + 3 enums) is **applied to the isolated test branch** (`br-cold-star-b4bbaq8u`) and is **not
+   applied** to production/staging. Admin/special-task endpoints fail closed in any environment lacking
+   these tables; apply to production via the guarded preflight/execute workflow after a verified backup.
 
 ## Not implemented yet (see Master Spec §0/§3–§9)
-Admin-created **special tasks**; **OxaPay** integration (planning only, not activated); admin UI; real
-purchases; application (server/client) deployment.
+**OxaPay** integration (planning only, not activated); real-money purchases/deposits/withdrawals/payouts;
+application (server/client) deployment; admin analytics beyond the dashboard/audit/submission views.
 
 ## Next
 1. Documentation reconciliation — **done**.
@@ -122,11 +146,40 @@ purchases; application (server/client) deployment.
    OxaPay integration and all real-money flows stay disabled pending explicit owner approval.
 7. **V2.5 Step 1 (registration) — done and branch-verified.** Confirm password, referral prefill/manual
    entry, ToS/Privacy consent + pages, server-side referral validation and consent recording. Unit
-   **78/78**, integration **8/8**, smoke **28/28** (consent migration applied to the isolated test branch
+   **99/99**, integration **8/8**, smoke **40/40** (consent migration applied to the isolated test branch
    only). Production application of the migration and the unresolved referral rules below remain owner
    decisions.
-8. **V2.5 Step 2 (missions & rewards) — done.** See "Missions — Step 2 fixes" below. Special tasks
-   (Step 3) are intentionally **not** implemented.
+8. **V2.5 Step 2 (missions & rewards) — done.** See "Missions — Step 2 fixes" below.
+9. **V2.5 Step 3 (admin foundation + special tasks) — done.** See "Special Tasks — Step 3" below.
+
+## Special Tasks — Step 3 (2026-10-19)
+Delivered admin foundation and admin-created special tasks with exactly-once rewards:
+1. **Secure `/admin`**: all `/api/admin/*` routes use `requireAuth` + `requireAdmin` (role read from the DB,
+   not the token); the client routes are gated on `role === 'ADMIN'` and redirect otherwise. **No public
+   admin registration exists** — registration always creates `USER`; admins are provisioned out-of-band.
+2. **Admin console** (`/admin`): layout + dashboard (campaign/submission/user counts, recent audit),
+   campaign management, and an audit-log viewer.
+3. **Campaign lifecycle**: create/edit/publish/pause/expire/archive with legal-transition enforcement;
+   rewards are snapshot-immutable once a submission exists.
+4. **Configurable fields**: title, description, link, proof instructions, XP and/or Bonus SP reward,
+   verification mode, minimum level, max completions (participant cap), start/expiry windows.
+5. **Player flow**: special tasks appear as the **first section** of the Missions page; submission →
+   verification → approval/rejection → manual claim.
+6. **States**: Available, Pending, Approved (ready to claim), Completed, Rejected (retryable up to 3),
+   Expired, plus Locked/Full. Server derives state from `derivePlayerState`.
+7. **Exactly-once rewards**: approval and claim are guarded by conditional status transitions
+   (`PENDING→APPROVED`, `APPROVED→CLAIMED`); Bonus SP uses `SpLedgerEntry` (`SPECIAL_TASK_REWARD`,
+   `sourceId=submissionId`) with its unique key as a second backstop; XP uses `awardXp`.
+8. **Abuse protection + audit**: per-user submission rate limit, 3-attempt cap, single pending submission,
+   slot reservation/release, and an `AdminAuditLog` row per admin mutation; high rewards require
+   confirmation.
+9. **Tests**: unit coverage for lifecycle, submission, duplicate/concurrent approvals, concurrent claims,
+   eligibility, caps, snapshot immutability, and reward correctness; smoke coverage for non-admin 403,
+   create/publish, submit, duplicate-submit rejection, approve, exactly-once claim, and audit.
+
+Verification: unit **99/99**, integration **8/8**, smoke **40/40**; server `tsc` and client PWA build pass.
+Migration `20261019020000_v25_special_tasks` applied to the **isolated test branch only**. No payments or
+referral rewards were activated; daily/weekly missions and economy rules are unchanged.
 
 ## Missions — Step 2 fixes (2026-10-19)
 Reported bug: **Claim did not reliably change to Done.** Root causes and fixes:

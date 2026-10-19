@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button'
 import { Progress, SectionHeading, EmptyState, Skeleton, Stat } from '../components/ui/kit'
 import { useApi } from '../lib/useApi'
 import { useResources, notifyResourcesChanged } from '../lib/resources'
+import { SpecialTasksPanel } from '../components/SpecialTasksPanel'
 import { claimAllTasks, claimTask, fetchTasks, type TaskBoard, type TaskState } from '../lib/game'
 import { formatNumber } from '../lib/format'
 
@@ -161,6 +162,8 @@ export default function Tasks() {
 
   return (
     <div className="space-y-5 animate-fade-in">
+      <SpecialTasksPanel />
+
       <SectionHeading
         eyebrow="Missions"
         title="Daily & Weekly Tasks"

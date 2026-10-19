@@ -39,6 +39,7 @@ model User {
   profile          UserProfile?
   withdrawalRequests WithdrawalRequest[]
   consents         PolicyConsent[]
+  specialTaskSubmissions SpecialTaskSubmission[]
 }
 
 model CEO {
@@ -189,6 +190,72 @@ model PolicyConsent {
   @@index([userId])
 }
 
+model SpecialTask {
+  id                Int                     @id @default(autoincrement())
+  title             String
+  description       String
+  link              String?
+  proofInstructions String?
+  rewardXp          Int                     @default(0)
+  rewardBonusSp     BigInt                  @default(0)
+  status            SpecialTaskStatus       @default(DRAFT)
+  verification      SpecialTaskVerification @default(MANUAL)
+  minLevel          Int                     @default(1)
+  maxCompletions    Int?
+  completionsCount  Int                     @default(0)
+  startsAt          DateTime?
+  expiresAt         DateTime?
+  createdBy         Int
+  publishedAt       DateTime?
+  archivedAt        DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  submissions       SpecialTaskSubmission[]
+
+  @@index([status, expiresAt])
+  @@index([createdBy])
+}
+
+model SpecialTaskSubmission {
+  id                Int                         @id @default(autoincrement())
+  taskId            Int
+  userId            Int
+  status            SpecialTaskSubmissionStatus @default(PENDING)
+  attempt           Int                         @default(1)
+  proofText         String?
+  proofUrl          String?
+  rewardXpSnap      Int
+  rewardBonusSpSnap BigInt
+  reserved          Boolean                     @default(false)
+  reviewNote        String?
+  reviewedBy        Int?
+  reviewedAt        DateTime?
+  claimedAt         DateTime?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+
+  task              SpecialTask                 @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user              User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId, attempt])
+  @@index([userId, status])
+  @@index([taskId, status])
+}
+
+model AdminAuditLog {
+  id         Int      @id @default(autoincrement())
+  actorId    Int
+  action     String
+  targetType String
+  targetId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId])
+}
+
 model WithdrawalRequest {
   id         Int              @id @default(autoincrement())
   userId     Int
@@ -324,4 +391,24 @@ enum WithdrawalStatus {
   REJECTED
   CANCELLED
   PAID
+}
+
+enum SpecialTaskStatus {
+  DRAFT
+  PUBLISHED
+  PAUSED
+  EXPIRED
+  ARCHIVED
+}
+
+enum SpecialTaskVerification {
+  MANUAL
+  AUTO
+}
+
+enum SpecialTaskSubmissionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CLAIMED
 }

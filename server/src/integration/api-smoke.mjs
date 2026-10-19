@@ -160,6 +160,8 @@ async function stopServer() {
 const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 const email = `itest_smoke_${stamp}@example.com`
 const username = `itsmk_${stamp.replace(/_/g, '')}`.slice(0, 20)
+const email2 = `itest_smoke_p2_${stamp}@example.com`
+const username2 = `itsmk2${stamp.replace(/_/g, '')}`.slice(0, 20)
 const password = 'Passw0rd!123'
 
 try {
@@ -289,6 +291,55 @@ try {
   const wd = await api('/api/game/withdrawals', { cookie })
   step('withdrawals: payouts disabled', wd.status === 200 && wd.json?.payoutsEnabled === false && Array.isArray(wd.json?.withdrawals))
 
+  // ---- Special tasks (admin foundation) ----
+  // Register a second player for the submission side.
+  const reg2 = await api('/api/auth/register', { method: 'POST', body: { email: email2, username: username2, password, acceptTerms: true } })
+  step('register second player', reg2.status === 201 && !!reg2.json?.user, { status: reg2.status })
+  const cookie2 = reg2.cookie
+  await api('/api/game/onboarding', { method: 'POST', cookie: cookie2 })
+
+  // Non-admin access to admin endpoints is forbidden (server-side authorization).
+  const denied = await api('/api/admin/special-tasks', { cookie: cookie2 })
+  step('non-admin denied admin endpoint (403)', denied.status === 403, { status: denied.status })
+
+  // Promote the primary smoke user to ADMIN on the isolated branch only.
+  await pool.query(`UPDATE "User" SET role = 'ADMIN' WHERE email = $1`, [email])
+
+  const created = await api('/api/admin/special-tasks', {
+    method: 'POST',
+    cookie,
+    body: { title: 'Smoke special task', description: 'Automated smoke-test campaign', rewardXp: 30, rewardBonusSp: 5, verification: 'MANUAL', minLevel: 1 },
+  })
+  step('admin creates special task (DRAFT)', created.status === 201 && created.json?.task?.status === 'DRAFT', created.json)
+  const taskId = created.json?.task?.id
+
+  const published = await api(`/api/admin/special-tasks/${taskId}/status`, { method: 'POST', cookie, body: { action: 'publish' } })
+  step('admin publishes special task', published.status === 200 && published.json?.task?.status === 'PUBLISHED', published.json)
+
+  const specialList = await api('/api/game/special-tasks', { cookie: cookie2 })
+  step('player sees available special task', specialList.status === 200 && specialList.json?.tasks?.some((t) => t.id === taskId && t.state === 'AVAILABLE'), specialList.json)
+
+  const submit = await api(`/api/game/special-tasks/${taskId}/submit`, { method: 'POST', cookie: cookie2, body: { proofText: 'smoke proof' } })
+  step('player submits special task (PENDING)', submit.status === 201 && submit.json?.status === 'PENDING', submit.json)
+  const submissionId = submit.json?.submissionId
+
+  const submitDup = await api(`/api/game/special-tasks/${taskId}/submit`, { method: 'POST', cookie: cookie2, body: { proofText: 'again' } })
+  step('duplicate pending submission rejected (409)', submitDup.status === 409 && submitDup.json?.error === 'pending_exists', submitDup.json)
+
+  const review = await api(`/api/admin/submissions/${submissionId}/review`, { method: 'POST', cookie, body: { decision: 'APPROVE' } })
+  step('admin approves submission', review.status === 200 && review.json?.submission?.status === 'APPROVED', review.json)
+
+  const claimS = await api(`/api/game/special-tasks/submissions/${submissionId}/claim`, { method: 'POST', cookie: cookie2 })
+  step('player claims special reward', claimS.status === 200 && claimS.json?.xpAwarded === 30 && claimS.json?.bonusSpAwarded === '5', claimS.json)
+  const claimS2 = await api(`/api/game/special-tasks/submissions/${submissionId}/claim`, { method: 'POST', cookie: cookie2 })
+  step('duplicate special claim rejected (409)', claimS2.status === 409, claimS2.json)
+
+  const res3 = await api('/api/game/resources', { cookie: cookie2 })
+  step('special reward credited exactly once', res3.json?.progress?.xp === 30 && res3.json?.sp?.bonusSp === '5', res3.json)
+
+  const audit = await api('/api/admin/audit', { cookie })
+  step('admin audit log records actions', audit.status === 200 && audit.json?.entries?.some((e) => e.action === 'special_task.create'), { entries: audit.json?.entries?.length })
+
   // Login + logout
   const login = await api('/api/auth/login', { method: 'POST', body: { email, password } })
   step('login', login.status === 200 && !!login.json?.user)
@@ -307,6 +358,8 @@ try {
         await pool.query(`DELETE FROM "${t}" WHERE "userId" = ANY($1)`, [ids])
       }
       await pool.query(`DELETE FROM "ReferralAttribution" WHERE "referrerId" = ANY($1) OR "referredUserId" = ANY($1)`, [ids])
+      await pool.query(`DELETE FROM "AdminAuditLog" WHERE "actorId" = ANY($1)`, [ids])
+      await pool.query(`DELETE FROM "SpecialTask" WHERE "createdBy" = ANY($1)`, [ids])
       await pool.query(`DELETE FROM "OwnedCeo" WHERE "userId" = ANY($1)`, [ids])
       await pool.query(`DELETE FROM "User" WHERE id = ANY($1)`, [ids])
     }
@@ -318,5 +371,6 @@ try {
 }
 
 const allPass = results.every((r) => r.ok)
+if (!allPass && serverLog) console.error('--- server log (tail) ---\n' + serverLog.slice(-3000))
 console.log(JSON.stringify({ allPass, passed: results.filter((r) => r.ok).length, total: results.length, results }, null, 2))
 process.exit(allPass ? 0 : 1)

@@ -12,7 +12,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Coins,
-  Sparkles
+  Sparkles,
+  ShieldCheck
 } from 'lucide-react'
 import { Link, useRouter } from './router'
 import { useResources } from '../lib/resources'
@@ -86,6 +87,15 @@ export function Layout({ children }: LayoutProps) {
         </nav>
 
         <div className="border-t border-line p-2">
+          {user?.role === 'ADMIN' && (
+            <Link
+              to="/admin"
+              className="mb-1 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs text-primary transition-colors hover:bg-primary/10"
+            >
+              <ShieldCheck className="h-4 w-4" />
+              {!collapsed && <span>Admin console</span>}
+            </Link>
+          )}
           <button
             type="button"
             onClick={() => setCollapsed((c) => !c)}
@@ -190,6 +200,16 @@ export function Layout({ children }: LayoutProps) {
                   </Link>
                 )
               })}
+              {user?.role === 'ADMIN' && (
+                <Link
+                  to="/admin"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                >
+                  <ShieldCheck className="h-5 w-5" />
+                  Admin console
+                </Link>
+              )}
             </nav>
             <p className="mt-6 px-3 text-[10px] leading-relaxed text-muted">
               CEO production is a game mechanic. Real-money withdrawals are disabled.

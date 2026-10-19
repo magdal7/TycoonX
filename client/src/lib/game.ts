@@ -57,7 +57,7 @@ export interface Resources {
   progress: Progress
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { credentials: 'include', ...init })
   if (!res.ok) {
     let message = `Request failed (status ${res.status}).`
@@ -342,4 +342,50 @@ export const createWithdrawal = (grossSp: number, address: string) =>
 export const cancelWithdrawal = (id: number) =>
   request<{ withdrawal: RawWithdrawal }>(`/api/game/withdrawals/${id}/cancel`, { method: 'POST' }).then((d) =>
     mapWithdrawal(d.withdrawal),
+  )
+
+export type PlayerSpecialTaskState =
+  | 'AVAILABLE'
+  | 'PENDING'
+  | 'APPROVED'
+  | 'COMPLETED'
+  | 'REJECTED'
+  | 'EXPIRED'
+  | 'INELIGIBLE'
+  | 'FULL'
+
+export interface PlayerSpecialTask {
+  id: number
+  title: string
+  description: string
+  link: string | null
+  proofInstructions: string | null
+  rewardXp: number
+  rewardBonusSp: string
+  state: PlayerSpecialTaskState
+  minLevel: number
+  startsAt: string | null
+  expiresAt: string | null
+  attemptsUsed: number
+  maxAttempts: number
+  submissionId: number | null
+  submissionStatus: string | null
+  submissionAttempt: number | null
+  reviewNote: string | null
+}
+
+export const fetchSpecialTasks = () =>
+  request<{ tasks: PlayerSpecialTask[] }>('/api/game/special-tasks').then((d) => d.tasks)
+
+export const submitSpecialTask = (taskId: number, proof: { proofText?: string; proofUrl?: string }) =>
+  request<{ submissionId: number; status: string; attempt: number }>(`/api/game/special-tasks/${taskId}/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(proof),
+  })
+
+export const claimSpecialTaskReward = (submissionId: number) =>
+  request<{ submissionId: number; xpAwarded: number; bonusSpAwarded: string }>(
+    `/api/game/special-tasks/submissions/${submissionId}/claim`,
+    { method: 'POST' },
   )

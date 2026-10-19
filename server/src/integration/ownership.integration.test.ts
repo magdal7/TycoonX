@@ -60,6 +60,9 @@ const REQUIRED_TABLES = [
   'AchievementClaim',
   'UserProfile',
   'WithdrawalRequest',
+  'SpecialTask',
+  'SpecialTaskSubmission',
+  'AdminAuditLog',
 ]
 
 const REQUIRED_CEO_COLUMNS = [
