@@ -290,6 +290,12 @@ export interface AdminSettings {
     wallet: boolean
     specialTasks: boolean
   }
+  referral: {
+    registrationBonusSp: number
+    commissionBps: number
+    commissionCurrency: string
+    qualification: { minLevel: number; requireEmailVerification: boolean; minCyclesCollected: number }
+  }
 }
 
 export const fetchAdminSettings = () =>
@@ -329,3 +335,72 @@ export const reviewAdminWithdrawal = (id: number, decision: 'APPROVED' | 'REJECT
   request<{ withdrawal: AdminWithdrawal }>(`/api/admin/withdrawals/${id}/review`, json({ decision, note })).then(
     (d) => d.withdrawal,
   )
+
+// ---------------------------------------------------------------------------
+// Referral management
+// ---------------------------------------------------------------------------
+
+export type AdminReferralState = 'PENDING' | 'QUALIFIED' | 'REJECTED' | 'REVOKED'
+
+export interface AdminReferral {
+  id: number
+  referrerId: number
+  referrerUsername: string
+  referredUsername: string
+  code: string
+  status: AdminReferralState
+  createdAt: string
+  qualifiedAt: string | null
+  reviewedAt: string | null
+  reviewNote: string | null
+  hasSignupFingerprint: boolean
+  suspiciousSharedIp: boolean
+  purchaseEvents: number
+  rewards: Array<{ kind: string; status: string; amountSp: string }>
+}
+
+export interface AdminReferralReward {
+  id: number
+  referralId: number
+  referrerUsername: string
+  referredUsername: string
+  kind: 'REGISTRATION_BONUS' | 'PURCHASE_COMMISSION'
+  status: 'PENDING' | 'PAID' | 'REVERSED'
+  amountSp: string
+  currency: string
+  purchaseRef: string | null
+  createdAt: string
+  paidAt: string | null
+  reversedAt: string | null
+}
+
+export const fetchAdminReferrals = (filter: { status?: AdminReferralState; q?: string } = {}) => {
+  const params = new URLSearchParams()
+  if (filter.status) params.set('status', filter.status)
+  if (filter.q) params.set('q', filter.q)
+  const qs = params.toString()
+  return request<{ referrals: AdminReferral[]; rewardsEnabled: boolean }>(
+    `/api/admin/referrals${qs ? `?${qs}` : ''}`,
+  ).then((d) => d)
+}
+
+export const reviewAdminReferral = (
+  id: number,
+  decision: 'QUALIFY' | 'REJECT' | 'REVOKE',
+  note: string | undefined,
+  confirm: boolean,
+) =>
+  request<{ referral: { id: number; status: AdminReferralState } }>(
+    `/api/admin/referrals/${id}/review`,
+    json({ decision, note, confirm }),
+  ).then((d) => d.referral)
+
+export const fetchAdminReferralRewards = (filter: { status?: string; kind?: string } = {}) => {
+  const params = new URLSearchParams()
+  if (filter.status) params.set('status', filter.status)
+  if (filter.kind) params.set('kind', filter.kind)
+  const qs = params.toString()
+  return request<{ rewards: AdminReferralReward[] }>(`/api/admin/referral-rewards${qs ? `?${qs}` : ''}`).then(
+    (d) => d.rewards,
+  )
+}

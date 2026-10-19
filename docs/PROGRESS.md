@@ -5,8 +5,8 @@ Last updated: 2026-10-19.
 
 ## Verified current state
 - **Repo:** git repository, default branch `master` (V2.5 economy/progression backend, UI redesign,
-  migration workflows, plus Steps 1–4: registration, missions, admin/special tasks, and admin management).
-  Monorepo `client` / `server` / `shared`.
+  migration workflows, plus Steps 1–5: registration, missions, admin/special tasks, admin management,
+  and referrals). Monorepo `client` / `server` / `shared`.
 - **Auth (implemented):** register/login/logout/me; JWT httpOnly `token` cookie (7d); bcrypt (12); Zod;
   `/api/auth` rate limit. Username validation matches the approved rule (3–20 chars, `[A-Za-z0-9_]`).
   Email verification/password recovery **deferred** (MVP decision).
@@ -88,6 +88,25 @@ Last updated: 2026-10-19.
     settings, catalog create/delete) require an explicit `confirm` flag.
   - Migration `20261019030000_v25_admin_management` (additive columns: `User.isSuspended/suspendedAt/
     suspensionReason`, `CEO.imageUrl/isForSale`) **applied to the isolated test branch only**.
+- **Referral system (V2.5 Step 5, implemented):**
+  - **Attribution**: referral codes captured at registration and permanently associated (`ReferralAttribution`,
+    unique referred user); self-referrals and duplicate attribution rejected; salted IP/user-agent
+    **fingerprints** stored for abuse detection; legacy `eligible` backfilled into a new `status`.
+  - **Qualification states**: `PENDING → QUALIFIED/REJECTED/REVOKED` with admin review (confirm + audit).
+  - **Rewards**: the approved **10 Bonus SP** per qualified referral is recorded as a `ReferralReward`
+    (kind `REGISTRATION_BONUS`, unique/idempotent); recurring **10% commission** (`PURCHASE_COMMISSION`)
+    is prepared via `ReferralPurchaseEvent`. **Rewards remain DISABLED** (`REFERRAL_REWARDS_ENABLED=false`);
+    records are created `PENDING` and are **not** credited to the ledger.
+  - **Configurable but disabled**: commission currency, registration bonus, bps and qualification criteria
+    live in site settings (`referral.*`) for review; the master switch is a code constant and cannot be
+    enabled until the owner approves the unresolved economics.
+  - **Payments safety**: `recordReferralPurchaseEvent` is idempotent on `purchaseRef` and reverses
+    commission on refund/chargeback; failed/duplicate events never earn.
+  - **Player page** `/dashboard/referrals`: code, shareable link, totals, qualified, pending/paid rewards,
+    qualification criteria, and referral history. **Admin** `/admin/referrals`: review queue, abuse flags,
+    commission/reward records, audit.
+  - Migration `20261019040000_v25_referral_system` (ReferralReward + ReferralPurchaseEvent + status columns
+    + 4 enums) **applied to the isolated test branch only**.
 - **Production database (verified 2026-10-18, read-only):** production branch
   `br-delicate-butterfly-b4et73g9` / project `wandering-king-57462138` has **six `_prisma_migrations`
   rows**: the four baseline migrations plus both V2.5 migrations recorded applied at
@@ -101,21 +120,19 @@ Last updated: 2026-10-19.
   badges), Wallet (balances, SP ledger, withdrawal requests with payouts disabled). Legacy demo pages
   removed. Client API layer in `client/src/lib/game.ts`.
 - **Tests:**
-  - `npm test --workspace=server` — **116/116 unit pass** (incl. Step 4 site-settings parse/patch,
-    admin suspension/catalog safeguards/settings-merge, and admin validation (economy-field lock) tests,
-    plus special-task, task claimed-state, referral, and registration consent/validation tests).
+  - `npm test --workspace=server` — **132/132 unit pass** (incl. Step 5 referral rules and referral
+    service qualification/idempotency/refund tests, plus all prior suites).
   - `npm run test:integration --workspace=server` — **8/8 pass** against isolated branch
-    `br-cold-star-b4bbaq8u` (identity-guarded + schema-guarded incl. Step 3 tables and Step 4 CEO columns;
-    ownership + production start/collect, duplicate-collection prevention, lifetime-cap exhaustion).
-  - `npm run test:smoke --workspace=server` — **55/55 pass** (HTTP end-to-end against the isolated
-    branch; adds Step 4 flows: admin user search/detail, suspend→403→reactivate, confirmation enforcement,
-    catalog list + owned-delete safeguard + economy-field rejection, economy overview, withdrawal list,
-    settings update + public settings + registration gating; plus the Step 2/3 assertions).
+    `br-cold-star-b4bbaq8u` (identity-guarded + schema-guarded incl. Steps 3–5 tables and Step 4 CEO
+    columns; ownership + production start/collect, duplicate-collection prevention, lifetime-cap exhaustion).
+  - `npm run test:smoke --workspace=server` — **62/62 pass** (HTTP end-to-end against the isolated
+    branch; adds Step 5 flows: referred registration, referrer summary, admin list/review with
+    confirmation enforcement, qualify, pending reward record; plus Steps 2–4 assertions).
   - Integration/smoke self-skip when `TEST_DATABASE_URL` is unset and refuse to run against protected
     (production/staging/recovery) branches.
-  - Re-verified 2026-10-19 after applying the Step 4 migration to the isolated branch: unit **116/116**,
-    integration **8/8** and smoke **55/55** (admin management flows; smoke resets site settings and cleans
-    up `PolicyConsent`, `SpecialTask`, `AdminAuditLog`).
+  - Re-verified 2026-10-19 after applying the Step 5 migration to the isolated branch: unit **132/132**,
+    integration **8/8** and smoke **62/62** (referral flows; smoke resets site settings and cleans up
+    `PolicyConsent`, `SpecialTask`, `AdminAuditLog`, and referral attributions/rewards).
 - **Builds:** server `tsc` typecheck **passes**; client production PWA build **passes** (workbox precache
   limit raised).
 
@@ -161,6 +178,16 @@ Last updated: 2026-10-19.
 10. **New-tier governance (owner action).** Admin-created CEO tiers are forced hidden/not-for-sale on
     creation; activating a new tier with production values is an economy decision that requires owner
     approval before it is made visible/for-sale.
+11. **Referral migration — applied to test only (owner action for prod).**
+    `20261019040000_v25_referral_system` (additive `ReferralReward` / `ReferralPurchaseEvent` tables,
+    `ReferralAttribution` status/fingerprint columns, 4 enums; legacy `eligible` backfilled) is **applied
+    to the isolated test branch** and is **not applied** to production/staging. Referral endpoints fail
+    closed without these columns/tables; apply to production via the guarded preflight/execute workflow
+    after a verified backup.
+12. **Referral economics still unresolved (owner action).** Rewards remain **disabled**
+    (`REFERRAL_REWARDS_ENABLED=false`, authoritative code constant). Before activation the owner must
+    confirm: the **commission currency**, the **qualification criteria**, and **refund/chargeback
+    handling**. Records are created PENDING and never credited until then.
 
 ## Not implemented yet (see Master Spec §0/§3–§9)
 **OxaPay** integration (planning only, not activated); real-money purchases/deposits/withdrawals/payouts;
@@ -176,12 +203,35 @@ application (server/client) deployment.
    OxaPay integration and all real-money flows stay disabled pending explicit owner approval.
 7. **V2.5 Step 1 (registration) — done and branch-verified.** Confirm password, referral prefill/manual
    entry, ToS/Privacy consent + pages, server-side referral validation and consent recording. Unit
-   **116/116**, integration **8/8**, smoke **55/55** (consent migration applied to the isolated test branch
+   **132/132**, integration **8/8**, smoke **62/62** (consent migration applied to the isolated test branch
    only). Production application of the migration and the unresolved referral rules below remain owner
    decisions.
 8. **V2.5 Step 2 (missions & rewards) — done.** See "Missions — Step 2 fixes" below.
 9. **V2.5 Step 3 (admin foundation + special tasks) — done.** See "Special Tasks — Step 3" below.
 10. **V2.5 Step 4 (admin management) — done.** See "Admin Management — Step 4" below.
+11. **V2.5 Step 5 (referral system) — done.** See "Referral System — Step 5" below.
+
+## Referral System — Step 5 (2026-10-19)
+Extended the existing referral system (no rebuild) with:
+1. **Dedicated player page** `/dashboard/referrals`: referral code, shareable link, total + qualified
+   referrals, pending/paid reward SP, qualification criteria, and referral history.
+2. **Automatic capture**: referral codes captured at registration and permanently associated via a unique
+   `ReferralAttribution`; self-referrals and duplicate attribution rejected.
+3. **Explicit states**: `PENDING → QUALIFIED/REJECTED/REVOKED` with admin review; abuse detection via
+   salted IP/user-agent fingerprints and a shared-IP flag.
+4. **10 Bonus SP reward** recorded exactly-once (`ReferralReward`, `REGISTRATION_BONUS`).
+5. **Recurring 10% commission prepared** (`PURCHASE_COMMISSION`) via `ReferralPurchaseEvent`.
+6. **Configurable but disabled**: commission currency / qualification stored in site settings; the master
+   switch is the `REFERRAL_REWARDS_ENABLED=false` code constant — nothing is credited.
+7. **Admin management** `/admin/referrals`: review queue, abuse flags, commission/reward records + audit.
+8. **Refund/chargeback/failed/duplicate safety**: `recordReferralPurchaseEvent` is idempotent on
+   `purchaseRef`; reversals reverse the commission; failed/duplicate never earn.
+9. **Tests**: pure qualification/commission tests, service idempotency + concurrent-qualify + reversal
+   tests, and smoke coverage of referred registration → summary → admin review → qualify → pending reward.
+
+Verification: unit **132/132**, integration **8/8**, smoke **62/62**; server `tsc` and client PWA build pass.
+Migration `20261019040000_v25_referral_system` applied to the **isolated test branch only**. Rewards,
+payments and referral payouts remain **disabled**; CEO prices/production rates unchanged.
 
 ## Admin Management — Step 4 (2026-10-19)
 Extended the existing `/admin` panel (no rebuild) with:

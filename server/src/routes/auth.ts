@@ -8,6 +8,7 @@ import { AuthRequest, requireAuth } from '../middleware/auth'
 import { findRegistrationConflict } from '../services/registration'
 import { attributeReferral } from '../services/referral'
 import { getSiteSettings } from '../services/siteSettings'
+import { hashFingerprint } from '../lib/privacy'
 
 const router = Router()
 
@@ -51,6 +52,8 @@ router.post('/register', async (req: AuthRequest, res: Response) => {
         referredUserId: user.id,
         referredUsername: user.username,
         code: ref,
+        signupIpHash: hashFingerprint(req.ip ?? req.socket?.remoteAddress),
+        signupUserAgentHash: hashFingerprint(req.headers['user-agent']),
       })
     } catch {
       /* attribution must never block registration */

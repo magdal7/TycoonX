@@ -13,6 +13,7 @@ import {
   PanelLeftOpen,
   Coins,
   Sparkles,
+  UserPlus,
   ShieldCheck
 } from 'lucide-react'
 import { Link, useRouter } from './router'
@@ -40,6 +41,7 @@ const PRIMARY: NavItem[] = [
 const SECONDARY: NavItem[] = [
   { id: 'achievements', label: 'Achievements', href: '/dashboard/achievements', Icon: Sparkles, feature: 'achievements' },
   { id: 'leaderboard', label: 'Leaderboard', href: '/dashboard/leaderboard', Icon: Trophy, feature: 'leaderboard' },
+  { id: 'referrals', label: 'Referrals', href: '/dashboard/referrals', Icon: UserPlus },
   { id: 'wallet', label: 'Wallet', href: '/dashboard/wallet', Icon: Wallet, feature: 'wallet' }
 ]
 

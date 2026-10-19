@@ -43,7 +43,7 @@ const PROTECTED_BRANCHES = [
 const STARTUP_TIMEOUT_MS = 30_000
 const REQUEST_TIMEOUT_MS = 15_000
 const SHUTDOWN_GRACE_MS = 5_000
-const OVERALL_TIMEOUT_MS = 180_000
+const OVERALL_TIMEOUT_MS = 300_000
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -88,6 +88,7 @@ let serverLog = ''
 
 const watchdog = setTimeout(() => {
   step('global watchdog', false, `exceeded ${OVERALL_TIMEOUT_MS} ms`)
+  if (serverLog) console.error('--- server log (tail) ---\n' + serverLog.slice(-3000))
   try { server?.kill('SIGKILL') } catch { /* ignore */ }
   const pass = results.every((r) => r.ok)
   console.log(JSON.stringify({ allPass: pass, timedOut: true, passed: results.filter((r) => r.ok).length, total: results.length, results }, null, 2))
@@ -162,6 +163,8 @@ const email = `itest_smoke_${stamp}@example.com`
 const username = `itsmk_${stamp.replace(/_/g, '')}`.slice(0, 20)
 const email2 = `itest_smoke_p2_${stamp}@example.com`
 const username2 = `itsmk2${stamp.replace(/_/g, '')}`.slice(0, 20)
+const email3 = `itest_smoke_p3_${stamp}@example.com`
+const username3 = `itsmk3${stamp.replace(/_/g, '')}`.slice(0, 20)
 const password = 'Passw0rd!123'
 
 try {
@@ -391,6 +394,40 @@ try {
   const blockedReg = await api('/api/auth/register', { method: 'POST', body: { email: `itest_smoke_blocked_${stamp}@example.com`, username: `itsmkblk${stamp.replace(/_/g, '')}`.slice(0, 20), password, acceptTerms: true } })
   step('registration disabled blocks signup (403)', closeReg.status === 200 && blockedReg.status === 403 && blockedReg.json?.error === 'registration_disabled', blockedReg.json)
   await api('/api/admin/settings', { method: 'PUT', cookie, body: { registrationEnabled: true, confirm: true } })
+
+  // ---- Step 5: referral system ----
+  const reg3 = await api('/api/auth/register', { method: 'POST', body: { email: email3, username: username3, password, acceptTerms: true, ref: username } })
+  step('register referred user', reg3.status === 201 && !!reg3.json?.user, { status: reg3.status })
+
+  const refSummary = await api('/api/game/referrals', { cookie })
+  step(
+    'referrer summary shows attribution',
+    refSummary.status === 200 && (refSummary.json?.total ?? 0) >= 1 && refSummary.json?.history?.some((h) => h.referredUsername === username3) && refSummary.json?.rewardsEnabled === false,
+    { total: refSummary.json?.total },
+  )
+
+  const adminRefs = await api(`/api/admin/referrals?q=${encodeURIComponent(username3)}`, { cookie })
+  const referral = adminRefs.json?.referrals?.find((r) => r.referredUsername === username3)
+  step('admin lists referral', adminRefs.status === 200 && !!referral && referral.status === 'PENDING', { status: adminRefs.status })
+
+  if (referral) {
+    const noConfirm = await api(`/api/admin/referrals/${referral.id}/review`, { method: 'POST', cookie, body: { decision: 'QUALIFY', confirm: false } })
+    step('referral review requires confirmation (422)', noConfirm.status === 422, noConfirm.json)
+    const qualify = await api(`/api/admin/referrals/${referral.id}/review`, { method: 'POST', cookie, body: { decision: 'QUALIFY', confirm: true } })
+    step('admin qualifies referral', qualify.status === 200 && qualify.json?.referral?.status === 'QUALIFIED', qualify.json)
+
+    const rewards = await api('/api/admin/referral-rewards', { cookie })
+    step(
+      'reward record created (pending, rewards disabled)',
+      rewards.status === 200 && rewards.json?.rewards?.some((r) => r.kind === 'REGISTRATION_BONUS' && r.status === 'PENDING' && r.amountSp === '10'),
+      { count: rewards.json?.rewards?.length },
+    )
+
+    const refSummary2 = await api('/api/game/referrals', { cookie })
+    step('referrer qualified + pending reward', (refSummary2.json?.qualified ?? 0) >= 1 && refSummary2.json?.pendingRewardsSp === '10', { qualified: refSummary2.json?.qualified })
+  } else {
+    step('admin qualifies referral', false, 'referral not found')
+  }
 
   // Login + logout
   const login = await api('/api/auth/login', { method: 'POST', body: { email, password } })

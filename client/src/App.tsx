@@ -14,6 +14,7 @@ import Achievements from './pages/Achievements'
 import Leaderboard from './pages/Leaderboard'
 import Wallet from './pages/Wallet'
 import Profile from './pages/Profile'
+import Referrals from './pages/Referrals'
 import { AdminLayout } from './components/AdminLayout'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminSpecialTasks from './pages/admin/AdminSpecialTasks'
@@ -23,6 +24,7 @@ import AdminCatalog from './pages/admin/AdminCatalog'
 import AdminEconomy from './pages/admin/AdminEconomy'
 import AdminWithdrawals from './pages/admin/AdminWithdrawals'
 import AdminSettingsPage from './pages/admin/AdminSettings'
+import AdminReferrals from './pages/admin/AdminReferrals'
 import { RouterProvider } from './components/router'
 import { Layout } from './components/Layout'
 
@@ -124,9 +126,11 @@ export default function App() {
             { path: '/dashboard/leaderboard', element: wrap(<Leaderboard />) },
             { path: '/dashboard/wallet', element: wrap(<Wallet />) },
             { path: '/dashboard/profile', element: wrap(<Profile />) },
+            { path: '/dashboard/referrals', element: wrap(<Referrals />) },
             { path: '/dashboard/world', element: wrap(<GameHome navigate={navigate} />) },
             { path: '/admin', element: <AdminLayout><AdminDashboard /></AdminLayout> },
             { path: '/admin/users', element: <AdminLayout><AdminUsers /></AdminLayout> },
+            { path: '/admin/referrals', element: <AdminLayout><AdminReferrals /></AdminLayout> },
             { path: '/admin/catalog', element: <AdminLayout><AdminCatalog /></AdminLayout> },
             { path: '/admin/economy', element: <AdminLayout><AdminEconomy /></AdminLayout> },
             { path: '/admin/withdrawals', element: <AdminLayout><AdminWithdrawals /></AdminLayout> },

@@ -267,12 +267,30 @@ export interface PublicProfile {
 export const fetchPublicProfile = (username: string) =>
   request<PublicProfile>(`/api/public/profile/${encodeURIComponent(username)}`)
 
+export type ReferralState = 'PENDING' | 'QUALIFIED' | 'REJECTED' | 'REVOKED'
+
+export interface ReferralHistoryItem {
+  id: number
+  referredUsername: string
+  status: ReferralState
+  createdAt: string
+  qualifiedAt: string | null
+  rewards: Array<{ kind: string; status: string; amountSp: string; currency: string }>
+}
+
 export interface ReferralStatus {
+  code: string | null
+  link: string | null
   total: number
   qualified: number
+  pendingRewardsSp: string
+  paidRewardsSp: string
   rewardsEnabled: boolean
   registrationBonusSp: string
   commissionPercent: string
+  commissionCurrency: string
+  qualification: { minLevel: number; requireEmailVerification: boolean; minCyclesCollected: number }
+  history: ReferralHistoryItem[]
 }
 
 export const fetchReferrals = () => request<ReferralStatus>('/api/game/referrals')

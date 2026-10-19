@@ -106,6 +106,71 @@ export default function AdminSettingsPage() {
             ))}
           </div>
         </div>
+
+        <div className="border-t border-line pt-4">
+          <h2 className="text-sm font-bold">Referral configuration</h2>
+          <p className="mt-1 text-[10px] text-muted">
+            Rewards remain disabled until the owner approves the unresolved economics (commission currency,
+            qualification, refunds). These values are recorded for review only and do not activate rewards.
+          </p>
+          <div className="mt-2 grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="text-xs text-gray-300">Registration bonus SP</label>
+              <input
+                type="number"
+                value={settings.referral.registrationBonusSp}
+                onChange={(e) => setSettings({ ...settings, referral: { ...settings.referral, registrationBonusSp: Number(e.target.value) } })}
+                className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 text-sm text-white outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-300">Commission (bps)</label>
+              <input
+                type="number"
+                value={settings.referral.commissionBps}
+                onChange={(e) => setSettings({ ...settings, referral: { ...settings.referral, commissionBps: Number(e.target.value) } })}
+                className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 text-sm text-white outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-300">Commission currency (unresolved)</label>
+              <input
+                value={settings.referral.commissionCurrency}
+                onChange={(e) => setSettings({ ...settings, referral: { ...settings.referral, commissionCurrency: e.target.value } })}
+                className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 text-sm text-white outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="text-xs text-gray-300">Qualification min level</label>
+              <input
+                type="number"
+                value={settings.referral.qualification.minLevel}
+                onChange={(e) => setSettings({ ...settings, referral: { ...settings.referral, qualification: { ...settings.referral.qualification, minLevel: Number(e.target.value) } } })}
+                className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 text-sm text-white outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-300">Qualification min cycles collected</label>
+              <input
+                type="number"
+                value={settings.referral.qualification.minCyclesCollected}
+                onChange={(e) => setSettings({ ...settings, referral: { ...settings.referral, qualification: { ...settings.referral.qualification, minCyclesCollected: Number(e.target.value) } } })}
+                className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 text-sm text-white outline-none focus:border-primary"
+              />
+            </div>
+            <label className="mt-6 flex items-center gap-2 text-xs text-gray-300">
+              <input
+                type="checkbox"
+                checked={settings.referral.qualification.requireEmailVerification}
+                onChange={(e) => setSettings({ ...settings, referral: { ...settings.referral, qualification: { ...settings.referral.qualification, requireEmailVerification: e.target.checked } } })}
+                className="h-4 w-4 rounded border-gray-600 bg-gray-800/50"
+              />
+              Require email verification
+            </label>
+          </div>
+        </div>
       </Card>
     </div>
   )

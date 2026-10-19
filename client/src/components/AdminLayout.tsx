@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   ShieldCheck,
   Users,
+  UserPlus,
   Boxes,
   Activity,
   ArrowDownToLine,
@@ -16,6 +17,7 @@ import { Link, useRouter } from './router'
 const NAV = [
   { href: '/admin', label: 'Dashboard', Icon: LayoutDashboard },
   { href: '/admin/users', label: 'Users', Icon: Users },
+  { href: '/admin/referrals', label: 'Referrals', Icon: UserPlus },
   { href: '/admin/catalog', label: 'CEO Catalog', Icon: Boxes },
   { href: '/admin/economy', label: 'Economy', Icon: Activity },
   { href: '/admin/withdrawals', label: 'Withdrawals', Icon: ArrowDownToLine },

@@ -63,6 +63,8 @@ const REQUIRED_TABLES = [
   'SpecialTask',
   'SpecialTaskSubmission',
   'AdminAuditLog',
+  'ReferralReward',
+  'ReferralPurchaseEvent',
 ]
 
 const REQUIRED_CEO_COLUMNS = [

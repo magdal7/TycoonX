@@ -17,6 +17,7 @@ import { createAdminUserRouter } from './routes/admin/users'
 import { createAdminCatalogRouter } from './routes/admin/catalog'
 import { createAdminEconomyRouter } from './routes/admin/economy'
 import { createAdminSettingsRouter } from './routes/admin/settings'
+import { createAdminReferralRouter } from './routes/admin/referrals'
 import { createPublicRouter } from './routes/public'
 import { requireAuth, requireAdmin } from './middleware/auth'
 
@@ -54,6 +55,7 @@ app.use('/api/admin', adminLimiter, createAdminUserRouter(prisma))
 app.use('/api/admin', adminLimiter, createAdminCatalogRouter(prisma))
 app.use('/api/admin', adminLimiter, createAdminEconomyRouter(prisma))
 app.use('/api/admin', adminLimiter, createAdminSettingsRouter(prisma))
+app.use('/api/admin', adminLimiter, createAdminReferralRouter(prisma))
 
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
   Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('db timeout')), ms))])

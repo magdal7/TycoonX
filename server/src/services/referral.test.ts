@@ -83,10 +83,20 @@ test('attributeReferral rejects a code resolving to the referred user id', async
 test('attributeReferral stores valid attribution case-insensitively', async () => {
   const f = new FakePrisma()
   f.users.push({ id: 1, username: 'Alice' })
-  const result = await attributeReferral(asClient(f), { referredUserId: 2, referredUsername: 'Bob', code: 'alice' })
+  const result = await attributeReferral(asClient(f), {
+    referredUserId: 2,
+    referredUsername: 'Bob',
+    code: 'alice',
+    signupIpHash: 'iphash',
+  })
   assert.equal(result.attributed, true)
   assert.equal(result.reason, 'attributed')
-  assert.deepEqual(f.attributions[0], { id: 1, referrerId: 1, referredUserId: 2, code: 'alice' })
+  const row = f.attributions[0] as unknown as { referrerId: number; referredUserId: number; code: string; status: string; signupIpHash: string }
+  assert.equal(row.referrerId, 1)
+  assert.equal(row.referredUserId, 2)
+  assert.equal(row.code, 'alice')
+  assert.equal(row.status, 'PENDING')
+  assert.equal(row.signupIpHash, 'iphash')
 })
 
 test('attributeReferral reports already-attributed on a duplicate referred user', async () => {

@@ -4,7 +4,7 @@ import { AuthRequest, requireAuth } from '../../middleware/auth'
 import { getTaskBoard, claimTask, claimAllTasks } from '../../services/tasks'
 import { listAchievements, claimAchievement } from '../../services/achievements'
 import { getPlayerRank, setAvatar, setFeaturedBadges } from '../../services/leaderboard'
-import { REFERRAL_REWARDS_ENABLED } from '../../services/referralRewards'
+import { getPlayerReferralSummary } from '../../services/referrals'
 import {
   achievementClaimSchema,
   avatarSchema,
@@ -80,18 +80,7 @@ export function createGameProgressionRouter(db: PrismaClient): Router {
   })
 
   router.get('/referrals', async (req: AuthRequest, res: Response) => {
-    const userId = req.user!.id
-    const [total, qualified] = await Promise.all([
-      db.referralAttribution.count({ where: { referrerId: userId } }),
-      db.referralAttribution.count({ where: { referrerId: userId, eligible: true } }),
-    ])
-    res.json({
-      total,
-      qualified,
-      rewardsEnabled: REFERRAL_REWARDS_ENABLED,
-      registrationBonusSp: '10',
-      commissionPercent: '10',
-    })
+    res.json(await getPlayerReferralSummary(db, req.user!.id))
   })
 
   return router

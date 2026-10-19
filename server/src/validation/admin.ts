@@ -72,7 +72,33 @@ export const settingsUpdateSchema = z.object({
       specialTasks: z.boolean().optional(),
     })
     .optional(),
+  referral: z
+    .object({
+      registrationBonusSp: z.number().int().min(0).max(100000).optional(),
+      commissionBps: z.number().int().min(0).max(10000).optional(),
+      commissionCurrency: z.string().trim().min(1).max(20).optional(),
+      qualification: z
+        .object({
+          minLevel: z.number().int().min(1).max(50).optional(),
+          requireEmailVerification: z.boolean().optional(),
+          minCyclesCollected: z.number().int().min(0).max(1000000).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   confirm: z.boolean(),
+})
+
+export const referralReviewSchema = z.object({
+  decision: z.enum(['QUALIFY', 'REJECT', 'REVOKE']),
+  note: z.string().trim().max(500).optional(),
+  confirm: z.boolean(),
+})
+
+export const referralStatusFilterSchema = z.enum(['PENDING', 'QUALIFIED', 'REJECTED', 'REVOKED'])
+export const referralRewardFilterSchema = z.object({
+  status: z.enum(['PENDING', 'PAID', 'REVERSED']).optional(),
+  kind: z.enum(['REGISTRATION_BONUS', 'PURCHASE_COMMISSION']).optional(),
 })
 
 export type CatalogUpdateBody = z.infer<typeof catalogUpdateSchema>

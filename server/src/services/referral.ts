@@ -42,7 +42,13 @@ async function resolveReferrer(
  */
 export async function attributeReferral(
   prisma: PrismaClient,
-  input: { referredUserId: number; referredUsername?: string; code: string | null | undefined },
+  input: {
+    referredUserId: number
+    referredUsername?: string
+    code: string | null | undefined
+    signupIpHash?: string | null
+    signupUserAgentHash?: string | null
+  },
 ): Promise<ReferralResult> {
   const code = input.code?.trim()
   if (!code) return { attributed: false, reason: 'no_code' }
@@ -61,8 +67,16 @@ export async function attributeReferral(
   }
 
   try {
+    // Permanent attribution; qualification is reviewed separately (default PENDING).
     const row = await prisma.referralAttribution.create({
-      data: { referrerId: referrer.id, referredUserId: input.referredUserId, code },
+      data: {
+        referrerId: referrer.id,
+        referredUserId: input.referredUserId,
+        code,
+        status: 'PENDING',
+        signupIpHash: input.signupIpHash ?? null,
+        signupUserAgentHash: input.signupUserAgentHash ?? null,
+      },
       select: { id: true },
     })
     return { attributed: true, reason: 'attributed', referralId: row.id }

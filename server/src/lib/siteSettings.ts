@@ -6,6 +6,27 @@ export interface AnnouncementSettings {
   level: AnnouncementLevel
 }
 
+export interface ReferralQualificationSettings {
+  minLevel: number
+  requireEmailVerification: boolean
+  minCyclesCollected: number
+}
+
+export interface ReferralConfig {
+  registrationBonusSp: number
+  commissionBps: number
+  /** Placeholder/unresolved: commission currency is not finalized (owner decision). */
+  commissionCurrency: string
+  qualification: ReferralQualificationSettings
+}
+
+export const DEFAULT_REFERRAL_CONFIG: ReferralConfig = {
+  registrationBonusSp: 10,
+  commissionBps: 1000,
+  commissionCurrency: 'BONUS_SP',
+  qualification: { minLevel: 1, requireEmailVerification: false, minCyclesCollected: 0 },
+}
+
 export interface FeatureSettings {
   market: boolean
   collection: boolean
@@ -21,6 +42,7 @@ export interface SiteSettings {
   maintenance: { enabled: boolean; message: string }
   announcement: AnnouncementSettings
   features: FeatureSettings
+  referral: ReferralConfig
 }
 
 export interface SiteSettingsPatch {
@@ -28,6 +50,9 @@ export interface SiteSettingsPatch {
   maintenance?: Partial<{ enabled: boolean; message: string }>
   announcement?: Partial<AnnouncementSettings>
   features?: Partial<FeatureSettings>
+  referral?: Partial<Omit<ReferralConfig, 'qualification'>> & {
+    qualification?: Partial<ReferralQualificationSettings>
+  }
 }
 
 export const SITE_SETTING_KEYS = {
@@ -35,6 +60,7 @@ export const SITE_SETTING_KEYS = {
   maintenance: 'site.maintenance',
   announcement: 'site.announcement',
   features: 'site.features',
+  referral: 'site.referral',
 } as const
 
 export const ALL_SITE_SETTING_KEYS: string[] = Object.values(SITE_SETTING_KEYS)
@@ -55,6 +81,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
     wallet: true,
     specialTasks: true,
   },
+  referral: DEFAULT_REFERRAL_CONFIG,
 }
 
 const ANNOUNCEMENT_LEVELS: AnnouncementLevel[] = ['info', 'warning', 'critical']
@@ -77,12 +104,17 @@ function asString(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback
 }
 
+function asNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
 /** Merges stored overrides over the safe defaults; never throws on bad data. */
 export function parseSiteSettings(entries: Record<string, string | undefined>): SiteSettings {
   const registrationRaw = entries[SITE_SETTING_KEYS.registrationEnabled]
   const maintenance = parseJson<SiteSettings['maintenance']>(entries[SITE_SETTING_KEYS.maintenance])
   const announcement = parseJson<AnnouncementSettings>(entries[SITE_SETTING_KEYS.announcement])
   const features = parseJson<FeatureSettings>(entries[SITE_SETTING_KEYS.features])
+  const referral = parseJson<ReferralConfig>(entries[SITE_SETTING_KEYS.referral])
 
   const level = announcement?.level
   return {
@@ -105,6 +137,22 @@ export function parseSiteSettings(entries: Record<string, string | undefined>): 
       wallet: asBoolean(features?.wallet, DEFAULT_SITE_SETTINGS.features.wallet),
       specialTasks: asBoolean(features?.specialTasks, DEFAULT_SITE_SETTINGS.features.specialTasks),
     },
+    referral: {
+      registrationBonusSp: asNumber(referral?.registrationBonusSp, DEFAULT_REFERRAL_CONFIG.registrationBonusSp),
+      commissionBps: asNumber(referral?.commissionBps, DEFAULT_REFERRAL_CONFIG.commissionBps),
+      commissionCurrency: asString(referral?.commissionCurrency, DEFAULT_REFERRAL_CONFIG.commissionCurrency),
+      qualification: {
+        minLevel: asNumber(referral?.qualification?.minLevel, DEFAULT_REFERRAL_CONFIG.qualification.minLevel),
+        requireEmailVerification: asBoolean(
+          referral?.qualification?.requireEmailVerification,
+          DEFAULT_REFERRAL_CONFIG.qualification.requireEmailVerification,
+        ),
+        minCyclesCollected: asNumber(
+          referral?.qualification?.minCyclesCollected,
+          DEFAULT_REFERRAL_CONFIG.qualification.minCyclesCollected,
+        ),
+      },
+    },
   }
 }
 
@@ -115,6 +163,14 @@ export function applySiteSettingsPatch(current: SiteSettings, patch: SiteSetting
     maintenance: { ...current.maintenance, ...(patch.maintenance ?? {}) },
     announcement: { ...current.announcement, ...(patch.announcement ?? {}) },
     features: { ...current.features, ...(patch.features ?? {}) },
+    referral: {
+      ...current.referral,
+      ...(patch.referral ?? {}),
+      qualification: {
+        ...current.referral.qualification,
+        ...(patch.referral?.qualification ?? {}),
+      },
+    },
   }
 }
 
@@ -125,6 +181,7 @@ export function serializeSiteSettings(settings: SiteSettings): Array<{ key: stri
     { key: SITE_SETTING_KEYS.maintenance, value: JSON.stringify(settings.maintenance) },
     { key: SITE_SETTING_KEYS.announcement, value: JSON.stringify(settings.announcement) },
     { key: SITE_SETTING_KEYS.features, value: JSON.stringify(settings.features) },
+    { key: SITE_SETTING_KEYS.referral, value: JSON.stringify(settings.referral) },
   ]
 }
 

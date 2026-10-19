@@ -307,17 +307,69 @@ model OwnedCeo {
 }
 
 model ReferralAttribution {
-  id             Int      @id @default(autoincrement())
+  id             Int            @id @default(autoincrement())
   referrerId     Int
-  referredUserId Int      @unique
+  referredUserId Int            @unique
   code           String
-  createdAt      DateTime @default(now())
-  eligible       Boolean  @default(false)
+  status         ReferralStatus @default(PENDING)
+  createdAt      DateTime       @default(now())
+  eligible       Boolean        @default(false)
+  qualifiedAt    DateTime?
+  reviewedBy     Int?
+  reviewedAt     DateTime?
+  reviewNote     String?
+  signupIpHash   String?
+  signupUserAgentHash String?
+  updatedAt      DateTime       @updatedAt
 
   referrer       User     @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Restrict)
   referredUser   User     @relation("ReferralReferred", fields: [referredUserId], references: [id], onDelete: Restrict)
+  rewards        ReferralReward[]
+  purchases      ReferralPurchaseEvent[]
 
   @@index([referrerId])
+  @@index([referrerId, status])
+  @@index([signupIpHash])
+}
+
+model ReferralReward {
+  id             Int                   @id @default(autoincrement())
+  referralId     Int
+  kind           ReferralRewardKind
+  status         ReferralRewardStatus  @default(PENDING)
+  amountSp       BigInt
+  currency       String                @default("BONUS_SP")
+  purchaseRef    String                @default("")
+  ledgerSourceId BigInt?
+  reason         String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  paidAt         DateTime?
+  reversedAt     DateTime?
+
+  referral       ReferralAttribution   @relation(fields: [referralId], references: [id], onDelete: Cascade)
+
+  @@unique([referralId, kind, purchaseRef])
+  @@index([referralId])
+  @@index([status])
+}
+
+model ReferralPurchaseEvent {
+  id             Int                    @id @default(autoincrement())
+  referralId     Int
+  referredUserId Int
+  purchaseRef    String                 @unique
+  valueSp        BigInt
+  status         ReferralPurchaseStatus @default(PENDING)
+  occurredAt     DateTime
+  metadata       Json?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  referral       ReferralAttribution    @relation(fields: [referralId], references: [id], onDelete: Cascade)
+
+  @@index([referralId])
+  @@index([status])
 }
 
 model IdempotencyKey {
@@ -416,4 +468,31 @@ enum SpecialTaskSubmissionStatus {
   APPROVED
   REJECTED
   CLAIMED
+}
+
+enum ReferralStatus {
+  PENDING
+  QUALIFIED
+  REJECTED
+  REVOKED
+}
+
+enum ReferralRewardKind {
+  REGISTRATION_BONUS
+  PURCHASE_COMMISSION
+}
+
+enum ReferralRewardStatus {
+  PENDING
+  PAID
+  REVERSED
+}
+
+enum ReferralPurchaseStatus {
+  PENDING
+  SETTLED
+  FAILED
+  REFUNDED
+  CHARGEBACK
+  DUPLICATE
 }
