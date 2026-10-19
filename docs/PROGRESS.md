@@ -15,8 +15,13 @@ Last updated: 2026-10-19.
   (`PolicyConsent` rows with server-authoritative policy versions + DB acceptance timestamp); referral
   codes validated server-side with **self-referrals rejected** (code cannot equal the new username) and
   valid attribution stored; referral rewards stay **disabled**. New client policy pages use the existing
-  responsive dark theme. New migration `20261019000000_v25_registration_policy_consent` created but
-  **NOT applied** to any database (dev-only; additive `PolicyConsent` table).
+  responsive dark theme. Migration `20261019000000_v25_registration_policy_consent` (additive
+  `PolicyConsent` table) **applied to the isolated test branch only** (`br-cold-star-b4bbaq8u`; identity
+  verified, `User` count unchanged); **not applied** to production or staging.
+- **Referral rules (V2.5, documented in Master Spec §0/§8):** 10 Bonus SP per qualified referral; 10%
+  recurring commission on every confirmed eligible paid CEO purchase by a referred user; permanent
+  attribution; no rewards for self-referrals, duplicate, failed, or refunded purchases. Commission
+  currency, qualification criteria, and refund handling remain **unresolved**; rewards stay disabled.
 - **CEO catalog API (implemented):** `GET/POST/PUT/DELETE /api/ceos`; Decimal→string serialization;
   active-row reads via `GET /api/ceos?isActive=true`.
 - **Ownership backend (implemented, unit + integration tested):** `GET /api/game/ceos/owned`,
@@ -64,6 +69,8 @@ Last updated: 2026-10-19.
     request, shutdown and global-watchdog timeouts).
   - Integration/smoke self-skip when `TEST_DATABASE_URL` is unset and refuse to run against protected
     (production/staging/recovery) branches.
+  - Re-verified 2026-10-19 after applying the consent migration to the isolated branch: integration
+    **8/8** and smoke **23/23** (registration now sends `acceptTerms`; smoke cleans up `PolicyConsent`).
 - **Builds:** server `tsc` typecheck **passes**; client production PWA build **passes** (workbox precache
   limit raised).
 
@@ -87,10 +94,15 @@ Last updated: 2026-10-19.
    database only.
 5. **Payments disabled.** OxaPay is planning only; deposits, withdrawals, payouts and referral rewards
    remain **disabled** pending owner approval and go-live gates.
-6. **Registration consent migration pending (owner action).** `20261019000000_v25_registration_policy_consent`
-   (additive `PolicyConsent` table) is created locally and **not applied** to any database. Registration
-   records consent in the same transaction as the account, so the table must exist before this feature is
-   run against a database; apply via the standard guarded migration workflow after a verified backup.
+6. **Registration consent migration — applied to test only (owner action for prod).**
+   `20261019000000_v25_registration_policy_consent` (additive `PolicyConsent` table) is **applied to the
+   isolated test branch** (`br-cold-star-b4bbaq8u`) and is **not applied** to production or staging.
+   Registration records consent in the same transaction as the account, so the table must exist before
+   the feature runs in any environment; apply to production via the standard guarded migration workflow
+   (preflight + execute) after a verified backup and owner approval.
+7. **Referral economics unresolved (owner action).** Before referral rewards can be activated, the owner
+   must confirm: the **commission currency**, the **qualification criteria**, and **refund/chargeback
+   handling**. Rewards stay disabled (`REFERRAL_REWARDS_ENABLED=false`) until then.
 
 ## Not implemented yet (see Master Spec §0/§3–§9)
 Admin-created **special tasks**; **OxaPay** integration (planning only, not activated); admin UI; real
@@ -104,6 +116,25 @@ purchases; application (server/client) deployment.
 5. Production migration execution — **done** (both V2.5 migrations applied; six migration records).
 6. **Remaining:** application deployment (server + client hosting) and admin UI are not configured;
    OxaPay integration and all real-money flows stay disabled pending explicit owner approval.
-7. **V2.5 Step 1 (registration)** — **done** (confirm password, referral prefill/manual entry, ToS/Privacy
-   consent + pages, server-side referral validation and consent recording; unit + build verified). The
-   `PolicyConsent` migration still needs owner-approved application to any environment.
+7. **V2.5 Step 1 (registration) — done and branch-verified.** Confirm password, referral prefill/manual
+   entry, ToS/Privacy consent + pages, server-side referral validation and consent recording. Unit
+   **73/73**, integration **8/8**, smoke **23/23** (consent migration applied to the isolated test branch
+   only). Production application of the migration and the unresolved referral rules below remain owner
+   decisions.
+
+## Registration — remaining requirements before production-ready
+Registration code and schema are complete and verified on the isolated branch. It is **not production-ready**
+until the following owner/environment actions are completed (none are code bugs):
+1. **Apply migration `20261019000000_v25_registration_policy_consent` to production** via the guarded
+   preflight/execute workflow after a verified backup. The consent write is inside the account-creation
+   transaction, so registration **fails closed** in any environment lacking the `PolicyConsent` table.
+2. **Legal review + owner sign-off on the Terms of Service and Privacy Policy text** (currently concise
+   product summaries at `/terms` and `/privacy`, version `1.0`, effective `2026-10-19`). Bump the policy
+   versions in `server/src/lib/policies.ts` and the client policy pages if the text changes.
+3. **Owner confirmation of the unresolved referral economics** (commission currency, qualification
+   criteria, refund/chargeback handling) and approval of anti-abuse rules; rewards stay disabled until
+   then. No referral rewards are granted at registration.
+4. **Confirm the `consent` data-retention / privacy handling** (audit rows use `ON DELETE RESTRICT`) with
+   the owner and, if required, an applicable data-minimization policy.
+5. **Application deployment not configured** — the server and client are not hosted by any tracked config;
+   production currently means the migrated database only.
