@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Card } from '../components/ui/card'
+import { usePublicSettings } from '../lib/siteSettings'
 
 type Props = { navigate: (p: string) => void }
 
@@ -12,6 +13,7 @@ export default function Register({ navigate }: Props) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [ref, setRef] = useState(() => new URLSearchParams(window.location.search).get('ref') ?? '')
+  const settings = usePublicSettings()
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -46,6 +48,8 @@ export default function Register({ navigate }: Props) {
     else navigate('/dashboard')
   }
 
+  const closed = settings.data && (!settings.data.registrationEnabled || settings.data.maintenance.enabled)
+
   return (
     <div className="min-h-screen bg-bg text-white font-sans px-4 py-6 pb-[calc(env(safe-area-inset-bottom)_+_2rem)]">
       <a
@@ -67,6 +71,13 @@ export default function Register({ navigate }: Props) {
         </div>
 
         <Card padding="lg" hover={false} className="border border-gray-800/50">
+          {closed && (
+            <div className="mb-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              {settings.data?.maintenance.enabled
+                ? settings.data.maintenance.message
+                : 'Registration is temporarily closed. Please check back later.'}
+            </div>
+          )}
           <form onSubmit={onSubmit} className="space-y-5">
             <div>
               <div className="flex items-center gap-2">
@@ -143,7 +154,7 @@ export default function Register({ navigate }: Props) {
               </div>
             )}
 
-            <Button type="submit" className="w-full" isLoading={loading}>
+            <Button type="submit" className="w-full" isLoading={loading} disabled={Boolean(closed)}>
               {loading ? 'Creating...' : 'Create account'}
               <ChevronRight className="ml-2 h-4 w-4" />
             </Button>

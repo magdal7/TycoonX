@@ -5,7 +5,7 @@ Last updated: 2026-10-19.
 
 ## Verified current state
 - **Repo:** git repository, default branch `master` (V2.5 economy/progression backend, UI redesign,
-  migration workflows, plus Step 1 registration, Step 2 missions, and Step 3 admin/special tasks).
+  migration workflows, plus Steps 1–4: registration, missions, admin/special tasks, and admin management).
   Monorepo `client` / `server` / `shared`.
 - **Auth (implemented):** register/login/logout/me; JWT httpOnly `token` cookie (7d); bcrypt (12); Zod;
   `/api/auth` rate limit. Username validation matches the approved rule (3–20 chars, `[A-Za-z0-9_]`).
@@ -67,6 +67,27 @@ Last updated: 2026-10-19.
     rewards (> 5,000 XP or Bonus SP) require explicit confirmation; submit endpoint is rate-limited (15/min).
   - **Player UI**: a **Special Tasks** panel is the first section on the Missions page with clear states
     (Available, Pending, Approved/ready-to-claim, Completed, Rejected, Expired, Locked, Full).
+- **Admin management (V2.5 Step 4, implemented):**
+  - **User management**: search + account detail (balances, XP/level/rank, owned CEOs, referrals,
+    SP ledger, withdrawals, production); **suspend/reactivate** with explicit confirmation and audit.
+  - **Suspended users are blocked** from all protected `/api/game` + `/api/admin` routes (403
+    `account_suspended`) and from login; suspension is checked server-side in `requireAuth`.
+  - **CEO catalog management**: list all tiers; edit presentation/visibility/sales only
+    (name, rarity, category, displayOrder, imageUrl, isActive, isForSale); economy/production fields are
+    rejected by a `.strict()` schema. New tiers are created **hidden + not-for-sale** pending owner
+    governance; deletion is **blocked while copies are owned** (`owned_exists`).
+  - **Economy monitoring**: aggregate Earned/Bonus/lifetime SP, ledger by source, production/ownership
+    stats, and a suspicious-activity watch (large credits, high cycle volume).
+  - **Withdrawal review**: inspect and approve/hold/reject internally (payouts disabled); every decision
+    is audited. **Site settings**: registration availability, maintenance mode, feature visibility, and a
+    public announcement banner (stored in `AppMeta`).
+  - **Enforcement**: registration/maintenance gating in `/api/auth/register` and `requireAuth`;
+    `GET /api/public/settings` exposes the public-safe settings (announcement + feature flags), consumed by
+    the player layout for the banner and nav feature visibility.
+  - **Audit + confirmation**: all admin mutations write `AdminAuditLog`; sensitive actions (suspension,
+    settings, catalog create/delete) require an explicit `confirm` flag.
+  - Migration `20261019030000_v25_admin_management` (additive columns: `User.isSuspended/suspendedAt/
+    suspensionReason`, `CEO.imageUrl/isForSale`) **applied to the isolated test branch only**.
 - **Production database (verified 2026-10-18, read-only):** production branch
   `br-delicate-butterfly-b4et73g9` / project `wandering-king-57462138` has **six `_prisma_migrations`
   rows**: the four baseline migrations plus both V2.5 migrations recorded applied at
@@ -80,20 +101,21 @@ Last updated: 2026-10-19.
   badges), Wallet (balances, SP ledger, withdrawal requests with payouts disabled). Legacy demo pages
   removed. Client API layer in `client/src/lib/game.ts`.
 - **Tests:**
-  - `npm test --workspace=server` — **99/99 unit pass** (incl. special-task lifecycle/submission/review/
-    exactly-once-reward + concurrency tests, task claimed-state + concurrent-duplicate-claim tests,
-    referral-attribution, and registration consent/validation tests).
+  - `npm test --workspace=server` — **116/116 unit pass** (incl. Step 4 site-settings parse/patch,
+    admin suspension/catalog safeguards/settings-merge, and admin validation (economy-field lock) tests,
+    plus special-task, task claimed-state, referral, and registration consent/validation tests).
   - `npm run test:integration --workspace=server` — **8/8 pass** against isolated branch
-    `br-cold-star-b4bbaq8u` (identity-guarded + schema-guarded incl. the Step 3 tables; ownership +
-    production start/collect, duplicate-collection prevention, lifetime-cap exhaustion).
-  - `npm run test:smoke --workspace=server` — **40/40 pass** (HTTP end-to-end against the isolated
-    branch; now also covers non-admin 403, admin create/publish, player submit, duplicate-submit rejection,
-    admin approve, exactly-once claim, reward credit, and audit logging; plus the Step 2 claim assertions).
+    `br-cold-star-b4bbaq8u` (identity-guarded + schema-guarded incl. Step 3 tables and Step 4 CEO columns;
+    ownership + production start/collect, duplicate-collection prevention, lifetime-cap exhaustion).
+  - `npm run test:smoke --workspace=server` — **55/55 pass** (HTTP end-to-end against the isolated
+    branch; adds Step 4 flows: admin user search/detail, suspend→403→reactivate, confirmation enforcement,
+    catalog list + owned-delete safeguard + economy-field rejection, economy overview, withdrawal list,
+    settings update + public settings + registration gating; plus the Step 2/3 assertions).
   - Integration/smoke self-skip when `TEST_DATABASE_URL` is unset and refuse to run against protected
     (production/staging/recovery) branches.
-  - Re-verified 2026-10-19 after applying the Step 3 migration to the isolated branch: unit **99/99**,
-    integration **8/8** and smoke **40/40** (special-task flow; smoke cleans up `PolicyConsent`,
-    `SpecialTask`, `AdminAuditLog`).
+  - Re-verified 2026-10-19 after applying the Step 4 migration to the isolated branch: unit **116/116**,
+    integration **8/8** and smoke **55/55** (admin management flows; smoke resets site settings and cleans
+    up `PolicyConsent`, `SpecialTask`, `AdminAuditLog`).
 - **Builds:** server `tsc` typecheck **passes**; client production PWA build **passes** (workbox precache
   limit raised).
 
@@ -131,10 +153,18 @@ Last updated: 2026-10-19.
    tables + 3 enums) is **applied to the isolated test branch** (`br-cold-star-b4bbaq8u`) and is **not
    applied** to production/staging. Admin/special-task endpoints fail closed in any environment lacking
    these tables; apply to production via the guarded preflight/execute workflow after a verified backup.
+9. **Admin management migration — applied to test only (owner action for prod).**
+   `20261019030000_v25_admin_management` (additive columns `User.isSuspended/suspendedAt/suspensionReason`
+   and `CEO.imageUrl/isForSale`) is **applied to the isolated test branch** and is **not applied** to
+   production/staging. Admin user/catalog/settings endpoints fail closed without these columns; apply to
+   production via the guarded preflight/execute workflow after a verified backup.
+10. **New-tier governance (owner action).** Admin-created CEO tiers are forced hidden/not-for-sale on
+    creation; activating a new tier with production values is an economy decision that requires owner
+    approval before it is made visible/for-sale.
 
 ## Not implemented yet (see Master Spec §0/§3–§9)
 **OxaPay** integration (planning only, not activated); real-money purchases/deposits/withdrawals/payouts;
-application (server/client) deployment; admin analytics beyond the dashboard/audit/submission views.
+application (server/client) deployment.
 
 ## Next
 1. Documentation reconciliation — **done**.
@@ -146,11 +176,34 @@ application (server/client) deployment; admin analytics beyond the dashboard/aud
    OxaPay integration and all real-money flows stay disabled pending explicit owner approval.
 7. **V2.5 Step 1 (registration) — done and branch-verified.** Confirm password, referral prefill/manual
    entry, ToS/Privacy consent + pages, server-side referral validation and consent recording. Unit
-   **99/99**, integration **8/8**, smoke **40/40** (consent migration applied to the isolated test branch
+   **116/116**, integration **8/8**, smoke **55/55** (consent migration applied to the isolated test branch
    only). Production application of the migration and the unresolved referral rules below remain owner
    decisions.
 8. **V2.5 Step 2 (missions & rewards) — done.** See "Missions — Step 2 fixes" below.
 9. **V2.5 Step 3 (admin foundation + special tasks) — done.** See "Special Tasks — Step 3" below.
+10. **V2.5 Step 4 (admin management) — done.** See "Admin Management — Step 4" below.
+
+## Admin Management — Step 4 (2026-10-19)
+Extended the existing `/admin` panel (no rebuild) with:
+1. **User management**: search, account detail (balances, XP/level/rank, owned CEOs, referrals, SP ledger,
+   withdrawals, production), and suspend/reactivate with explicit confirmation + audit.
+2. **Suspension enforcement**: `requireAuth` blocks suspended accounts on all protected routes (403
+   `account_suspended`) and login is blocked too; verified in smoke.
+3. **CEO catalog management**: list + edit presentation/visibility/sales; `.strict()` schema rejects
+   economy/production fields so approved parameters cannot change; create is hidden/not-for-sale pending
+   governance; delete is blocked while copies are owned (`owned_exists`).
+4. **Economy monitoring**: aggregate SP totals, ledger by source, production/ownership stats, and a
+   suspicious-activity watch (large credits, high cycle volume).
+5. **Withdrawal review**: approve/hold/reject internally (no payouts) with audited decisions.
+6. **Site settings**: registration availability, maintenance mode, feature visibility, public
+   announcement; stored in `AppMeta`; enforced in register + `requireAuth`; exposed via
+   `GET /api/public/settings` and surfaced in the player layout (banner + nav visibility).
+7. **Authorization/validation/audit/confirmation**: `requireAuth`+`requireAdmin`, Zod validation,
+   `AdminAuditLog` on every mutation, explicit `confirm` for sensitive actions.
+
+Verification: unit **116/116**, integration **8/8**, smoke **55/55**; server `tsc` and client PWA build pass.
+Migration `20261019030000_v25_admin_management` applied to the **isolated test branch only**. No payments or
+referral rewards activated; economy rules unchanged (production/economy fields are not editable).
 
 ## Special Tasks — Step 3 (2026-10-19)
 Delivered admin foundation and admin-created special tasks with exactly-once rewards:

@@ -13,6 +13,10 @@ import { createGameWithdrawalRouter } from './routes/game/withdrawals'
 import { createGameSpecialTaskRouter } from './routes/game/specialTasks'
 import { createAdminWithdrawalRouter } from './routes/admin/withdrawals'
 import { createAdminSpecialTaskRouter } from './routes/admin/specialTasks'
+import { createAdminUserRouter } from './routes/admin/users'
+import { createAdminCatalogRouter } from './routes/admin/catalog'
+import { createAdminEconomyRouter } from './routes/admin/economy'
+import { createAdminSettingsRouter } from './routes/admin/settings'
 import { createPublicRouter } from './routes/public'
 import { requireAuth, requireAdmin } from './middleware/auth'
 
@@ -46,6 +50,10 @@ app.use('/api/public', createPublicRouter(prisma))
 const adminLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 240, standardHeaders: true })
 app.use('/api/admin', adminLimiter, createAdminWithdrawalRouter(prisma))
 app.use('/api/admin', adminLimiter, createAdminSpecialTaskRouter(prisma))
+app.use('/api/admin', adminLimiter, createAdminUserRouter(prisma))
+app.use('/api/admin', adminLimiter, createAdminCatalogRouter(prisma))
+app.use('/api/admin', adminLimiter, createAdminEconomyRouter(prisma))
+app.use('/api/admin', adminLimiter, createAdminSettingsRouter(prisma))
 
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
   Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('db timeout')), ms))])

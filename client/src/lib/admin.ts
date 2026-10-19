@@ -120,3 +120,212 @@ export const reviewAdminSubmission = (id: number, decision: 'APPROVE' | 'REJECT'
 
 export const fetchAdminAudit = () =>
   request<{ entries: AdminAuditEntry[] }>('/api/admin/audit').then((d) => d.entries)
+
+// ---------------------------------------------------------------------------
+// User management
+// ---------------------------------------------------------------------------
+
+export interface AdminUserSummary {
+  id: number
+  username: string
+  email: string
+  role: string
+  isSuspended: boolean
+  suspendedAt: string | null
+  suspensionReason: string | null
+  createdAt: string
+  ownedCeos: number
+  earnedSp: string
+  bonusSp: string
+  lifetimeEarnedSp: string
+  xp: number
+  level: number
+}
+
+export interface AdminUserDetail {
+  user: {
+    id: number
+    username: string
+    email: string
+    role: string
+    isSuspended: boolean
+    suspendedAt: string | null
+    suspensionReason: string | null
+    createdAt: string
+  }
+  balances: { earnedSp: string; bonusSp: string; lifetimeEarnedSp: string }
+  progress: { xp: number; level: number; rank: string }
+  ownedCeos: Array<{
+    id: number
+    templateName: string
+    templateSlug: string
+    status: string
+    equipment: string
+    lifetimeEarnedSp: string
+    lifetimeCapSp: string | null
+    archivedAt: string | null
+    acquiredAt: string
+  }>
+  referrals: { made: number; qualified: number; receivedFrom: { referrerId: number; code: string; eligible: boolean } | null }
+  ledger: Array<{ id: string; bucket: string; amountSp: string; sourceType: string; createdAt: string }>
+  withdrawals: Array<{ id: number; grossSp: string; feeUsdt: string; netUsdt: string; address: string; status: string; createdAt: string }>
+  production: { cyclesTotal: number; cyclesClaimed: number; cyclesProducing: number }
+}
+
+export const fetchAdminUsers = (q?: string) =>
+  request<{ users: AdminUserSummary[] }>(`/api/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`).then(
+    (d) => d.users,
+  )
+
+export const fetchAdminUser = (id: number) => request<AdminUserDetail>(`/api/admin/users/${id}`)
+
+export const setAdminUserSuspension = (
+  id: number,
+  body: { suspend: boolean; reason?: string; confirm: boolean },
+) => request<{ user: { id: number; isSuspended: boolean } }>(`/api/admin/users/${id}/suspension`, json(body)).then((d) => d.user)
+
+// ---------------------------------------------------------------------------
+// CEO catalog management
+// ---------------------------------------------------------------------------
+
+export interface AdminCatalogCeo {
+  id: number
+  name: string
+  slug: string
+  rarity: string
+  priceUsd: string
+  dailyRatePercent: string
+  nominalSpPer24h: number | null
+  lifetimeCapSp: string | null
+  cycleHours: number
+  energyCost: number
+  isActive: boolean
+  isForSale: boolean
+  category: string | null
+  displayOrder: number
+  imageUrl: string | null
+  isStarter: boolean
+  rewardEligible: boolean
+  maxOwned: number
+  createdAt: string
+  updatedAt: string
+  ownedCount: number
+}
+
+export interface AdminCatalogUpdate {
+  name?: string
+  rarity?: string
+  category?: string | null
+  displayOrder?: number
+  imageUrl?: string | null
+  isActive?: boolean
+  isForSale?: boolean
+}
+
+export const fetchAdminCatalog = () =>
+  request<{ ceos: AdminCatalogCeo[] }>('/api/admin/catalog').then((d) => d.ceos)
+
+export const updateAdminCatalogEntry = (id: number, patch: AdminCatalogUpdate) =>
+  request<{ ceo: AdminCatalogCeo }>(`/api/admin/catalog/${id}`, { ...json(patch), method: 'PUT' }).then((d) => d.ceo)
+
+export interface AdminCatalogCreate {
+  name: string
+  slug: string
+  rarity: string
+  priceUsd: string
+  dailyRatePercent: string
+  cycleHours: number
+  energyCost: number
+  category?: string | null
+  displayOrder?: number
+  imageUrl?: string | null
+  confirmNewTier: boolean
+}
+
+export const createAdminCatalogEntry = (input: AdminCatalogCreate) =>
+  request<{ ceo: AdminCatalogCeo }>('/api/admin/catalog', json(input)).then((d) => d.ceo)
+
+export const deleteAdminCatalogEntry = (id: number) =>
+  request<{ ok: boolean }>(`/api/admin/catalog/${id}`, { ...json({ confirm: true }), method: 'DELETE' })
+
+// ---------------------------------------------------------------------------
+// Economy monitoring
+// ---------------------------------------------------------------------------
+
+export interface AdminEconomy {
+  totals: { earnedSp: string; bonusSp: string; lifetimeEarnedSp: string; accounts: number }
+  ledgerBySource: Array<{ sourceType: string; count: number; amountSp: string }>
+  cyclesByStatus: Array<{ status: string; count: number }>
+  ownedByStatus: Array<{ status: string; count: number }>
+  suspicious: {
+    largeCredits: Array<{
+      id: string
+      userId: number
+      username: string
+      bucket: string
+      amountSp: string
+      sourceType: string
+      createdAt: string
+    }>
+    highVolumeUsers: Array<{ userId: number; username: string; cycles: number; flagged: boolean }>
+  }
+}
+
+export const fetchAdminEconomy = () => request<AdminEconomy>('/api/admin/economy')
+
+// ---------------------------------------------------------------------------
+// Site settings
+// ---------------------------------------------------------------------------
+
+export interface AdminSettings {
+  registrationEnabled: boolean
+  maintenance: { enabled: boolean; message: string }
+  announcement: { enabled: boolean; message: string; level: 'info' | 'warning' | 'critical' }
+  features: {
+    market: boolean
+    collection: boolean
+    tasks: boolean
+    achievements: boolean
+    leaderboard: boolean
+    wallet: boolean
+    specialTasks: boolean
+  }
+}
+
+export const fetchAdminSettings = () =>
+  request<{ settings: AdminSettings }>('/api/admin/settings').then((d) => d.settings)
+
+export const updateAdminSettings = (patch: Partial<AdminSettings>, confirm: boolean) =>
+  request<{ settings: AdminSettings }>('/api/admin/settings', { ...json({ ...patch, confirm }), method: 'PUT' }).then(
+    (d) => d.settings,
+  )
+
+// ---------------------------------------------------------------------------
+// Withdrawal review
+// ---------------------------------------------------------------------------
+
+export interface AdminWithdrawal {
+  id: number
+  userId: number
+  username: string
+  grossSp: string
+  feeUsdt: string
+  netUsdt: string
+  address: string
+  network: string
+  status: string
+  note: string | null
+  reviewedBy: number | null
+  reviewedAt: string | null
+  createdAt: string
+}
+
+export const fetchAdminWithdrawals = (status?: string) =>
+  request<{ withdrawals: AdminWithdrawal[]; payoutsEnabled: boolean }>(
+    `/api/admin/withdrawals${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+  ).then((d) => d.withdrawals)
+
+export const reviewAdminWithdrawal = (id: number, decision: 'APPROVED' | 'REJECTED' | 'ON_HOLD', note?: string) =>
+  request<{ withdrawal: AdminWithdrawal }>(`/api/admin/withdrawals/${id}/review`, json({ decision, note })).then(
+    (d) => d.withdrawal,
+  )

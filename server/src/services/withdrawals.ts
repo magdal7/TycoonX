@@ -166,6 +166,15 @@ export async function reviewWithdrawal(
       where: { id },
       data: { status: decision, reviewedBy: adminId, reviewedAt: new Date(), note: note ?? null },
     })
+    await tx.adminAuditLog.create({
+      data: {
+        actorId: adminId,
+        action: `withdrawal.${decision.toLowerCase()}`,
+        targetType: 'WithdrawalRequest',
+        targetId: String(id),
+        metadata: { userId: row.userId, grossSp: row.grossSp.toString(), note: note ?? null },
+      },
+    })
     return toView(updated)
   })
 }

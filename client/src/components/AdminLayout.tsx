@@ -1,10 +1,26 @@
 import type { ReactNode } from 'react'
-import { LayoutDashboard, ClipboardList, ScrollText, ArrowLeft, ShieldCheck } from 'lucide-react'
+import {
+  LayoutDashboard,
+  ClipboardList,
+  ScrollText,
+  ArrowLeft,
+  ShieldCheck,
+  Users,
+  Boxes,
+  Activity,
+  ArrowDownToLine,
+  Settings
+} from 'lucide-react'
 import { Link, useRouter } from './router'
 
 const NAV = [
   { href: '/admin', label: 'Dashboard', Icon: LayoutDashboard },
+  { href: '/admin/users', label: 'Users', Icon: Users },
+  { href: '/admin/catalog', label: 'CEO Catalog', Icon: Boxes },
+  { href: '/admin/economy', label: 'Economy', Icon: Activity },
+  { href: '/admin/withdrawals', label: 'Withdrawals', Icon: ArrowDownToLine },
   { href: '/admin/special-tasks', label: 'Special Tasks', Icon: ClipboardList },
+  { href: '/admin/settings', label: 'Site Settings', Icon: Settings },
   { href: '/admin/audit', label: 'Audit Log', Icon: ScrollText }
 ]
 

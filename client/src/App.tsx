@@ -18,6 +18,11 @@ import { AdminLayout } from './components/AdminLayout'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminSpecialTasks from './pages/admin/AdminSpecialTasks'
 import AdminAudit from './pages/admin/AdminAudit'
+import AdminUsers from './pages/admin/AdminUsers'
+import AdminCatalog from './pages/admin/AdminCatalog'
+import AdminEconomy from './pages/admin/AdminEconomy'
+import AdminWithdrawals from './pages/admin/AdminWithdrawals'
+import AdminSettingsPage from './pages/admin/AdminSettings'
 import { RouterProvider } from './components/router'
 import { Layout } from './components/Layout'
 
@@ -121,7 +126,12 @@ export default function App() {
             { path: '/dashboard/profile', element: wrap(<Profile />) },
             { path: '/dashboard/world', element: wrap(<GameHome navigate={navigate} />) },
             { path: '/admin', element: <AdminLayout><AdminDashboard /></AdminLayout> },
+            { path: '/admin/users', element: <AdminLayout><AdminUsers /></AdminLayout> },
+            { path: '/admin/catalog', element: <AdminLayout><AdminCatalog /></AdminLayout> },
+            { path: '/admin/economy', element: <AdminLayout><AdminEconomy /></AdminLayout> },
+            { path: '/admin/withdrawals', element: <AdminLayout><AdminWithdrawals /></AdminLayout> },
             { path: '/admin/special-tasks', element: <AdminLayout><AdminSpecialTasks /></AdminLayout> },
+            { path: '/admin/settings', element: <AdminLayout><AdminSettingsPage /></AdminLayout> },
             { path: '/admin/audit', element: <AdminLayout><AdminAudit /></AdminLayout> }
           ]}
         />

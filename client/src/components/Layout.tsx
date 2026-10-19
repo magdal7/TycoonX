@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { Link, useRouter } from './router'
 import { useResources } from '../lib/resources'
+import { usePublicSettings, type FeatureSettings } from '../lib/siteSettings'
 import { formatNumber } from '../lib/format'
 import { useAuth } from '../context/AuthContext'
 
@@ -25,20 +26,21 @@ interface NavItem {
   label: string
   href: string
   Icon: React.ComponentType<{ className?: string }>
+  feature?: keyof FeatureSettings
 }
 
 const PRIMARY: NavItem[] = [
   { id: 'home', label: 'Empire', href: '/dashboard', Icon: Home },
-  { id: 'market', label: 'Market', href: '/dashboard/market', Icon: Store },
-  { id: 'collection', label: 'CEOs', href: '/dashboard/collection', Icon: Boxes },
-  { id: 'tasks', label: 'Missions', href: '/dashboard/tasks', Icon: Target },
+  { id: 'market', label: 'Market', href: '/dashboard/market', Icon: Store, feature: 'market' },
+  { id: 'collection', label: 'CEOs', href: '/dashboard/collection', Icon: Boxes, feature: 'collection' },
+  { id: 'tasks', label: 'Missions', href: '/dashboard/tasks', Icon: Target, feature: 'tasks' },
   { id: 'profile', label: 'Profile', href: '/dashboard/profile', Icon: User }
 ]
 
 const SECONDARY: NavItem[] = [
-  { id: 'achievements', label: 'Achievements', href: '/dashboard/achievements', Icon: Sparkles },
-  { id: 'leaderboard', label: 'Leaderboard', href: '/dashboard/leaderboard', Icon: Trophy },
-  { id: 'wallet', label: 'Wallet', href: '/dashboard/wallet', Icon: Wallet }
+  { id: 'achievements', label: 'Achievements', href: '/dashboard/achievements', Icon: Sparkles, feature: 'achievements' },
+  { id: 'leaderboard', label: 'Leaderboard', href: '/dashboard/leaderboard', Icon: Trophy, feature: 'leaderboard' },
+  { id: 'wallet', label: 'Wallet', href: '/dashboard/wallet', Icon: Wallet, feature: 'wallet' }
 ]
 
 function isActive(current: string, href: string): boolean {
@@ -56,8 +58,13 @@ export function Layout({ children }: LayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const { data: resources } = useResources()
+  const settings = usePublicSettings()
+  const features = settings.data?.features
 
-  const all = [...PRIMARY, ...SECONDARY]
+  const allowed = (item: NavItem) => !item.feature || !features || features[item.feature]
+  const primaryItems = PRIMARY.filter(allowed)
+  const secondaryItems = SECONDARY.filter(allowed)
+  const all = [...primaryItems, ...secondaryItems]
   const activeLabel = all.find((i) => isActive(currentPath, i.href))?.label ?? 'TycoonX'
 
   return (
@@ -76,12 +83,12 @@ export function Layout({ children }: LayoutProps) {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-2" aria-label="Primary">
-          {PRIMARY.map((item) => (
+          {primaryItems.map((item) => (
             <SideLink key={item.id} item={item} active={isActive(currentPath, item.href)} collapsed={collapsed} />
           ))}
           <div className="my-2 border-t border-line" />
           {!collapsed && <p className="px-3 pb-1 text-[10px] uppercase tracking-widest text-muted">Progress</p>}
-          {SECONDARY.map((item) => (
+          {secondaryItems.map((item) => (
             <SideLink key={item.id} item={item} active={isActive(currentPath, item.href)} collapsed={collapsed} />
           ))}
         </nav>
@@ -108,6 +115,19 @@ export function Layout({ children }: LayoutProps) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
+        {settings.data?.announcement.enabled && settings.data.announcement.message && (
+          <div
+            className={`px-4 py-2 text-center text-xs font-medium ${
+              settings.data.announcement.level === 'critical'
+                ? 'bg-red-900/40 text-red-200'
+                : settings.data.announcement.level === 'warning'
+                  ? 'bg-amber-500/20 text-amber-200'
+                  : 'bg-primary/15 text-primary'
+            }`}
+          >
+            {settings.data.announcement.message}
+          </div>
+        )}
         {/* Header */}
         <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-line bg-bg/80 px-4 backdrop-blur">
           <button
@@ -151,7 +171,7 @@ export function Layout({ children }: LayoutProps) {
           aria-label="Primary"
         >
           <div className="flex h-16 items-stretch">
-            {PRIMARY.map((item) => {
+            {primaryItems.map((item) => {
               const active = isActive(currentPath, item.href)
               return (
                 <Link

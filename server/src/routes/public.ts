@@ -1,11 +1,17 @@
 import { Router, Response } from 'express'
 import type { PrismaClient } from '@prisma/client'
 import { getLeaderboard, getPublicProfile } from '../services/leaderboard'
+import { getSiteSettings } from '../services/siteSettings'
+import { toPublicSettings } from '../lib/siteSettings'
 import { usernameParamSchema } from '../validation/game'
 
 /** Public, read-only endpoints. No private data (no email, balances, referrals). */
 export function createPublicRouter(db: PrismaClient): Router {
   const router = Router()
+
+  router.get('/settings', async (_req, res: Response) => {
+    res.json(toPublicSettings(await getSiteSettings(db)))
+  })
 
   router.get('/leaderboard', async (_req, res: Response) => {
     res.json({ entries: await getLeaderboard(db, 100) })

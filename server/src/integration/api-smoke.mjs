@@ -340,6 +340,58 @@ try {
   const audit = await api('/api/admin/audit', { cookie })
   step('admin audit log records actions', audit.status === 200 && audit.json?.entries?.some((e) => e.action === 'special_task.create'), { entries: audit.json?.entries?.length })
 
+  // ---- Step 4: admin management ----
+  const player2Id = reg2.json?.user?.id
+
+  const found = await api(`/api/admin/users?q=${encodeURIComponent(username2)}`, { cookie })
+  step('admin searches users', found.status === 200 && found.json?.users?.some((u) => u.id === player2Id), found.json)
+
+  const detail = await api(`/api/admin/users/${player2Id}`, { cookie })
+  step('admin reads user detail', detail.status === 200 && detail.json?.user?.id === player2Id && !!detail.json?.balances, { status: detail.status })
+
+  const suspended = await api(`/api/admin/users/${player2Id}/suspension`, { method: 'POST', cookie, body: { suspend: true, reason: 'smoke', confirm: true } })
+  step('admin suspends user', suspended.status === 200 && suspended.json?.user?.isSuspended === true)
+  const blocked = await api('/api/game/resources', { cookie: cookie2 })
+  step('suspended user blocked from gameplay (403)', blocked.status === 403 && blocked.json?.error === 'account_suspended', blocked.json)
+  const unblocked = await api(`/api/admin/users/${player2Id}/suspension`, { method: 'POST', cookie, body: { suspend: false, confirm: true } })
+  const afterReactivate = await api('/api/game/resources', { cookie: cookie2 })
+  step('reactivated user can access gameplay', unblocked.status === 200 && afterReactivate.status === 200)
+
+  const noConfirm = await api(`/api/admin/users/${player2Id}/suspension`, { method: 'POST', cookie, body: { suspend: true, confirm: false } })
+  step('suspension without confirmation rejected (422)', noConfirm.status === 422, noConfirm.json)
+
+  const catalog = await api('/api/admin/catalog', { cookie })
+  step('admin lists catalog', catalog.status === 200 && Array.isArray(catalog.json?.ceos))
+  const ownedCeo = catalog.json?.ceos?.find((c) => c.ownedCount > 0)
+  if (ownedCeo) {
+    const delOwned = await api(`/api/admin/catalog/${ownedCeo.id}`, { method: 'DELETE', cookie, body: { confirm: true } })
+    step('catalog delete blocked when owned (409)', delOwned.status === 409 && delOwned.json?.error === 'owned_exists', delOwned.json)
+    const econEdit = await api(`/api/admin/catalog/${ownedCeo.id}`, { method: 'PUT', cookie, body: { priceUsd: '99.99' } })
+    step('catalog economy edit rejected (400)', econEdit.status === 400, econEdit.json)
+    const presEdit = await api(`/api/admin/catalog/${ownedCeo.id}`, { method: 'PUT', cookie, body: { isForSale: false } })
+    const revert = await api(`/api/admin/catalog/${ownedCeo.id}`, { method: 'PUT', cookie, body: { isForSale: true } })
+    step('catalog presentation edit allowed', presEdit.status === 200 && revert.status === 200)
+  } else {
+    step('catalog delete blocked when owned (409)', false, 'no owned tier found')
+  }
+
+  const economy = await api('/api/admin/economy', { cookie })
+  step('admin economy overview', economy.status === 200 && !!economy.json?.totals && !!economy.json?.suspicious, { status: economy.status })
+
+  const withdrawals = await api('/api/admin/withdrawals', { cookie })
+  step('admin withdrawal review list', withdrawals.status === 200 && withdrawals.json?.payoutsEnabled === false)
+
+  const settingsUpdate = await api('/api/admin/settings', { method: 'PUT', cookie, body: { announcement: { enabled: true, message: 'Smoke announcement', level: 'info' }, confirm: true } })
+  step('admin updates site settings', settingsUpdate.status === 200 && settingsUpdate.json?.settings?.announcement?.enabled === true, settingsUpdate.json)
+  const publicSettings = await api('/api/public/settings')
+  step('public settings expose announcement', publicSettings.status === 200 && publicSettings.json?.announcement?.enabled === true)
+
+  await api('/api/admin/settings', { method: 'PUT', cookie, body: { announcement: { enabled: false }, confirm: true } })
+  const closeReg = await api('/api/admin/settings', { method: 'PUT', cookie, body: { registrationEnabled: false, confirm: true } })
+  const blockedReg = await api('/api/auth/register', { method: 'POST', body: { email: `itest_smoke_blocked_${stamp}@example.com`, username: `itsmkblk${stamp.replace(/_/g, '')}`.slice(0, 20), password, acceptTerms: true } })
+  step('registration disabled blocks signup (403)', closeReg.status === 200 && blockedReg.status === 403 && blockedReg.json?.error === 'registration_disabled', blockedReg.json)
+  await api('/api/admin/settings', { method: 'PUT', cookie, body: { registrationEnabled: true, confirm: true } })
+
   // Login + logout
   const login = await api('/api/auth/login', { method: 'POST', body: { email, password } })
   step('login', login.status === 200 && !!login.json?.user)

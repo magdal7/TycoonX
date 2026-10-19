@@ -74,6 +74,8 @@ const REQUIRED_CEO_COLUMNS = [
   'displayOrder',
   'nominalSpPer24h',
   'lifetimeCapSp',
+  'imageUrl',
+  'isForSale',
 ]
 
 const REQUIRED_INDEXES = [

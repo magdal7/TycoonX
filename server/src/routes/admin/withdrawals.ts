@@ -32,6 +32,7 @@ export function createAdminWithdrawalRouter(db: PrismaClient): Router {
     res.json({
       withdrawals: rows.map((r) => ({
         id: r.id,
+        userId: r.userId,
         username: r.user.username,
         grossSp: r.grossSp.toString(),
         feeUsdt: r.feeUsdt.toString(),
@@ -39,6 +40,9 @@ export function createAdminWithdrawalRouter(db: PrismaClient): Router {
         address: r.address,
         network: r.network,
         status: r.status,
+        note: r.note,
+        reviewedBy: r.reviewedBy,
+        reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
         createdAt: r.createdAt.toISOString(),
       })),
       payoutsEnabled: false,

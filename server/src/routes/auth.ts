@@ -7,6 +7,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, requireAuth } from '../middleware/auth'
 import { findRegistrationConflict } from '../services/registration'
 import { attributeReferral } from '../services/referral'
+import { getSiteSettings } from '../services/siteSettings'
 
 const router = Router()
 
@@ -21,6 +22,9 @@ router.post('/register', async (req: AuthRequest, res: Response) => {
   const parsed = registerWithReferralSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors })
   const { email, username, password, ref } = parsed.data
+  const settings = await getSiteSettings(prisma)
+  if (settings.maintenance.enabled) return res.status(503).json({ error: 'maintenance' })
+  if (!settings.registrationEnabled) return res.status(403).json({ error: 'registration_disabled' })
   const conflict = await findRegistrationConflict(prisma, { email, username })
   if (conflict) return res.status(409).json({ error: 'user already exists' })
   const passwordHash = await hashPassword(password)
@@ -63,6 +67,7 @@ router.post('/login', async (req: AuthRequest, res: Response) => {
   const user = await prisma.user.findUnique({ where: { email } })
   if (!user || !(await comparePassword(password, user.passwordHash)))
     return res.status(401).json({ error: 'invalid credentials' })
+  if (user.isSuspended) return res.status(403).json({ error: 'account_suspended' })
   res.cookie('token', signToken({ sub: user.id, email: user.email, role: user.role }), cookieOpts)
   res.json({ user: { id: user.id, email: user.email, username: user.username, role: user.role } })
 })
