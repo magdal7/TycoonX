@@ -429,6 +429,36 @@ try {
     step('admin qualifies referral', false, 'referral not found')
   }
 
+  // ---- Step 6: wallet + CEO purchases ----
+  const wallet = await api('/api/game/wallet', { cookie: cookie2 })
+  step(
+    'wallet summary (SP + zero USDT, payments disabled)',
+    wallet.status === 200 && !!wallet.json?.sp && wallet.json?.usdt?.balance === '0.00' && wallet.json?.paymentsEnabled === false,
+    wallet.json,
+  )
+  const walletTx = await api('/api/game/wallet/transactions', { cookie: cookie2 })
+  step('wallet transaction history', walletTx.status === 200 && Array.isArray(walletTx.json?.transactions))
+
+  const deposits = await api('/api/game/deposits', { cookie: cookie2 })
+  step('deposit list readable', deposits.status === 200 && Array.isArray(deposits.json?.deposits) && deposits.json?.paymentsEnabled === false)
+  const depositDisabled = await api('/api/game/deposits', { method: 'POST', cookie: cookie2, body: { amountUsdt: '10.00' } })
+  step('deposit creation disabled (503)', depositDisabled.status === 503 && depositDisabled.json?.error === 'payments_disabled', depositDisabled.json)
+
+  const marketCatalog = await api('/api/ceos?isActive=true', { cookie: cookie2 })
+  const buyable = marketCatalog.json?.ceos?.find((c) => Number(c.priceUsd) > 0)
+  const purchaseDisabled = await api('/api/game/purchases', { method: 'POST', cookie: cookie2, body: { ceoId: buyable?.id ?? 2, idempotencyKey: `itest_smoke_buy_${stamp}` } })
+  step('purchase creation disabled (503)', purchaseDisabled.status === 503 && purchaseDisabled.json?.error === 'payments_disabled', purchaseDisabled.json)
+  const purchaseList = await api('/api/game/purchases', { cookie: cookie2 })
+  step('purchase list readable', purchaseList.status === 200 && Array.isArray(purchaseList.json?.purchases))
+
+  const webhook = await api('/api/payments/oxapay/webhook', { method: 'POST', body: { eventId: `itest_smoke_evt_${stamp}`, externalId: `itest_smoke_inv_${stamp}`, status: 'paid' } })
+  step('webhook inert while disabled', webhook.status === 200 && webhook.json?.ignored === true && webhook.json?.reason === 'payments_disabled', webhook.json)
+
+  const adminPayments = await api('/api/admin/payments', { cookie })
+  step('admin payments list', adminPayments.status === 200 && Array.isArray(adminPayments.json?.payments) && adminPayments.json?.paymentsEnabled === false)
+  const adminPurchases = await api('/api/admin/purchases', { cookie })
+  step('admin purchases list', adminPurchases.status === 200 && Array.isArray(adminPurchases.json?.purchases))
+
   // Login + logout
   const login = await api('/api/auth/login', { method: 'POST', body: { email, password } })
   step('login', login.status === 200 && !!login.json?.user)
@@ -449,6 +479,9 @@ try {
       await pool.query(`DELETE FROM "ReferralAttribution" WHERE "referrerId" = ANY($1) OR "referredUserId" = ANY($1)`, [ids])
       await pool.query(`DELETE FROM "AdminAuditLog" WHERE "actorId" = ANY($1)`, [ids])
       await pool.query(`DELETE FROM "SpecialTask" WHERE "createdBy" = ANY($1)`, [ids])
+      await pool.query(`DELETE FROM "CeoPurchase" WHERE "userId" = ANY($1)`, [ids])
+      await pool.query(`DELETE FROM "PaymentIntent" WHERE "userId" = ANY($1)`, [ids])
+      await pool.query(`DELETE FROM "PaymentWebhookEvent" WHERE "eventId" LIKE 'itest_smoke_%'`)
       await pool.query(`DELETE FROM "OwnedCeo" WHERE "userId" = ANY($1)`, [ids])
       await pool.query(`DELETE FROM "User" WHERE id = ANY($1)`, [ids])
     }

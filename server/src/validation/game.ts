@@ -71,6 +71,27 @@ export const withdrawalReviewSchema = z.object({
   note: z.string().trim().max(500).optional(),
 })
 
+export const depositCreateSchema = z.object({
+  amountUsdt: z
+    .string()
+    .trim()
+    .regex(/^\d+(\.\d{1,6})?$/, 'amountUsdt must be a decimal string'),
+  confirm: z.boolean().optional(),
+})
+
+export const purchaseCreateSchema = z.object({
+  ceoId: z.coerce.number().int().positive(),
+  idempotencyKey: z.string().trim().min(8).max(100),
+})
+
+export const oxapayWebhookSchema = z.object({
+  eventId: z.string().trim().min(1).max(200),
+  externalId: z.string().trim().min(1).max(200),
+  status: z.enum(['pending', 'paid', 'failed', 'expired']),
+  amountUsdt: z.string().trim().regex(/^\d+(\.\d{1,6})?$/).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+})
+
 export type OwnedCeoIdParam = z.infer<typeof ownedCeoIdParamSchema>
 export type RegisterWithReferralInput = z.infer<typeof registerWithReferralSchema>
 export type EquipmentUpgradeInput = z.infer<typeof equipmentUpgradeSchema>

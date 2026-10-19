@@ -23,6 +23,7 @@ import AdminUsers from './pages/admin/AdminUsers'
 import AdminCatalog from './pages/admin/AdminCatalog'
 import AdminEconomy from './pages/admin/AdminEconomy'
 import AdminWithdrawals from './pages/admin/AdminWithdrawals'
+import AdminPayments from './pages/admin/AdminPayments'
 import AdminSettingsPage from './pages/admin/AdminSettings'
 import AdminReferrals from './pages/admin/AdminReferrals'
 import { RouterProvider } from './components/router'
@@ -134,6 +135,7 @@ export default function App() {
             { path: '/admin/catalog', element: <AdminLayout><AdminCatalog /></AdminLayout> },
             { path: '/admin/economy', element: <AdminLayout><AdminEconomy /></AdminLayout> },
             { path: '/admin/withdrawals', element: <AdminLayout><AdminWithdrawals /></AdminLayout> },
+            { path: '/admin/payments', element: <AdminLayout><AdminPayments /></AdminLayout> },
             { path: '/admin/special-tasks', element: <AdminLayout><AdminSpecialTasks /></AdminLayout> },
             { path: '/admin/settings', element: <AdminLayout><AdminSettingsPage /></AdminLayout> },
             { path: '/admin/audit', element: <AdminLayout><AdminAudit /></AdminLayout> }

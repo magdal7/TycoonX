@@ -65,6 +65,9 @@ const REQUIRED_TABLES = [
   'AdminAuditLog',
   'ReferralReward',
   'ReferralPurchaseEvent',
+  'PaymentIntent',
+  'PaymentWebhookEvent',
+  'CeoPurchase',
 ]
 
 const REQUIRED_CEO_COLUMNS = [

@@ -13,6 +13,7 @@ export type SpSource =
   | 'WITHDRAWAL_LOCK'
   | 'WITHDRAWAL_SETTLE'
   | 'WITHDRAWAL_RELEASE'
+  | 'DEPOSIT_CREDIT'
 
 export class InsufficientSpError extends Error {
   constructor() {

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Search, RefreshCw, AlertCircle, ShieldCheck, Clock, TrendingUp, Inbox, Lock, Sparkles, X } from 'lucide-react'
+import { Search, RefreshCw, AlertCircle, ShieldCheck, Clock, TrendingUp, Inbox, ShoppingCart, Sparkles, X } from 'lucide-react'
 import { Card } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -8,12 +8,30 @@ import { CeoAvatar, RARITY_FRAME, RARITY_GLOW } from '../components/CeoAvatar'
 import { rarityStyle, RARITY_ORDER, type Ceo } from '../lib/ceos'
 import { useApi } from '../lib/useApi'
 import { fetchCeos } from '../lib/ceos'
+import { createPurchase } from '../lib/game'
 import { formatNumber, formatUsd } from '../lib/format'
 
 type SortKey = 'featured' | 'price-asc' | 'price-desc'
 
 function MarketCard({ ceo }: { ceo: Ceo }) {
   const style = rarityStyle(ceo.rarity)
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState('')
+
+  async function buy() {
+    setBusy(true)
+    setNotice('')
+    try {
+      await createPurchase(ceo.id, `${ceo.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+      setNotice('Purchase created — payment required.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Purchase failed'
+      setNotice(msg === 'payments_disabled' ? 'Purchases are disabled until payments are activated.' : msg)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <Card padding="none" hover className={`relative flex flex-col overflow-hidden border ${RARITY_FRAME[ceo.rarity] ?? 'border-line'} ${RARITY_GLOW[ceo.rarity] ?? ''}`}>
       <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${style.glow} to-transparent`} />
@@ -57,8 +75,9 @@ function MarketCard({ ceo }: { ceo: Ceo }) {
           <ShieldCheck className="h-3 w-3 shrink-0 text-success" /> Finite lifetime cap per copy · not an investment
         </p>
 
-        <Button variant="outline" size="sm" disabled className="mt-auto w-full">
-          <Lock className="h-3.5 w-3.5 mr-2" /> Buy — Coming Soon
+        {notice && <p className="mb-2 text-[10px] text-amber-300">{notice}</p>}
+        <Button variant="outline" size="sm" className="mt-auto w-full" isLoading={busy} disabled={ceo.priceUsd <= 0} onClick={buy}>
+          <ShoppingCart className="h-3.5 w-3.5 mr-2" /> {ceo.priceUsd <= 0 ? 'Included free' : 'Buy'}
         </Button>
       </div>
     </Card>

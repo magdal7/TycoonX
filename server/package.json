@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "node --import tsx --test src/lib/idempotency.test.ts src/lib/gameMath.test.ts src/lib/tasks.test.ts src/lib/achievements.test.ts src/lib/specialTasks.test.ts src/lib/siteSettings.test.ts src/lib/referralRules.test.ts src/services/economy.test.ts src/services/production.test.ts src/services/progression.test.ts src/services/referral.test.ts src/services/referrals.test.ts src/services/specialTasks.test.ts src/services/adminManagement.test.ts src/validation/auth.test.ts src/validation/admin.test.ts src/middleware/auth.test.ts src/routes/game/ceos.test.ts",
+    "test": "node --import tsx --test src/lib/idempotency.test.ts src/lib/gameMath.test.ts src/lib/tasks.test.ts src/lib/achievements.test.ts src/lib/specialTasks.test.ts src/lib/siteSettings.test.ts src/lib/referralRules.test.ts src/lib/payments.test.ts src/services/economy.test.ts src/services/production.test.ts src/services/progression.test.ts src/services/referral.test.ts src/services/referrals.test.ts src/services/walletPayments.test.ts src/services/specialTasks.test.ts src/services/adminManagement.test.ts src/validation/auth.test.ts src/validation/admin.test.ts src/middleware/auth.test.ts src/routes/game/ceos.test.ts",
     "test:integration": "node --import tsx --test src/integration/ownership.integration.test.ts",
     "test:smoke": "node src/integration/api-smoke.mjs",
     "prisma:generate": "prisma generate",

@@ -407,3 +407,77 @@ export const claimSpecialTaskReward = (submissionId: number) =>
     `/api/game/special-tasks/submissions/${submissionId}/claim`,
     { method: 'POST' },
   )
+
+// ---------------------------------------------------------------------------
+// Wallet, deposits and CEO purchases (payments prepared but disabled)
+// ---------------------------------------------------------------------------
+
+export interface WalletSummary {
+  sp: { earnedSp: string; bonusSp: string; totalSp: string; lifetimeEarnedSp: string }
+  usdt: { balance: string; deposited: string; paidOut: string }
+  pendingWithdrawalSp: string
+  paymentsEnabled: boolean
+  payoutsEnabled: boolean
+}
+
+export interface WalletTransaction {
+  id: string
+  type: 'SP' | 'DEPOSIT' | 'WITHDRAWAL' | 'PURCHASE'
+  label: string
+  amount: string
+  bucket?: string
+  status?: string
+  createdAt: string
+}
+
+export interface DepositView {
+  id: number
+  provider: string
+  externalId: string
+  amountUsdt: string
+  creditedSp: string | null
+  status: string
+  purpose: string
+  createdAt: string
+  confirmedAt: string | null
+}
+
+export interface PurchaseView {
+  id: number
+  ceoId: number
+  priceUsd: string
+  status: string
+  paymentIntentId: number | null
+  ownedCeoId: number | null
+  createdAt: string
+  paidAt: string | null
+  deliveredAt: string | null
+  ceoName?: string
+}
+
+const jsonPost = (body: unknown): RequestInit => ({
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
+export const fetchWallet = () => request<WalletSummary>('/api/game/wallet')
+
+export const fetchWalletTransactions = () =>
+  request<{ transactions: WalletTransaction[] }>('/api/game/wallet/transactions').then((d) => d.transactions)
+
+export const fetchDeposits = () =>
+  request<{ deposits: DepositView[]; paymentsEnabled: boolean }>('/api/game/deposits')
+
+export const createDeposit = (amountUsdt: string) =>
+  request<{ deposit: DepositView }>('/api/game/deposits', jsonPost({ amountUsdt, confirm: true })).then(
+    (d) => d.deposit,
+  )
+
+export const fetchPurchases = () =>
+  request<{ purchases: PurchaseView[]; paymentsEnabled: boolean }>('/api/game/purchases')
+
+export const createPurchase = (ceoId: number, idempotencyKey: string) =>
+  request<{ purchase: PurchaseView }>('/api/game/purchases', jsonPost({ ceoId, idempotencyKey })).then(
+    (d) => d.purchase,
+  )

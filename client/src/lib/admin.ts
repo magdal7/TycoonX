@@ -404,3 +404,46 @@ export const fetchAdminReferralRewards = (filter: { status?: string; kind?: stri
     (d) => d.rewards,
   )
 }
+
+// ---------------------------------------------------------------------------
+// Payments & purchases
+// ---------------------------------------------------------------------------
+
+export interface AdminPayment {
+  id: number
+  userId: number
+  username: string
+  provider: string
+  externalId: string
+  amountUsdt: string
+  creditedSp: string | null
+  status: string
+  purpose: string
+  createdAt: string
+  confirmedAt: string | null
+}
+
+export interface AdminPurchase {
+  id: number
+  userId: number
+  username: string
+  ceoId: number
+  ceoName: string
+  priceUsd: string
+  status: string
+  paymentIntentId: number | null
+  ownedCeoId: number | null
+  createdAt: string
+  paidAt: string | null
+  deliveredAt: string | null
+}
+
+export const fetchAdminPayments = (status?: string) =>
+  request<{ payments: AdminPayment[]; paymentsEnabled: boolean }>(
+    `/api/admin/payments${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+  )
+
+export const fetchAdminPurchases = (status?: string) =>
+  request<{ purchases: AdminPurchase[]; paymentsEnabled: boolean }>(
+    `/api/admin/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+  )

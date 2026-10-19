@@ -10,6 +10,7 @@ import {
   Boxes,
   Activity,
   ArrowDownToLine,
+  CreditCard,
   Settings
 } from 'lucide-react'
 import { Link, useRouter } from './router'
@@ -21,6 +22,7 @@ const NAV = [
   { href: '/admin/catalog', label: 'CEO Catalog', Icon: Boxes },
   { href: '/admin/economy', label: 'Economy', Icon: Activity },
   { href: '/admin/withdrawals', label: 'Withdrawals', Icon: ArrowDownToLine },
+  { href: '/admin/payments', label: 'Payments', Icon: CreditCard },
   { href: '/admin/special-tasks', label: 'Special Tasks', Icon: ClipboardList },
   { href: '/admin/settings', label: 'Site Settings', Icon: Settings },
   { href: '/admin/audit', label: 'Audit Log', Icon: ScrollText }
