@@ -1,0 +1,371 @@
+name: Neon Migration Execute - V2.5 Steps 1/3/4/5/6 (guarded, write)
+
+# Manually triggered ONLY. Applies the five pending V2.5 Step migrations to the
+# production Neon branch (br-delicate-butterfly-b4et73g9) and records Prisma
+# migration history. Must be dispatched only after:
+#   1. a verified Neon backup/PITR recovery point exists, and
+#   2. the read-only preflight (neon-migration-preflight.yml) has passed.
+# Never triggered by push, pull_request, or schedule.
+#
+# Production is already recorded through the two earlier V2.5 migrations
+# (_prisma_migrations = 6 rows), so this workflow does NOT re-baseline history
+# and does NOT touch the 4 baseline or the 2 economy/progression migrations.
+# It applies only, in this order:
+#   20261019000000_v25_registration_policy_consent
+#   20261019020000_v25_special_tasks
+#   20261019030000_v25_admin_management
+#   20261019040000_v25_referral_system
+#   20261019050000_v25_wallet_purchases
+#
+# Safety model (mirrors neon-migration-execute.yml):
+#   * required confirmation token input (fail-closed if absent/incorrect)
+#   * least-privilege permissions (contents: read) + non-cancelling concurrency group
+#   * frozen SHA-256 verification + transaction-safety scan before any write
+#   * exact production branch AND project identity verification before any write
+#   * pre-migration state verification (baseline = 6 rows; the 5 pending objects absent)
+#   * payments/payouts constants asserted disabled before any write
+#   * each migration applied in ONE transaction (psql --single-transaction)
+#   * history recorded ONLY after that migration's effects are verified
+#   * final verification: 11 rows, per-row checksums, completion, no failed rows
+#   * credentials/SQL output are never streamed; captured output is redacted
+#
+# NOT guaranteed (documented): atomicity across a migration's SQL commit and its
+# _prisma_migrations row (small commit->resolve window; the job fails closed and
+# requires manual recovery), and exclusion of external database writers.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type APPLY-V25-STEPS-br-delicate-butterfly-b4et73g9 to confirm a production migration'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-migration-execute-steps
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    name: Guarded production migration (V2.5 Steps 1/3/4/5/6)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Connection string comes exclusively from the repository secret DIRECT.
+      # DIRECT must be the direct (non-pooled) Neon endpoint (TCP reachable from the runner).
+      DATABASE_URL: ${{ secrets.DIRECT }}
+      DIRECT_URL: ${{ secrets.DIRECT }}
+      EXPECTED_BRANCH: br-delicate-butterfly-b4et73g9
+      EXPECTED_PROJECT_ID: wandering-king-57462138
+      CONFIRM_TOKEN: APPLY-V25-STEPS-br-delicate-butterfly-b4et73g9
+      SCHEMA: server/prisma/schema.prisma
+      MIG_STEP1_NAME: 20261019000000_v25_registration_policy_consent
+      MIG_STEP3_NAME: 20261019020000_v25_special_tasks
+      MIG_STEP4_NAME: 20261019030000_v25_admin_management
+      MIG_STEP5_NAME: 20261019040000_v25_referral_system
+      MIG_STEP6_NAME: 20261019050000_v25_wallet_purchases
+      BASELINE6_HIST: "20240101000000_add_user_model,20240102000000_create_ceo_model,20261017000000_phase6b1_economy_foundation,20261017010000_phase6b2a_username_case_insensitive,20261018000000_v25_economy_sp_production,20261018010000_v25_progression"
+      FINAL11_HIST: "20240101000000_add_user_model,20240102000000_create_ceo_model,20261017000000_phase6b1_economy_foundation,20261017010000_phase6b2a_username_case_insensitive,20261018000000_v25_economy_sp_production,20261018010000_v25_progression,20261019000000_v25_registration_policy_consent,20261019020000_v25_special_tasks,20261019030000_v25_admin_management,20261019040000_v25_referral_system,20261019050000_v25_wallet_purchases"
+      MIG_DIR: server/prisma/migrations
+      # Frozen SHA-256 checksums of every tracked migration + the lock file.
+      CHK_HIST_USER: 0cc0af4ab39b025d6953c196485bdfe76225c28729b529d9f3dbb46e6f7d7144
+      CHK_HIST_CEO: 1a0fd8415489877c774f6e0a0c726734afbf773931e6d684be6cf7cfe2ab2107
+      CHK_6B1: 1a04a9c5ba3bcc3fb66335c6ce79fbcea73915f106f7160f525da2ed559d7cb3
+      CHK_6B2A: f44f174b372e040b694e0c30b2dd2c5d31a921f154cb4399753af992820cce82
+      CHK_V25_ECON: 7700cb1f5b1514ba982b6349af7dae2085b6a8a83fee4511f6da82e122a03209
+      CHK_V25_PROG: 36e26e87469b671a8b4093e8f007a4fa46413c63d1af5f3042a2f271367cad9a
+      CHK_STEP1_CONSENT: c1b8e7ac863e723a6874fbb8a4fb592d4e1d6b235b081d064d394df3ee4b10aa
+      CHK_STEP3_SPECIAL: 1371a7579e0ee038f73de30c1447933ee728dc64228b1effecc9c20985970326
+      CHK_STEP4_ADMIN: 0e69e154ae935f20cdea9a44cbc5ad68b31714267fa85b4b52648f23b1898183
+      CHK_STEP5_REFERRAL: 8a2d9a71b5fc178822b4e14201c5f0fc919d5f1a66542afd3d63be0167be16a8
+      CHK_STEP6_WALLET: f13f6422230aa44a10ce4c5b000845b2e3b2c9aa08de1e33f42cca13e73d4473
+      CHK_LOCK: d6bae7899f05da956e1070ba5703455503208ef79e161acb18c93bfe3c6cd236
+    steps:
+      - name: Confirm intent (required token)
+        env:
+          CONFIRM_INPUT: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRM_INPUT" != "$CONFIRM_TOKEN" ]; then
+            echo "::error title=Confirmation failed::The confirmation input did not match the required token. No action taken."
+            exit 1
+          fi
+          echo "Confirmation accepted for branch \`$EXPECTED_BRANCH\` (V2.5 Steps 1/3/4/5/6)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies (workspaces + lockfile)
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify frozen checksums and transaction safety
+        run: |
+          set -euo pipefail
+          echo "### Frozen migration checksums" >> "$GITHUB_STEP_SUMMARY"
+          declare -A EXPECTED=(
+            ["$MIG_DIR/20240101000000_add_user_model/migration.sql"]="$CHK_HIST_USER"
+            ["$MIG_DIR/20240102000000_create_ceo_model/migration.sql"]="$CHK_HIST_CEO"
+            ["$MIG_DIR/20261017000000_phase6b1_economy_foundation/migration.sql"]="$CHK_6B1"
+            ["$MIG_DIR/20261017010000_phase6b2a_username_case_insensitive/migration.sql"]="$CHK_6B2A"
+            ["$MIG_DIR/20261018000000_v25_economy_sp_production/migration.sql"]="$CHK_V25_ECON"
+            ["$MIG_DIR/20261018010000_v25_progression/migration.sql"]="$CHK_V25_PROG"
+            ["$MIG_DIR/$MIG_STEP1_NAME/migration.sql"]="$CHK_STEP1_CONSENT"
+            ["$MIG_DIR/$MIG_STEP3_NAME/migration.sql"]="$CHK_STEP3_SPECIAL"
+            ["$MIG_DIR/$MIG_STEP4_NAME/migration.sql"]="$CHK_STEP4_ADMIN"
+            ["$MIG_DIR/$MIG_STEP5_NAME/migration.sql"]="$CHK_STEP5_REFERRAL"
+            ["$MIG_DIR/$MIG_STEP6_NAME/migration.sql"]="$CHK_STEP6_WALLET"
+            ["$MIG_DIR/migration_lock.toml"]="$CHK_LOCK"
+          )
+          for f in "${!EXPECTED[@]}"; do
+            actual="$(sha256sum "$f" | awk '{print $1}')"
+            if [ "$actual" != "${EXPECTED[$f]}" ]; then
+              echo "::error title=Checksum mismatch::$f changed since the freeze"
+              echo "- checksum FAIL: \`$f\`" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "- checksum OK: \`$f\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          # Each apply wraps its file in a single transaction. Refuse any statement
+          # that cannot run inside one, or an embedded BEGIN/COMMIT.
+          for name in "$MIG_STEP1_NAME" "$MIG_STEP3_NAME" "$MIG_STEP4_NAME" "$MIG_STEP5_NAME" "$MIG_STEP6_NAME"; do
+            f="$MIG_DIR/$name/migration.sql"
+            if grep -Eiq '(^|[^A-Za-z])(BEGIN|COMMIT|ROLLBACK)([^A-Za-z]|$)|CREATE[[:space:]]+INDEX[[:space:]]+CONCURRENTLY|CREATE[[:space:]]+DATABASE|DROP[[:space:]]+DATABASE|VACUUM|REINDEX[[:space:]]+.*CONCURRENTLY' "$f"; then
+              echo "::error title=Transaction-unsafe SQL::$f contains statements incompatible with psql --single-transaction"
+              exit 1
+            fi
+          done
+          echo "- the five pending migrations are transaction-safe (no BEGIN/COMMIT/CONCURRENTLY)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Assert payments and payouts stay disabled
+        run: |
+          set -euo pipefail
+          if ! grep -Rq 'export const PAYMENTS_ENABLED = false' server/src; then
+            echo "::error title=Payments gate::PAYMENTS_ENABLED is not the approved disabled constant"
+            exit 1
+          fi
+          if ! grep -Rq 'export const REFERRAL_REWARDS_ENABLED = false' server/src; then
+            echo "::error title=Payout/rewards gate::REFERRAL_REWARDS_ENABLED is not the approved disabled constant"
+            exit 1
+          fi
+          echo "- payments and payouts/rewards remain disabled (code constants verified)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Pre-migration read-only checks
+        run: |
+          set -euo pipefail
+          OUTDIR="${RUNNER_TEMP:-/tmp}"
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          fi
+
+          q() {
+            local out
+            if ! out="$(psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "$1" 2>"$OUTDIR/psql.err")"; then
+              sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' "$OUTDIR/psql.err" >&2
+              return 1
+            fi
+            printf '%s' "$out"
+          }
+
+          echo "### Pre-migration state" >> "$GITHUB_STEP_SUMMARY"
+
+          BRANCH="$(q "SELECT current_setting('neon.branch_id', true)")"
+          PROJECT="$(q "SELECT current_setting('neon.project_id', true)")"
+          if [ -z "$BRANCH" ]; then
+            echo "::error title=Branch unverified::Neon branch identity is not exposed by this connection"
+            exit 1
+          fi
+          if [ "$BRANCH" != "$EXPECTED_BRANCH" ]; then
+            echo "::error title=Branch mismatch::connected branch is not the expected production branch"
+            exit 1
+          fi
+          if [ -z "$PROJECT" ] || [ "$PROJECT" != "$EXPECTED_PROJECT_ID" ]; then
+            echo "::error title=Project mismatch::connected project is not $EXPECTED_PROJECT_ID"
+            exit 1
+          fi
+          echo "- branch OK: \`${BRANCH}\` (project \`${PROJECT}\`)" >> "$GITHUB_STEP_SUMMARY"
+
+          HIST="$(q "SELECT string_agg(migration_name, ',' ORDER BY started_at, migration_name) FROM _prisma_migrations")"
+          INCOMPLETE="$(q "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL")"
+          USERS="$(q "SELECT count(*) FROM \"User\"")"
+          CEOS="$(q "SELECT count(*) FROM \"CEO\"")"
+          UCOLL="$(q "SELECT count(*) FROM (SELECT lower(username) FROM \"User\" GROUP BY lower(username) HAVING count(*)>1) x")"
+          PENDING_OBJECTS="$(q "SELECT (coalesce(to_regclass('public.\"PolicyConsent\"')::text,'') || '|' || coalesce(to_regclass('public.\"SpecialTask\"')::text,'') || '|' || coalesce(to_regclass('public.\"AdminAuditLog\"')::text,'') || '|' || coalesce(to_regclass('public.\"ReferralReward\"')::text,'') || '|' || coalesce(to_regclass('public.\"ReferralPurchaseEvent\"')::text,'') || '|' || coalesce(to_regclass('public.\"PaymentIntent\"')::text,'') || '|' || coalesce(to_regclass('public.\"PaymentWebhookEvent\"')::text,'') || '|' || coalesce(to_regclass('public.\"CeoPurchase\"')::text,''))")"
+          PENDING_COLS="$(q "SELECT ((SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='User' AND column_name='isSuspended') + (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='CEO' AND column_name='imageUrl') + (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='ReferralAttribution' AND column_name='status') + (SELECT count(*) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typname='SpSourceType' AND e.enumlabel='DEPOSIT_CREDIT'))")"
+
+          echo "- Users: ${USERS}; CEOs: ${CEOS}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- _prisma_migrations: ${HIST}" >> "$GITHUB_STEP_SUMMARY"
+
+          fail=0
+          [ "$HIST" = "$BASELINE6_HIST" ] || { echo "::error title=Baseline history::expected exactly the 6 existing rows; refusing to reapply"; fail=1; }
+          [ "$INCOMPLETE" = "0" ] || { echo "::error title=History::failed/incomplete rows present"; fail=1; }
+          [ "$USERS" -ge 3 ] || { echo "::error title=User count::expected >= 3"; fail=1; }
+          [ "$CEOS" = "10" ] || { echo "::error title=CEO count::expected 10"; fail=1; }
+          [ "$UCOLL" = "0" ] || { echo "::error title=Username collisions::none expected"; fail=1; }
+          # Every pending object must be absent; a non-null regclass means already applied.
+          [ "$PENDING_OBJECTS" = "||||||||" ] || { echo "::error title=Pending objects::already present ($PENDING_OBJECTS); DB is not in the expected pre-Step state"; fail=1; }
+          [ "$PENDING_COLS" = "0" ] || { echo "::error title=Pending columns/enum::already present; refusing to reapply"; fail=1; }
+
+          if [ "$fail" -ne 0 ]; then
+            echo "- ❌ pre-migration state failed" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "- baseline OK: 6 rows; the five pending migration objects absent; User=${USERS} CEO=${CEOS}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply the five pending migrations (single transaction each)
+        run: |
+          set -euo pipefail
+          OUTDIR="${RUNNER_TEMP:-/tmp}"
+          redact() {
+            sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g'
+          }
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          fi
+
+          apply_one() {
+            local NAME="$1" EXPECT="$2" VERIFY="$3"
+            local FILE="$MIG_DIR/$NAME/migration.sql"
+
+            local actual
+            actual="$(sha256sum "$FILE" | awk '{print $1}')"
+            if [ "$actual" != "$EXPECT" ]; then
+              echo "::error title=Checksum mismatch::$FILE changed since the freeze"
+              exit 1
+            fi
+
+            if grep -Eiq '(^|[^A-Za-z])(BEGIN|COMMIT|ROLLBACK)([^A-Za-z]|$)|CREATE[[:space:]]+INDEX[[:space:]]+CONCURRENTLY|CREATE[[:space:]]+DATABASE|DROP[[:space:]]+DATABASE|VACUUM|REINDEX[[:space:]]+.*CONCURRENTLY' "$FILE"; then
+              echo "::error title=Transaction-unsafe SQL::$FILE cannot run inside --single-transaction"
+              exit 1
+            fi
+
+            if ! psql "$DIRECT_URL" -v ON_ERROR_STOP=1 --single-transaction -f "$FILE" >"$OUTDIR/$NAME.out" 2>"$OUTDIR/$NAME.err"; then
+              echo "::error title=Apply failed::$NAME transaction rolled back; no schema changes were committed"
+              { cat "$OUTDIR/$NAME.err"; cat "$OUTDIR/$NAME.out"; } | tail -n 40 | redact >&2
+              exit 1
+            fi
+
+            local result
+            if ! result="$(psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "$VERIFY" 2>"$OUTDIR/$NAME.verify.err")"; then
+              redact < "$OUTDIR/$NAME.verify.err" >&2
+              echo "::error title=Verification query failed::$NAME DDL is committed but history is NOT recorded. Do not re-dispatch; recover manually."
+              exit 1
+            fi
+            if [ "$result" != "t" ]; then
+              echo "::error title=Effect verification failed::$NAME DDL is committed but history is NOT recorded. Do not re-dispatch; recover manually."
+              exit 1
+            fi
+
+            if ! npx prisma migrate resolve --schema "$SCHEMA" --applied "$NAME" >"$OUTDIR/$NAME.resolve.out" 2>"$OUTDIR/$NAME.resolve.err"; then
+              redact < "$OUTDIR/$NAME.resolve.err" >&2
+              echo "::error title=Record failed::$NAME SQL is committed but history was NOT recorded. Do not re-dispatch; recover manually."
+              exit 1
+            fi
+            echo "- ✅ applied + verified + recorded: \`$NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          # 1) registration policy consent
+          apply_one "$MIG_STEP1_NAME" "$CHK_STEP1_CONSENT" "SELECT (to_regclass('public.\"PolicyConsent\"') IS NOT NULL AND to_regclass('public.\"PolicyConsent_userId_termsVersion_privacyVersion_key\"') IS NOT NULL AND to_regclass('public.\"PolicyConsent_userId_idx\"') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname='PolicyConsent_userId_fkey'))::text"
+
+          # 3) admin foundation + special tasks
+          apply_one "$MIG_STEP3_NAME" "$CHK_STEP3_SPECIAL" "SELECT (to_regclass('public.\"SpecialTask\"') IS NOT NULL AND to_regclass('public.\"SpecialTaskSubmission\"') IS NOT NULL AND to_regclass('public.\"AdminAuditLog\"') IS NOT NULL AND (SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace AND typname IN ('SpecialTaskStatus','SpecialTaskVerification','SpecialTaskSubmissionStatus'))=3 AND to_regclass('public.\"SpecialTaskSubmission_taskId_userId_attempt_key\"') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname='SpecialTaskSubmission_taskId_fkey') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname='SpecialTaskSubmission_userId_fkey'))::text"
+
+          # 4) admin management
+          apply_one "$MIG_STEP4_NAME" "$CHK_STEP4_ADMIN" "SELECT ((SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='User' AND column_name IN ('isSuspended','suspendedAt','suspensionReason'))=3 AND (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='CEO' AND column_name IN ('imageUrl','isForSale'))=2)::text"
+
+          # 5) referral system
+          apply_one "$MIG_STEP5_NAME" "$CHK_STEP5_REFERRAL" "SELECT ((SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace AND typname IN ('ReferralStatus','ReferralRewardKind','ReferralRewardStatus','ReferralPurchaseStatus'))=4 AND (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='ReferralAttribution' AND column_name IN ('status','qualifiedAt','reviewedBy','reviewedAt','reviewNote','signupIpHash','signupUserAgentHash','updatedAt'))=8 AND to_regclass('public.\"ReferralReward\"') IS NOT NULL AND to_regclass('public.\"ReferralPurchaseEvent\"') IS NOT NULL AND to_regclass('public.\"ReferralReward_referralId_kind_purchaseRef_key\"') IS NOT NULL)::text"
+
+          # 6) wallet + CEO purchases (payments remain disabled in code)
+          apply_one "$MIG_STEP6_NAME" "$CHK_STEP6_WALLET" "SELECT (EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typname='SpSourceType' AND e.enumlabel='DEPOSIT_CREDIT') AND (SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace AND typname IN ('PaymentProvider','PaymentIntentStatus','PaymentEventStatus','PurchaseStatus'))=4 AND to_regclass('public.\"PaymentIntent\"') IS NOT NULL AND to_regclass('public.\"PaymentWebhookEvent\"') IS NOT NULL AND to_regclass('public.\"CeoPurchase\"') IS NOT NULL AND to_regclass('public.\"PaymentIntent_externalId_key\"') IS NOT NULL AND to_regclass('public.\"PaymentWebhookEvent_provider_eventId_key\"') IS NOT NULL)::text"
+
+      - name: "Final verification (11 migrations: names, checksums, completion)"
+        run: |
+          set -euo pipefail
+          OUTDIR="${RUNNER_TEMP:-/tmp}"
+          redact() {
+            sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g'
+          }
+          q() {
+            local out
+            if ! out="$(psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "$1" 2>"$OUTDIR/psql.err")"; then
+              redact < "$OUTDIR/psql.err" >&2
+              return 1
+            fi
+            printf '%s' "$out"
+          }
+          echo "### Final verification" >> "$GITHUB_STEP_SUMMARY"
+
+          HIST="$(q "SELECT string_agg(migration_name, ',' ORDER BY started_at, migration_name) FROM _prisma_migrations")"
+          if [ "$HIST" != "$FINAL11_HIST" ]; then
+            echo "::error title=Migration history::unexpected applied set: $HIST"
+            exit 1
+          fi
+
+          COUNT="$(q "SELECT count(*) FROM _prisma_migrations")"
+          if [ "$COUNT" != "11" ]; then
+            echo "::error title=Migration count::expected 11 rows, got $COUNT"
+            exit 1
+          fi
+
+          INCOMPLETE="$(q "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL")"
+          if [ "$INCOMPLETE" != "0" ]; then
+            echo "::error title=Migration history::failed/incomplete migration rows present"
+            exit 1
+          fi
+
+          verify_checksum() {
+            local name="$1" expected="$2" actual
+            actual="$(q "SELECT checksum FROM _prisma_migrations WHERE migration_name='$name'")"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error title=History checksum mismatch::$name recorded checksum does not match the frozen SHA-256"
+              return 1
+            fi
+            echo "- checksum OK: \`$name\`" >> "$GITHUB_STEP_SUMMARY"
+          }
+          verify_checksum "20240101000000_add_user_model" "$CHK_HIST_USER"
+          verify_checksum "20240102000000_create_ceo_model" "$CHK_HIST_CEO"
+          verify_checksum "20261017000000_phase6b1_economy_foundation" "$CHK_6B1"
+          verify_checksum "20261017010000_phase6b2a_username_case_insensitive" "$CHK_6B2A"
+          verify_checksum "20261018000000_v25_economy_sp_production" "$CHK_V25_ECON"
+          verify_checksum "20261018010000_v25_progression" "$CHK_V25_PROG"
+          verify_checksum "$MIG_STEP1_NAME" "$CHK_STEP1_CONSENT"
+          verify_checksum "$MIG_STEP3_NAME" "$CHK_STEP3_SPECIAL"
+          verify_checksum "$MIG_STEP4_NAME" "$CHK_STEP4_ADMIN"
+          verify_checksum "$MIG_STEP5_NAME" "$CHK_STEP5_REFERRAL"
+          verify_checksum "$MIG_STEP6_NAME" "$CHK_STEP6_WALLET"
+
+          echo "- history OK: 11 rows (all finished, no failed rows, checksums match)" >> "$GITHUB_STEP_SUMMARY"
+
+          npx prisma migrate status --schema "$SCHEMA" 2>&1 | redact
+          echo "- ✅ prisma migrate status: no pending migrations" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Regenerate Prisma client (codegen only)
+        run: npx prisma generate --schema "$SCHEMA"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo ""
+            echo "---"
+            echo "Guarded write workflow for the five pending V2.5 Step migrations: one transactional apply + effect verification + history recording per migration."
+            echo "Production is recorded through 6 rows; the 4 baseline and 2 economy/progression migrations are not touched. No re-baselining, no reset."
+            echo "Payments and payouts/rewards remain disabled (code constants asserted)."
+            echo "Credentials/SQL output are never streamed; captured output is redacted."
+            echo "No automatic retry/reapply: re-dispatch is refused by the pre-migration check."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "**Result: ✅ PASS**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**Result: ❌ FAIL - inspect steps; recovery in docs/archive/PHASE_6B4E_PRODUCTION_READINESS.md**" >> "$GITHUB_STEP_SUMMARY"
+          fi
