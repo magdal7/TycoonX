@@ -1,7 +1,7 @@
 # TycoonX — Implementation Status (PROGRESS)
 
 Canonical status file. Product rules live in `docs/TYCOONX_V2_MASTER_SPEC.md` (do not duplicate rules here).
-Last updated: 2026-10-19.
+Last updated: 2026-10-20.
 
 ## Verified current state
 - **Repo:** git repository, default branch `master` (V2.5 economy/progression backend, UI redesign,
@@ -17,8 +17,8 @@ Last updated: 2026-10-19.
   codes validated server-side with **self-referrals rejected** (code cannot equal the new username) and
   valid attribution stored; referral rewards stay **disabled**. New client policy pages use the existing
   responsive dark theme. Migration `20261019000000_v25_registration_policy_consent` (additive
-  `PolicyConsent` table) **applied to the isolated test branch only** (`br-cold-star-b4bbaq8u`; identity
-  verified, `User` count unchanged); **not applied** to production or staging.
+  `PolicyConsent` table) **applied to the isolated test branch and to production** (verified 2026-10-20;
+  identity verified, `User` count unchanged).
 - **Referral rules (V2.5, documented in Master Spec §0/§8):** 10 Bonus SP per qualified referral; 10%
   recurring commission on every confirmed eligible paid CEO purchase by a referred user; permanent
   attribution; no rewards for self-referrals, duplicate, failed, or refunded purchases. Commission
@@ -87,7 +87,8 @@ Last updated: 2026-10-19.
   - **Audit + confirmation**: all admin mutations write `AdminAuditLog`; sensitive actions (suspension,
     settings, catalog create/delete) require an explicit `confirm` flag.
   - Migration `20261019030000_v25_admin_management` (additive columns: `User.isSuspended/suspendedAt/
-    suspensionReason`, `CEO.imageUrl/isForSale`) **applied to the isolated test branch only**.
+    suspensionReason`, `CEO.imageUrl/isForSale`) **applied to the isolated test branch and to production**
+    (verified 2026-10-20).
 - **Referral system (V2.5 Step 5, implemented):**
   - **Attribution**: referral codes captured at registration and permanently associated (`ReferralAttribution`,
     unique referred user); self-referrals and duplicate attribution rejected; salted IP/user-agent
@@ -105,8 +106,8 @@ Last updated: 2026-10-19.
   - **Player page** `/dashboard/referrals`: code, shareable link, totals, qualified, pending/paid rewards,
     qualification criteria, and referral history. **Admin** `/admin/referrals`: review queue, abuse flags,
     commission/reward records, audit.
-  - Migration `20261019040000_v25_referral_system` (ReferralReward + ReferralPurchaseEvent + status columns
-    + 4 enums) **applied to the isolated test branch only**.
+   - Migration `20261019040000_v25_referral_system` (ReferralReward + ReferralPurchaseEvent + status columns
+     + 4 enums) **applied to the isolated test branch and to production** (verified 2026-10-20).
 - **Wallet + CEO purchases (V2.5 Step 6, implemented):**
   - **Wallet** `/api/game/wallet` + `/api/game/wallet/transactions`: Earned/Bonus SP, **USDT** (confirmed
     deposits − paid-out; `0.00` while disabled — never simulated), pending-withdrawal lock, and a merged
@@ -122,8 +123,9 @@ Last updated: 2026-10-19.
   - **Admin** `/admin/payments`: view payment intents (deposits) and CEO purchases; existing withdrawal
     review unchanged. **Client**: Wallet shows USDT/deposits/purchases/transactions; Market exposes a
     server-validated Buy action that reports payments are disabled.
-  - Migration `20261019050000_v25_wallet_purchases` (PaymentIntent / PaymentWebhookEvent / CeoPurchase +
-    4 enums + `SpSourceType.DEPOSIT_CREDIT`) **applied to the isolated test branch only**.
+   - Migration `20261019050000_v25_wallet_purchases` (PaymentIntent / PaymentWebhookEvent / CeoPurchase +
+     4 enums + `SpSourceType.DEPOSIT_CREDIT`) **applied to the isolated test branch and to production**
+     (verified 2026-10-20).
 - **Final game UI/UX (V2.5 Step 7, client-only):**
   - **Brand identity**: shared `Logo`/`LogoMark` component (SVG `icon.svg` + `favicon.svg`), used across
     Landing/Login/Register/player shell/admin shell; unified PWA manifest (`manifest.webmanifest` +
@@ -138,12 +140,20 @@ Last updated: 2026-10-19.
     the top-3 podium; Wallet/Missions/Referrals retain their existing loading/empty/error states.
   - **Consistency**: reused existing components/tokens; **no backend, schema, economy, price or reward
     changes**; admin panel unchanged (only the brand mark).
-- **Production database (verified 2026-10-18, read-only):** production branch
-  `br-delicate-butterfly-b4et73g9` / project `wandering-king-57462138` has **six `_prisma_migrations`
-  rows**: the four baseline migrations plus both V2.5 migrations recorded applied at
-  `2026-10-18T18:38:47Z` (`20261018000000_v25_economy_sp_production`) and `2026-10-18T18:38:52Z`
-  (`20261018010000_v25_progression`). V2.5 tables/columns/enums present; catalog shows **8 active CEO
-  tiers** (10 rows total; `crypto-whale` and `test-ceo` inactive); `User=3` / `OwnedCeo=2` preserved.
+- **Production database (verified 2026-10-20, read-only):** production branch
+  `br-delicate-butterfly-b4et73g9` / project `wandering-king-57462138` / database `neondb` has **all 11
+  `_prisma_migrations` rows finished** with none incomplete/failed: the four baseline migrations, both
+  earlier V2.5 migrations (`20261018000000_v25_economy_sp_production`, `20261018010000_v25_progression`),
+  and the five V2.5 Step migrations (`20261019000000_v25_registration_policy_consent`,
+  `20261019020000_v25_special_tasks`, `20261019030000_v25_admin_management`,
+  `20261019040000_v25_referral_system`, `20261019050000_v25_wallet_purchases`). All corresponding
+  tables/columns/enums verified present (PolicyConsent; SpecialTask/SpecialTaskSubmission/AdminAuditLog;
+  User suspension + CEO imageUrl/isForSale; ReferralReward/ReferralPurchaseEvent + status columns;
+  PaymentIntent/PaymentWebhookEvent/CeoPurchase + `SpSourceType.DEPOSIT_CREDIT`). Catalog shows **8 active
+  CEO tiers** (10 rows total; `crypto-whale` and `test-ceo` inactive); `User=3` / `CEO=10` preserved.
+  **The V2.5 migration execute workflows (economy/progression and Steps 1/3/4/5/6) must NOT be dispatched
+  again** — every migration is already recorded; a re-dispatch is refused by their pre-checks and is
+  unnecessary.
 - **UI redesign (V2.5):** new design system (tokens, glass panels, animations), app shell with sidebar +
   mobile bottom nav, and API-connected pages: Landing (marketing), Home (production: start/collect/bulk,
   equipment, lifetime caps, archived state), Market (active tiers), Collection (owned fleet), Tasks
@@ -175,12 +185,15 @@ Last updated: 2026-10-19.
 - `docs/archive/` — superseded docs retained for reference (see `docs/archive/README.md`).
 
 ## Blockers (owner action required)
-1. **Resolved: V2.5 migrations applied.** Both V2.5 migrations are recorded applied on production
-   (see Verified current state). No re-apply is needed; the execution workflow is fail-closed against a
-   second apply.
-2. **Execution workflows** (`neon-migration-preflight.yml`, `neon-migration-execute.yml`) remain the
-   standard production path: branch/project identity, frozen checksums, confirmation token, single-
-   transaction applies, history recording, final verification. Do not re-dispatch for this migration set.
+1. **Resolved: all V2.5 migrations applied.** Both earlier V2.5 migrations and the five V2.5 Step
+   migrations are recorded applied on production (see Verified current state). No re-apply is needed; the
+   execute workflows are fail-closed against a second apply and **must not be dispatched again**.
+2. **Execution workflows** (`neon-migration-preflight.yml`, `neon-migration-execute.yml`,
+   `neon-migration-execute-steps.yml`) remain the standard guarded production path: branch/project
+   identity, frozen checksums, confirmation token, single-transaction applies, history recording, final
+   verification. **Do not re-dispatch any of them for the current migration set** — all 11 migrations are
+   already recorded on production and their pre-checks are fail-closed; dispatch only when a genuinely new
+   migration is added.
 3. **Backup/PITR gate** should be confirmed with the owner for any future migration window (no Neon API
    credential is available here).
 4. **Application deployment not configured.** No hosting/deployment config exists in the repository; the
@@ -188,43 +201,36 @@ Last updated: 2026-10-19.
    database only.
 5. **Payments disabled.** OxaPay is planning only; deposits, withdrawals, payouts and referral rewards
    remain **disabled** pending owner approval and go-live gates.
-6. **Registration consent migration — applied to test only (owner action for prod).**
-   `20261019000000_v25_registration_policy_consent` (additive `PolicyConsent` table) is **applied to the
-   isolated test branch** (`br-cold-star-b4bbaq8u`) and is **not applied** to production or staging.
-   Registration records consent in the same transaction as the account, so the table must exist before
-   the feature runs in any environment; apply to production via the standard guarded migration workflow
-   (preflight + execute) after a verified backup and owner approval.
+6. **Resolved: registration consent migration applied to production.** `20261019000000_v25_registration_policy_consent`
+   (additive `PolicyConsent` table) is verified applied on production (`br-delicate-butterfly-b4et73g9`,
+   `finished_at` set, no incomplete rows). Registration records consent in the same transaction as the
+   account, and the table now exists in production. No further migration action.
 7. **Referral economics unresolved (owner action).** Before referral rewards can be activated, the owner
    must confirm: the **commission currency**, the **qualification criteria**, and **refund/chargeback
    handling**. Rewards stay disabled (`REFERRAL_REWARDS_ENABLED=false`) until then.
-8. **Special tasks migration — applied to test only (owner action for prod).**
-   `20261019020000_v25_special_tasks` (additive `SpecialTask` / `SpecialTaskSubmission` / `AdminAuditLog`
-   tables + 3 enums) is **applied to the isolated test branch** (`br-cold-star-b4bbaq8u`) and is **not
-   applied** to production/staging. Admin/special-task endpoints fail closed in any environment lacking
-   these tables; apply to production via the guarded preflight/execute workflow after a verified backup.
-9. **Admin management migration — applied to test only (owner action for prod).**
-   `20261019030000_v25_admin_management` (additive columns `User.isSuspended/suspendedAt/suspensionReason`
-   and `CEO.imageUrl/isForSale`) is **applied to the isolated test branch** and is **not applied** to
-   production/staging. Admin user/catalog/settings endpoints fail closed without these columns; apply to
-   production via the guarded preflight/execute workflow after a verified backup.
+8. **Resolved: special tasks migration applied to production.** `20261019020000_v25_special_tasks`
+   (additive `SpecialTask` / `SpecialTaskSubmission` / `AdminAuditLog` tables + 3 enums) is verified
+   applied on production. Admin/special-task endpoints no longer fail closed for missing tables. No
+   further migration action.
+9. **Resolved: admin management migration applied to production.** `20261019030000_v25_admin_management`
+   (additive columns `User.isSuspended/suspendedAt/suspensionReason` and `CEO.imageUrl/isForSale`) is
+   verified applied on production. Admin user/catalog/settings endpoints no longer fail closed for missing
+   columns. No further migration action.
 10. **New-tier governance (owner action).** Admin-created CEO tiers are forced hidden/not-for-sale on
     creation; activating a new tier with production values is an economy decision that requires owner
     approval before it is made visible/for-sale.
-11. **Referral migration — applied to test only (owner action for prod).**
-    `20261019040000_v25_referral_system` (additive `ReferralReward` / `ReferralPurchaseEvent` tables,
-    `ReferralAttribution` status/fingerprint columns, 4 enums; legacy `eligible` backfilled) is **applied
-    to the isolated test branch** and is **not applied** to production/staging. Referral endpoints fail
-    closed without these columns/tables; apply to production via the guarded preflight/execute workflow
-    after a verified backup.
+11. **Resolved: referral migration applied to production.** `20261019040000_v25_referral_system`
+    (additive `ReferralReward` / `ReferralPurchaseEvent` tables, `ReferralAttribution` status/fingerprint
+    columns, 4 enums; legacy `eligible` backfilled) is verified applied on production. Referral endpoints
+    no longer fail closed for missing columns/tables. No further migration action.
 12. **Referral economics still unresolved (owner action).** Rewards remain **disabled**
     (`REFERRAL_REWARDS_ENABLED=false`, authoritative code constant). Before activation the owner must
     confirm: the **commission currency**, the **qualification criteria**, and **refund/chargeback
     handling**. Records are created PENDING and never credited until then.
-13. **Wallet/purchases migration — applied to test only (owner action for prod).**
-    `20261019050000_v25_wallet_purchases` (additive `PaymentIntent` / `PaymentWebhookEvent` / `CeoPurchase`
-    tables, 4 enums, `SpSourceType.DEPOSIT_CREDIT`) is **applied to the isolated test branch** and is **not
-    applied** to production/staging. Wallet/purchase endpoints fail closed without these tables; apply to
-    production via the guarded preflight/execute workflow after a verified backup.
+13. **Resolved: wallet/purchases migration applied to production.** `20261019050000_v25_wallet_purchases`
+    (additive `PaymentIntent` / `PaymentWebhookEvent` / `CeoPurchase` tables, 4 enums,
+    `SpSourceType.DEPOSIT_CREDIT`) is verified applied on production. Wallet/purchase endpoints no longer
+    fail closed for missing tables. No further migration action.
 14. **Payments not activated (owner action).** `PAYMENTS_ENABLED=false` is authoritative: deposits,
     purchases, webhooks and payouts are inert (no invoice is created, nothing is credited, no CEO is
     delivered). Before activation the owner must complete the §9 OxaPay go-live gates (provider approval,
@@ -240,7 +246,7 @@ application (server/client) deployment.
 2. Economy foundation + production-cycle engine + XP/levels — **done (unit + integration tested; migration applied)**.
 3. Tasks, achievements, leaderboard, public profiles, referral rewards, withdrawal requests — **done**.
 4. Catalog mapping + full UI redesign wired to real APIs — **done**.
-5. Production migration execution — **done** (both V2.5 migrations applied; six migration records).
+5. Production migration execution — **done** (all 11 migration records applied, incl. the five V2.5 Step migrations; verified 2026-10-20).
 6. **Remaining:** application deployment (server + client hosting) and admin UI are not configured;
    OxaPay integration and all real-money flows stay disabled pending explicit owner approval.
 7. **V2.5 Step 1 (registration) — done and branch-verified.** Confirm password, referral prefill/manual
@@ -286,7 +292,7 @@ Extended the existing wallet/ledger/admin systems (no rebuild) with:
    webhooks (recorded + ignored); USDT balance is real (never simulated).
 
 Verification: unit **148/148**, integration **8/8**, smoke **71/71**; server `tsc` and client PWA build pass.
-Migration `20261019050000_v25_wallet_purchases` applied to the **isolated test branch only**. No payments,
+Migration `20261019050000_v25_wallet_purchases` applied to the isolated test branch and to **production** (verified 2026-10-20). No payments,
 payouts, referral rewards or economy rules activated.
 
 ## Referral System — Step 5 (2026-10-19)
@@ -308,7 +314,7 @@ Extended the existing referral system (no rebuild) with:
    tests, and smoke coverage of referred registration → summary → admin review → qualify → pending reward.
 
 Verification: unit **132/132**, integration **8/8**, smoke **62/62**; server `tsc` and client PWA build pass.
-Migration `20261019040000_v25_referral_system` applied to the **isolated test branch only**. Rewards,
+Migration `20261019040000_v25_referral_system` applied to the isolated test branch and to **production** (verified 2026-10-20). Rewards,
 payments and referral payouts remain **disabled**; CEO prices/production rates unchanged.
 
 ## Admin Management — Step 4 (2026-10-19)
@@ -330,7 +336,7 @@ Extended the existing `/admin` panel (no rebuild) with:
    `AdminAuditLog` on every mutation, explicit `confirm` for sensitive actions.
 
 Verification: unit **116/116**, integration **8/8**, smoke **55/55**; server `tsc` and client PWA build pass.
-Migration `20261019030000_v25_admin_management` applied to the **isolated test branch only**. No payments or
+Migration `20261019030000_v25_admin_management` applied to the isolated test branch and to **production** (verified 2026-10-20). No payments or
 referral rewards activated; economy rules unchanged (production/economy fields are not editable).
 
 ## Special Tasks — Step 3 (2026-10-19)
@@ -359,7 +365,7 @@ Delivered admin foundation and admin-created special tasks with exactly-once rew
    create/publish, submit, duplicate-submit rejection, approve, exactly-once claim, and audit.
 
 Verification: unit **99/99**, integration **8/8**, smoke **40/40**; server `tsc` and client PWA build pass.
-Migration `20261019020000_v25_special_tasks` applied to the **isolated test branch only**. No payments or
+Migration `20261019020000_v25_special_tasks` applied to the isolated test branch and to **production** (verified 2026-10-20). No payments or
 referral rewards were activated; daily/weekly missions and economy rules are unchanged.
 
 ## Missions — Step 2 fixes (2026-10-19)
@@ -394,9 +400,9 @@ Remaining (out of Step 2 scope): Special Tasks (Step 3); admin UI; application d
 ## Registration — remaining requirements before production-ready
 Registration code and schema are complete and verified on the isolated branch. It is **not production-ready**
 until the following owner/environment actions are completed (none are code bugs):
-1. **Apply migration `20261019000000_v25_registration_policy_consent` to production** via the guarded
-   preflight/execute workflow after a verified backup. The consent write is inside the account-creation
-   transaction, so registration **fails closed** in any environment lacking the `PolicyConsent` table.
+1. **Migration `20261019000000_v25_registration_policy_consent` applied to production** (verified
+   2026-10-20). The consent write is inside the account-creation transaction; the `PolicyConsent` table
+   now exists in production, so registration no longer fails closed for a missing table.
 2. **Legal review + owner sign-off on the Terms of Service and Privacy Policy text** (currently concise
    product summaries at `/terms` and `/privacy`, version `1.0`, effective `2026-10-19`). Bump the policy
    versions in `server/src/lib/policies.ts` and the client policy pages if the text changes.
