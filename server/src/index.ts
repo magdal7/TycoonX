@@ -26,10 +26,40 @@ import { requireAuth, requireAdmin } from './middleware/auth'
 
 const app: Application = express()
 const PORT = Number(process.env.PORT) || 4000
+const isProduction = process.env.NODE_ENV === 'production'
+
+// Strict CORS: credentials are only allowed for explicitly allowlisted browser
+// origins. Requests without an Origin header (same-origin, curl, server-to-server)
+// are always permitted. Development mirrors any origin for local tooling.
+const corsAllowlist = (process.env.CORS_ORIGINS ?? '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter((value) => value.length > 0 && value !== '*')
+if (isProduction && corsAllowlist.length === 0) {
+  console.warn(
+    '[security] CORS_ORIGINS is empty in production; cross-origin browser requests will be blocked.'
+  )
+}
+
+// Trust proxy is deployment-specific and opt-in only: set TRUST_PROXY to the
+// number of proxy hops (e.g. 1 behind a single reverse proxy) or an Express
+// trust-proxy string such as "loopback". Left unset, Express uses its default
+// (no trusted proxy). This avoids assuming any particular host or edge topology.
+const trustProxy = process.env.TRUST_PROXY
+if (trustProxy !== undefined && trustProxy.trim() !== '') {
+  const hops = Number(trustProxy)
+  app.set('trust proxy', Number.isInteger(hops) && hops >= 0 ? hops : trustProxy.trim())
+}
+
+app.disable('x-powered-by')
 
 app.use(
   cors({
-    origin: (origin, cb) => cb(null, origin || '*'),
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true)
+      if (!isProduction || corsAllowlist.includes(origin)) return cb(null, true)
+      return cb(null, false)
+    },
     credentials: true,
   })
 )

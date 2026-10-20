@@ -1,0 +1,9 @@
+# SPA fallback for the custom history router (client/src/components/router.tsx).
+# Static assets are matched and served first; only unmatched paths fall through
+# to index.html.
+#
+# IMPORTANT: browser API calls use relative /api/* paths. Route /api/* to the
+# VPS Express backend at the edge (a Cloudflare Worker route or Cloudflare
+# Tunnel) BEFORE Pages. Worker routes take precedence over this catch-all, so
+# /api/* must never reach here.
+/*    /index.html   200

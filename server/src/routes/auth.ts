@@ -12,10 +12,18 @@ import { hashFingerprint } from '../lib/privacy'
 
 const router = Router()
 
+const isProduction = process.env.NODE_ENV === 'production'
+const sameSiteRaw = (process.env.COOKIE_SAMESITE ?? 'lax').toLowerCase()
+const sameSite: 'lax' | 'strict' | 'none' =
+  sameSiteRaw === 'strict' || sameSiteRaw === 'none' ? sameSiteRaw : 'lax'
+// Secure by default in production; COOKIE_SECURE can override explicitly.
+// SameSite=None (needed only for cross-site frontend/API on different sites)
+// requires Secure per the cookie spec, so it is forced on when selected.
+const secure = process.env.COOKIE_SECURE !== undefined ? process.env.COOKIE_SECURE === 'true' : isProduction
 const cookieOpts = {
   httpOnly: true,
-  sameSite: 'lax' as const,
-  secure: process.env.NODE_ENV === 'production',
+  sameSite,
+  secure: secure || sameSite === 'none',
   path: '/',
 }
 
@@ -76,7 +84,7 @@ router.post('/login', async (req: AuthRequest, res: Response) => {
 })
 
 router.post('/logout', (_req, res: Response) => {
-  res.clearCookie('token', { path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production' })
+  res.clearCookie('token', cookieOpts)
   res.json({ ok: true })
 })
 
