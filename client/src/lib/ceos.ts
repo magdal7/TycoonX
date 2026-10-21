@@ -1,3 +1,5 @@
+import { apiUrl } from './api'
+
 export interface Ceo {
   id: number
   name: string
@@ -37,7 +39,7 @@ export function dailyProjected(priceUsd: number, dailyRatePercent: number): numb
 }
 
 export async function fetchCeos(): Promise<Ceo[]> {
-  const res = await fetch('/api/ceos?isActive=true', { credentials: 'include' })
+  const res = await fetch(apiUrl('/api/ceos?isActive=true'), { credentials: 'include' })
   if (!res.ok) {
     if (res.status === 401) throw new Error('Please sign in to view the CEO market.')
     throw new Error(`Failed to load the CEO market (status ${res.status}).`)
@@ -67,7 +69,7 @@ interface RarityStyle {
 export const RARITY_ORDER = ['Common', 'Rare', 'Epic', 'Legendary', 'Mythic']
 
 export async function ensureOnboarding(): Promise<void> {
-  await fetch('/api/game/onboarding', { method: 'POST', credentials: 'include' })
+  await fetch(apiUrl('/api/game/onboarding'), { method: 'POST', credentials: 'include' })
 }
 
 const RARITY_STYLES: Record<string, RarityStyle> = {

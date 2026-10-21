@@ -1,4 +1,5 @@
 import { toNumber } from './ceos'
+import { apiUrl } from './api'
 
 export interface SpBalances {
   earnedSp: number
@@ -58,7 +59,7 @@ export interface Resources {
 }
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { credentials: 'include', ...init })
+  const res = await fetch(apiUrl(path), { credentials: 'include', ...init })
   if (!res.ok) {
     let message = `Request failed (status ${res.status}).`
     try {

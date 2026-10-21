@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { ensureOnboarding } from '../lib/ceos'
+import { apiUrl } from '../lib/api'
 
 type User = { id: number; email: string; username: string; role: string } | null
 
@@ -32,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/auth/me', { credentials: 'include' })
+    fetch(apiUrl('/api/auth/me'), { credentials: 'include' })
       .then(async (r) => {
         if (r.ok) setUser((((await r.json()) as { user?: User }).user) ?? null)
       })
@@ -45,7 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.id])
 
   async function login(email: string, password: string) {
-    const r = await fetch('/api/auth/login', {
+    const r = await fetch(apiUrl('/api/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -59,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function register(input: RegisterInput) {
     const { email, username, password, ref, acceptTerms } = input
-    const r = await fetch('/api/auth/register', {
+    const r = await fetch(apiUrl('/api/auth/register'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, username, password, acceptTerms, ...(ref ? { ref } : {}) }),
@@ -72,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function logout() {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+    await fetch(apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include' })
     setUser(null)
   }
 
