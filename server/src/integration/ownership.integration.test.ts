@@ -8,6 +8,8 @@ import { Pool } from '@neondatabase/serverless'
 import { grantStarterCeo } from '../services/starterCeo'
 import { OwnershipLimitError } from '../services/ownership'
 import { startProduction, collectProduction, ProductionError } from '../services/production'
+import { buildReconciliationInput, confirmDepositIntent, createDepositInvoice, processWebhook } from '../services/payments'
+import type { OxapayConfig, OxapayFetch, OxapayFetchResponse } from '../services/oxapay'
 
 /**
  * PostgreSQL integration tests for starter provisioning.
@@ -35,7 +37,7 @@ import { startProduction, collectProduction, ProductionError } from '../services
  * `itest_` are created and they are removed in `after`.
  */
 
-const EXPECTED_BRANCH_ID = 'br-cold-star-b4bbaq8u'
+const EXPECTED_BRANCH_ID = 'br-plain-forest-b4zbd6xf'
 const EXPECTED_PROJECT_ID = 'wandering-king-57462138'
 
 const PROTECTED_BRANCHES = [
@@ -173,6 +175,7 @@ async function cleanupUser(userId: number): Promise<void> {
   await db!.idempotencyKey.deleteMany({ where: { userId } })
   await db!.referralAttribution.deleteMany({ where: { referrerId: userId } })
   await db!.referralAttribution.deleteMany({ where: { referredUserId: userId } })
+  await db!.paymentIntent.deleteMany({ where: { userId } })
   await db!.ownedCeo.deleteMany({ where: { userId } })
   await db!.user.deleteMany({ where: { id: userId } })
 }
@@ -200,6 +203,7 @@ async function sweepLeftoverTestUsers(): Promise<void> {
   await db!.idempotencyKey.deleteMany({ where: { userId: { in: ids } } })
   await db!.referralAttribution.deleteMany({ where: { referrerId: { in: ids } } })
   await db!.referralAttribution.deleteMany({ where: { referredUserId: { in: ids } } })
+  await db!.paymentIntent.deleteMany({ where: { userId: { in: ids } } })
   await db!.ownedCeo.deleteMany({ where: { userId: { in: ids } } })
   await db!.user.deleteMany({ where: { id: { in: ids } } })
 }
@@ -515,6 +519,119 @@ test('reaching the lifetime cap archives the copy and blocks further starts', { 
       (e: unknown) => e instanceof ProductionError && e.code === 'exhausted',
     )
   } finally {
+    await cleanupUser(userId)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Deposits (OxaPay) — reuse the same guarded disposable-branch setup. The
+// provider is mocked; no live provider calls are made. Settlement accounting
+// stays as production (credits the verified invoice amount as Bonus SP).
+// ---------------------------------------------------------------------------
+
+function depositConfig(accepted: string[], trackId: string): OxapayConfig {
+  const json = (body: unknown): OxapayFetchResponse => ({
+    ok: true,
+    status: 200,
+    text: async () => JSON.stringify(body),
+  })
+  const fetch: OxapayFetch = async (url) => {
+    if (url.endsWith('/payment/accepted-currencies')) return json({ status: 200, data: { list: accepted } })
+    if (url.endsWith('/payment/invoice')) {
+      return json({
+        status: 200,
+        data: { track_id: trackId, payment_url: 'https://pay.oxapay.test/x', expired_at: 1700000000 },
+      })
+    }
+    return json({ status: 404, error: { type: 'not_found' } })
+  }
+  return {
+    merchantApiKey: 'itest-oxapay-key',
+    baseUrl: 'https://api.oxapay.com/v1',
+    sandbox: true,
+    timeoutMs: 1000,
+    fetch,
+  }
+}
+
+test('deposit invoice creation persists track id, order ref and expectations', { skip }, async () => {
+  const userId = await createUser()
+  try {
+    const trackId = `itest_track_${shortId()}`
+    const view = await createDepositInvoice(db!, depositConfig(['USDT'], trackId), userId, '10.00', {
+      asset: 'USDT',
+      network: 'BEP20',
+    })
+    assert.equal(view.externalId, trackId)
+    assert.equal(view.expectedAsset, 'USDT')
+    assert.equal(view.expectedNetwork, 'BSC')
+
+    const row = await db!.paymentIntent.findUniqueOrThrow({ where: { id: view.id } })
+    assert.equal(row.status, 'CREATED')
+    assert.equal(row.creditedSp, 10000n)
+    const meta = row.metadata as Record<string, unknown>
+    assert.match(String(meta.orderId), /^dep_/)
+    assert.equal(meta.asset, 'USDT')
+    assert.equal(meta.network, 'BSC')
+  } finally {
+    await cleanupUser(userId)
+  }
+})
+
+test('deposit confirmation credits Bonus SP exactly once under concurrency', { skip }, async () => {
+  const userId = await createUser()
+  try {
+    const view = await createDepositInvoice(db!, depositConfig(['USDT'], `itest_track_${shortId()}`), userId, '10.00', {
+      asset: 'USDT',
+      network: 'BEP20',
+    })
+    await db!.paymentIntent.update({ where: { id: view.id }, data: { status: 'PENDING' } })
+
+    const results = await Promise.allSettled([
+      confirmDepositIntent(db!, view.id),
+      confirmDepositIntent(db!, view.id),
+    ])
+    assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1)
+
+    const acct = await db!.spAccount.findUniqueOrThrow({ where: { userId } })
+    assert.equal(acct.bonusSp, 10000n)
+    assert.equal(acct.earnedSp, 0n)
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'DEPOSIT_CREDIT' } }), 1)
+  } finally {
+    await cleanupUser(userId)
+  }
+})
+
+test('reconciliation input settles exactly once and is replay-guarded', { skip }, async () => {
+  const userId = await createUser()
+  let eventId: string | null = null
+  try {
+    const view = await createDepositInvoice(db!, depositConfig(['USDT'], `itest_track_${shortId()}`), userId, '10.00', {
+      asset: 'USDT',
+      network: 'BEP20',
+    })
+    const input = buildReconciliationInput(view.externalId, {
+      trackId: view.externalId,
+      status: 'paid',
+      rawStatus: 'Paid',
+      amount: '10.00',
+      currency: 'USDT',
+      expiredAt: null,
+      createdAt: null,
+      transactions: [{ txHash: `itest_${shortId()}`, currency: 'USDT', network: 'BSC', status: 'confirmed' }],
+    })
+    eventId = input.eventId
+
+    const result = await processWebhook(db!, input)
+    assert.equal(result.confirmed, true)
+    const evt = await db!.paymentWebhookEvent.findFirstOrThrow({ where: { eventId } })
+    assert.equal(evt.status, 'PROCESSED')
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'DEPOSIT_CREDIT' } }), 1)
+
+    const again = await processWebhook(db!, input)
+    assert.equal(again.reason, 'duplicate')
+  } finally {
+    if (eventId) await db!.paymentWebhookEvent.deleteMany({ where: { eventId } })
     await cleanupUser(userId)
   }
 })

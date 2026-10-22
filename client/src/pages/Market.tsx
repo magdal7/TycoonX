@@ -9,6 +9,7 @@ import { rarityStyle, RARITY_ORDER, type Ceo } from '../lib/ceos'
 import { useApi } from '../lib/useApi'
 import { fetchCeos } from '../lib/ceos'
 import { createPurchase } from '../lib/game'
+import { notifyResourcesChanged } from '../lib/resources'
 import { formatNumber, formatUsd } from '../lib/format'
 
 type SortKey = 'featured' | 'price-asc' | 'price-desc'
@@ -23,10 +24,17 @@ function MarketCard({ ceo }: { ceo: Ceo }) {
     setNotice('')
     try {
       await createPurchase(ceo.id, `${ceo.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-      setNotice('Purchase created — payment required.')
+      notifyResourcesChanged()
+      setNotice('Purchased — the CEO was added to your collection.')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Purchase failed'
-      setNotice(msg === 'payments_disabled' ? 'Purchases are disabled until payments are activated.' : msg)
+      setNotice(
+        msg === 'insufficient_sp'
+          ? 'Not enough SP. Deposit USDT or earn SP first.'
+          : msg === 'ownership_limit'
+            ? 'You already own the maximum copies of this CEO.'
+            : msg,
+      )
     } finally {
       setBusy(false)
     }
@@ -51,6 +59,9 @@ function MarketCard({ ceo }: { ceo: Ceo }) {
               <span className="text-2xl font-bold text-white">{ceo.priceUsd === 0 ? 'Free' : formatUsd(ceo.priceUsd)}</span>
               {ceo.priceUsd > 0 && <span className="text-xs text-muted">USDT</span>}
             </div>
+            {ceo.priceUsd > 0 && (
+              <p className="mt-0.5 text-[10px] text-accent">≈ {formatNumber(Math.round(ceo.priceUsd * 1000))} SP</p>
+            )}
           </div>
           <div className="text-right">
             <p className="text-[10px] text-muted">Lifetime cap</p>
@@ -77,7 +88,7 @@ function MarketCard({ ceo }: { ceo: Ceo }) {
 
         {notice && <p className="mb-2 text-[10px] text-amber-300">{notice}</p>}
         <Button variant="outline" size="sm" className="mt-auto w-full" isLoading={busy} disabled={ceo.priceUsd <= 0} onClick={buy}>
-          <ShoppingCart className="h-3.5 w-3.5 mr-2" /> {ceo.priceUsd <= 0 ? 'Included free' : 'Buy'}
+          <ShoppingCart className="h-3.5 w-3.5 mr-2" /> {ceo.priceUsd <= 0 ? 'Included free' : 'Buy with SP'}
         </Button>
       </div>
     </Card>
@@ -121,8 +132,8 @@ export default function Market() {
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-success" />
           <p className="text-xs text-success/90">
-            Purchases are not enabled yet. Production is a game mechanic; only Earned SP is potentially
-            withdrawable and withdrawals are currently disabled.
+            Buy CEOs with SP (Bonus SP first, then Earned SP) at 1 USDT = 1,000 SP. Deposits credit Bonus SP;
+            only Earned SP is potentially withdrawable and withdrawals remain disabled.
           </p>
         </div>
       </Card>

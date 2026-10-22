@@ -164,7 +164,7 @@ Last updated: 2026-10-20.
   - `npm test --workspace=server` — **148/148 unit pass** (incl. Step 6 USDT↔SP conversion/status
     transitions and payments/purchases exactly-once/idempotency/wallet tests, plus all prior suites).
   - `npm run test:integration --workspace=server` — **8/8 pass** against isolated branch
-    `br-cold-star-b4bbaq8u` (identity-guarded + schema-guarded incl. Steps 3–6 tables and Step 4 CEO
+    `br-plain-forest-b4zbd6xf` (identity-guarded + schema-guarded incl. Steps 3–6 tables and Step 4 CEO
     columns; ownership + production start/collect, duplicate-collection prevention, lifetime-cap exhaustion).
   - `npm run test:smoke --workspace=server` — **71/71 pass** (HTTP end-to-end against the isolated
     branch; adds Step 6 flows: wallet summary/UTXO=0, deposits/purchases disabled 503, inert webhook,

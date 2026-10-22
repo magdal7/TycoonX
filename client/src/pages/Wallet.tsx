@@ -19,6 +19,30 @@ import { formatNumber } from '../lib/format'
 
 const MIN_SP = 3000
 
+/** Verified OxaPay asset/network pairs (mirrors the server allowlist). */
+const PAIRS: { asset: string; network: string; label: string }[] = [
+  { asset: 'USDT', network: 'BSC', label: 'USDT · BNB Smart Chain (BEP20)' },
+  { asset: 'USDT', network: 'Tron', label: 'USDT · Tron (TRC20)' },
+  { asset: 'USDT', network: 'Ethereum', label: 'USDT · Ethereum (ERC20)' },
+  { asset: 'USDT', network: 'Polygon', label: 'USDT · Polygon' },
+  { asset: 'USDT', network: 'Solana', label: 'USDT · Solana' },
+  { asset: 'USDC', network: 'BSC', label: 'USDC · BNB Smart Chain (BEP20)' },
+  { asset: 'USDC', network: 'Ethereum', label: 'USDC · Ethereum (ERC20)' },
+  { asset: 'USDC', network: 'Polygon', label: 'USDC · Polygon' },
+  { asset: 'USDC', network: 'Solana', label: 'USDC · Solana' },
+  { asset: 'BTC', network: 'Bitcoin', label: 'BTC · Bitcoin' },
+  { asset: 'ETH', network: 'Ethereum', label: 'ETH · Ethereum' },
+  { asset: 'BNB', network: 'BSC', label: 'BNB · BNB Smart Chain' },
+  { asset: 'POL', network: 'Polygon', label: 'POL · Polygon' },
+  { asset: 'SOL', network: 'Solana', label: 'SOL · Solana' },
+  { asset: 'TRX', network: 'Tron', label: 'TRX · Tron' },
+  { asset: 'LTC', network: 'Litecoin', label: 'LTC · Litecoin' },
+  { asset: 'DOGE', network: 'Dogecoin', label: 'DOGE · Dogecoin' },
+  { asset: 'BCH', network: 'BitcoinCash', label: 'BCH · Bitcoin Cash' },
+  { asset: 'XRP', network: 'xrpl', label: 'XRP · XRP Ledger' },
+  { asset: 'GRAM', network: 'The Open Network', label: 'GRAM · TON' }
+]
+
 const STATUS_TONE: Record<string, 'warning' | 'success' | 'demo' | 'default'> = {
   REQUESTED: 'demo',
   ON_HOLD: 'warning',
@@ -49,6 +73,8 @@ export default function Wallet() {
   const [gross, setGross] = useState('')
   const [address, setAddress] = useState('')
   const [depositAmount, setDepositAmount] = useState('')
+  const [pairIndex, setPairIndex] = useState(0)
+  const [invoiceUrl, setInvoiceUrl] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -96,12 +122,24 @@ export default function Wallet() {
     e.preventDefault()
     setBusy(true)
     setNotice('')
+    setInvoiceUrl('')
     try {
-      await createDeposit(depositAmount)
+      const pair = PAIRS[pairIndex] ?? PAIRS[0]
+      const dep = await createDeposit({ amountUsdt: depositAmount, asset: pair.asset, network: pair.network })
       setDepositAmount('')
+      if (dep.payUrl) setInvoiceUrl(dep.payUrl)
+      setNotice(`Invoice created for ${dep.amountUsdt} USDT — pay the invoice to receive Bonus SP.`)
       reloadAll()
     } catch (err) {
-      setNotice(err instanceof Error && err.message === 'payments_disabled' ? 'Deposits are disabled until payments are activated.' : err instanceof Error ? err.message : 'Deposit failed')
+      setNotice(
+        err instanceof Error && err.message === 'asset_not_accepted'
+          ? 'That asset is not enabled on the OxaPay merchant account.'
+          : err instanceof Error && err.message === 'unsupported_pair'
+            ? 'Unsupported asset/network combination.'
+            : err instanceof Error
+              ? err.message
+              : 'Deposit failed',
+      )
     } finally {
       setBusy(false)
     }
@@ -112,7 +150,7 @@ export default function Wallet() {
 
   return (
     <div className="space-y-5 animate-fade-in">
-      <SectionHeading eyebrow="Balance" title="Wallet" description="Earned SP, Bonus SP, USDT, and transaction history." right={<Badge variant="warning">Payments disabled</Badge>} />
+      <SectionHeading eyebrow="Balance" title="Wallet" description="Earned SP, Bonus SP, USDT, and transaction history." right={<Badge variant={wallet.data?.paymentsEnabled ? 'success' : 'warning'}>{wallet.data?.paymentsEnabled ? 'Deposits live' : 'Payments unavailable'}</Badge>} />
 
       {wallet.loading ? (
         <Skeleton className="h-28" />
@@ -127,8 +165,8 @@ export default function Wallet() {
             <Stat label="Pending withdrawal" value={`${formatNumber(Number(wallet.data.pendingWithdrawalSp))} SP`} hint="locked" />
           </div>
           <p className="mt-3 text-[11px] text-muted">
-            Conversion: 1 USDT = 1,000 SP · Minimum withdrawal 3,000 SP (3 USDT) · Flat fee 0.30 USDT.
-            Deposits/payouts are disabled; USDT reflects confirmed deposits only (never simulated funds).
+            Conversion: 1 USDT = 1,000 SP. Deposits credit Bonus SP once the invoice is fully paid.
+            Withdrawals/payouts remain disabled.
           </p>
         </Card>
       )}
@@ -141,28 +179,57 @@ export default function Wallet() {
       <Card padding="md" className="border-line">
         <div className="flex items-center gap-2">
           <DollarSign className="h-4 w-4 text-success" />
-          <h3 className="text-sm font-bold text-white">Deposit USDT</h3>
-          <Badge variant="warning" className="ml-auto">Not activated</Badge>
+          <h3 className="text-sm font-bold text-white">Deposit crypto</h3>
+          <Badge variant={wallet.data?.paymentsEnabled ? 'success' : 'warning'} className="ml-auto">
+            {wallet.data?.paymentsEnabled ? 'Live' : 'Unavailable'}
+          </Badge>
         </div>
-        <div className="mt-2 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-amber-200">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Deposits require OxaPay integration and owner approval. No invoice can be created yet.
-        </div>
-        <form onSubmit={submitDeposit} className="mt-3 flex gap-2">
-          <input
-            inputMode="decimal"
-            value={depositAmount}
-            onChange={(e) => setDepositAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-            placeholder="Amount in USDT"
-            className="min-w-0 flex-1 rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-sm text-white outline-none focus:border-primary"
-          />
-          <Button type="submit" disabled={busy || !depositAmount}>Create invoice</Button>
+        <p className="mt-2 text-[11px] text-muted">
+          Choose an asset/network, create an invoice, then pay it. Bonus SP (1 USDT = 1,000 SP) is credited
+          automatically once the invoice is fully paid.
+        </p>
+        <form onSubmit={submitDeposit} className="mt-3 space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs text-muted">
+              Amount (USDT)
+              <input
+                inputMode="decimal"
+                value={depositAmount}
+                onChange={(e) => setDepositAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                placeholder="e.g. 10"
+                className="mt-1 w-full rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-sm text-white outline-none focus:border-primary"
+              />
+            </label>
+            <label className="block text-xs text-muted">
+              Asset / network
+              <select
+                value={pairIndex}
+                onChange={(e) => setPairIndex(Number(e.target.value))}
+                className="mt-1 w-full rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-sm text-white outline-none focus:border-primary"
+              >
+                {PAIRS.map((p, i) => (
+                  <option key={`${p.asset}-${p.network}`} value={i}>{p.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <Button type="submit" disabled={busy || !depositAmount} isLoading={busy}>Create invoice</Button>
         </form>
+        {invoiceUrl && (
+          <a href={invoiceUrl} target="_blank" rel="noreferrer" className="mt-3 block truncate rounded-xl border border-success/30 bg-success/5 px-3 py-2 text-xs text-success underline">
+            Open payment invoice →
+          </a>
+        )}
         {(deposits.data?.deposits ?? []).length > 0 && (
           <Card padding="none" className="mt-3 overflow-hidden border-line">
             {(deposits.data?.deposits ?? []).map((d, i) => (
               <div key={d.id} className={`flex items-center gap-3 px-3 py-2.5 ${i !== 0 ? 'border-t border-line' : ''}`}>
-                <span className="flex-1 text-xs text-white">{d.amountUsdt} USDT<span className="text-muted"> · {d.externalId.slice(0, 14)}…</span></span>
+                <span className="flex-1 text-xs text-white">
+                  {d.amountUsdt} USDT
+                  {d.expectedAsset ? (
+                    <span className="text-muted"> · {d.expectedAsset}{d.expectedNetwork ? `/${d.expectedNetwork}` : ''}</span>
+                  ) : null}
+                </span>
                 <Badge variant={STATUS_TONE[d.status] ?? 'default'}>{d.status}</Badge>
               </div>
             ))}
@@ -247,7 +314,7 @@ export default function Wallet() {
       <section className="space-y-2">
         <h3 className="flex items-center gap-2 text-sm font-bold text-white"><ShoppingCart className="h-4 w-4 text-muted" /> CEO purchases</h3>
         {(purchases.data?.purchases ?? []).length === 0 ? (
-          <EmptyState Icon={ShoppingCart} title="No purchases yet" description="Purchases are disabled until payments are activated." />
+          <EmptyState Icon={ShoppingCart} title="No purchases yet" description="Buy a CEO from the Market using SP (Bonus SP first, then Earned SP)." />
         ) : (
           <Card padding="none" className="overflow-hidden border-line">
             {(purchases.data?.purchases ?? []).map((p, i) => (

@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { spawn } from 'node:child_process'
+import { createHmac } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { Pool } from '@neondatabase/serverless'
@@ -31,8 +32,12 @@ import { Pool } from '@neondatabase/serverless'
  *   npm run test:smoke --workspace=server
  */
 
-const EXPECTED_BRANCH_ID = 'br-cold-star-b4bbaq8u'
+const EXPECTED_BRANCH_ID = 'br-plain-forest-b4zbd6xf'
 const EXPECTED_PROJECT_ID = 'wandering-king-57462138'
+
+// HMAC secret used only by this smoke run so callbacks can be signed; the server
+// is spawned with this value and payments stay disabled throughout.
+const SMOKE_OXAPAY_KEY = 'itest_smoke_oxapay_key'
 
 const PROTECTED_BRANCHES = [
   'br-delicate-butterfly-b4et73g9', // production
@@ -101,19 +106,20 @@ function cookieFrom(res) {
   return token ? token.split(';')[0] : ''
 }
 
-async function api(route, { method = 'GET', body, cookie } = {}) {
+async function api(route, { method = 'GET', body, rawBody, headers, cookie } = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
     const res = await fetch(BASE + route, {
       method,
-      headers: { 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
+      headers: { 'Content-Type': 'application/json', ...(headers ?? {}), ...(cookie ? { cookie } : {}) },
+      body: rawBody !== undefined ? rawBody : body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
     })
+    const text = await res.text()
     let json = null
-    try { json = await res.json() } catch { /* empty */ }
-    return { status: res.status, json, cookie: cookieFrom(res) }
+    try { json = JSON.parse(text) } catch { /* non-JSON body (e.g. webhook "OK") */ }
+    return { status: res.status, json, text, cookie: cookieFrom(res) }
   } finally {
     clearTimeout(timer)
   }
@@ -172,7 +178,7 @@ try {
 
   server = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
     cwd: serverRoot,
-    env: { ...process.env, DATABASE_URL: testUrl, DIRECT_URL: testUrl, PORT: String(PORT), NODE_ENV: 'development' },
+    env: { ...process.env, DATABASE_URL: testUrl, DIRECT_URL: testUrl, PORT: String(PORT), NODE_ENV: 'development', OXAPAY_MERCHANT_API_KEY: SMOKE_OXAPAY_KEY },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })
@@ -440,19 +446,38 @@ try {
   step('wallet transaction history', walletTx.status === 200 && Array.isArray(walletTx.json?.transactions))
 
   const deposits = await api('/api/game/deposits', { cookie: cookie2 })
-  step('deposit list readable', deposits.status === 200 && Array.isArray(deposits.json?.deposits) && deposits.json?.paymentsEnabled === false)
-  const depositDisabled = await api('/api/game/deposits', { method: 'POST', cookie: cookie2, body: { amountUsdt: '10.00' } })
-  step('deposit creation disabled (503)', depositDisabled.status === 503 && depositDisabled.json?.error === 'payments_disabled', depositDisabled.json)
+  step('deposit list readable (payments enabled)', deposits.status === 200 && Array.isArray(deposits.json?.deposits) && deposits.json?.paymentsEnabled === true)
 
   const marketCatalog = await api('/api/ceos?isActive=true', { cookie: cookie2 })
   const buyable = marketCatalog.json?.ceos?.find((c) => Number(c.priceUsd) > 0)
-  const purchaseDisabled = await api('/api/game/purchases', { method: 'POST', cookie: cookie2, body: { ceoId: buyable?.id ?? 2, idempotencyKey: `itest_smoke_buy_${stamp}` } })
-  step('purchase creation disabled (503)', purchaseDisabled.status === 503 && purchaseDisabled.json?.error === 'payments_disabled', purchaseDisabled.json)
+  step('market has a buyable CEO', Boolean(buyable))
   const purchaseList = await api('/api/game/purchases', { cookie: cookie2 })
-  step('purchase list readable', purchaseList.status === 200 && Array.isArray(purchaseList.json?.purchases))
+  step('purchase list readable (payments enabled)', purchaseList.status === 200 && Array.isArray(purchaseList.json?.purchases) && purchaseList.json?.paymentsEnabled === true)
 
-  const webhook = await api('/api/payments/oxapay/webhook', { method: 'POST', body: { eventId: `itest_smoke_evt_${stamp}`, externalId: `itest_smoke_inv_${stamp}`, status: 'paid' } })
-  step('webhook inert while disabled', webhook.status === 200 && webhook.json?.ignored === true && webhook.json?.reason === 'payments_disabled', webhook.json)
+  // OxaPay callback: authenticated by HMAC-SHA512 over the exact raw body.
+  // With a valid signature the event is recorded and ignored (payments disabled).
+  const webhookBody = JSON.stringify({
+    track_id: `itest_smoke_track_${stamp}`,
+    status: 'Paid',
+    amount: 10,
+    order_id: `itest_smoke_order_${stamp}`,
+    currency: 'USDT',
+    txs: [{ tx_hash: `itest_smoke_tx_${stamp}`, status: 'confirmed', currency: 'USDT', network: 'BEP20' }],
+  })
+  const webhookSig = createHmac('sha512', SMOKE_OXAPAY_KEY).update(webhookBody, 'utf8').digest('hex')
+  const webhook = await api('/api/payments/oxapay/webhook', {
+    method: 'POST',
+    rawBody: webhookBody,
+    headers: { hmac: webhookSig },
+  })
+  step('webhook authenticated but inert while disabled', webhook.status === 200 && webhook.text === 'OK', { status: webhook.status, text: webhook.text })
+
+  const webhookBad = await api('/api/payments/oxapay/webhook', {
+    method: 'POST',
+    rawBody: webhookBody,
+    headers: { hmac: 'deadbeef' },
+  })
+  step('webhook rejects an invalid signature (401)', webhookBad.status === 401, { status: webhookBad.status })
 
   const adminPayments = await api('/api/admin/payments', { cookie })
   step('admin payments list', adminPayments.status === 200 && Array.isArray(adminPayments.json?.payments) && adminPayments.json?.paymentsEnabled === false)

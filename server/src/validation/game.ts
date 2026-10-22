@@ -76,6 +76,9 @@ export const depositCreateSchema = z.object({
     .string()
     .trim()
     .regex(/^\d+(\.\d{1,6})?$/, 'amountUsdt must be a decimal string'),
+  // Optional verified asset/network selection (validated server-side).
+  asset: z.string().trim().min(1).max(20).optional(),
+  network: z.string().trim().min(1).max(50).optional(),
   confirm: z.boolean().optional(),
 })
 
@@ -84,13 +87,35 @@ export const purchaseCreateSchema = z.object({
   idempotencyKey: z.string().trim().min(8).max(100),
 })
 
-export const oxapayWebhookSchema = z.object({
-  eventId: z.string().trim().min(1).max(200),
-  externalId: z.string().trim().min(1).max(200),
-  status: z.enum(['pending', 'paid', 'failed', 'expired']),
-  amountUsdt: z.string().trim().regex(/^\d+(\.\d{1,6})?$/).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
+const oxapayAmount = z.union([z.string(), z.number()])
+
+/**
+ * OxaPay callback body (v1). Only the fields needed for verification and audit
+ * are declared; unknown fields are stripped. The body is authenticated by
+ * HMAC-SHA512 before it is parsed or validated.
+ */
+export const oxapayCallbackSchema = z.object({
+  track_id: z.union([z.string(), z.number()]),
+  status: z.string().trim().min(1).max(50),
+  type: z.string().trim().max(50).optional(),
+  amount: oxapayAmount.optional(),
+  currency: z.string().trim().max(50).optional(),
+  order_id: z.string().trim().max(200).optional(),
+  txs: z
+    .array(
+      z.object({
+        tx_hash: z.string().trim().max(200).optional(),
+        status: z.string().trim().max(50).optional(),
+        network: z.string().trim().max(100).optional(),
+        currency: z.string().trim().max(50).optional(),
+        amount: oxapayAmount.optional(),
+      }),
+    )
+    .max(50)
+    .optional(),
 })
+
+export type OxapayCallbackInput = z.infer<typeof oxapayCallbackSchema>
 
 export type OwnedCeoIdParam = z.infer<typeof ownedCeoIdParamSchema>
 export type RegisterWithReferralInput = z.infer<typeof registerWithReferralSchema>

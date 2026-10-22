@@ -3,6 +3,7 @@ import { isUniqueViolation } from '../lib/idempotency'
 import { PAYMENTS_ENABLED, nextPurchaseStatus, usdtToSp, type PurchaseStatusName } from '../lib/payments'
 import { assertOwnershipCapacity, OwnershipLimitError } from './ownership'
 import { recordReferralPurchaseEvent } from './referrals'
+import { InsufficientSpError, spendSp } from './spLedger'
 
 export type PurchaseErrorCode =
   | 'payments_disabled'
@@ -11,6 +12,7 @@ export type PurchaseErrorCode =
   | 'invalid_price'
   | 'invalid_state'
   | 'ownership_limit'
+  | 'insufficient_sp'
 
 export class PurchaseError extends Error {
   constructor(public code: PurchaseErrorCode, message?: string) {
@@ -49,8 +51,10 @@ function serializePurchase(row: PurchaseRow, extra: { ceoName?: string; username
 }
 
 /**
- * Creates a CEO purchase against the server-side catalog price. DISABLED until
- * payments are activated. Idempotent on `idempotencyKey`.
+ * Purchases a CEO with SP (Bonus SP first, then Earned SP) at the owner-confirmed
+ * conversion (1 USDT = 1,000 SP), atomically and idempotently on `idempotencyKey`.
+ * Ownership capacity (maxOwned) is enforced server-side; a concurrent duplicate
+ * request rolls back its SP spend via the unique idempotency key.
  */
 export async function createPurchase(
   db: PrismaClient,
@@ -60,52 +64,98 @@ export async function createPurchase(
 ) {
   if (!PAYMENTS_ENABLED) throw new PurchaseError('payments_disabled')
 
-  try {
-    return await db.$transaction(async (tx) => {
-      const existing = await tx.ceoPurchase.findUnique({ where: { idempotencyKey } })
-      if (existing) return serializePurchase(existing)
+  const result = await (async () => {
+    try {
+      return await db.$transaction(async (tx) => {
+        const existing = await tx.ceoPurchase.findUnique({ where: { idempotencyKey } })
+        if (existing) {
+          return {
+            row: existing,
+            ceoName: undefined as string | undefined,
+            priceSp: usdtToSp(existing.priceUsdSnap.toString()),
+            already: true,
+          }
+        }
 
-      const ceo = await tx.cEO.findUnique({ where: { id: ceoId } })
-      if (!ceo) throw new PurchaseError('not_found')
-      if (!ceo.isActive || !ceo.isForSale) throw new PurchaseError('not_for_sale')
+        const ceo = await tx.cEO.findUnique({ where: { id: ceoId } })
+        if (!ceo) throw new PurchaseError('not_found')
+        if (!ceo.isActive || !ceo.isForSale) throw new PurchaseError('not_for_sale')
 
-      const priceUsd = ceo.priceUsd.toString()
-      if (usdtToSp(priceUsd) <= 0n) throw new PurchaseError('invalid_price')
+        const priceUsd = ceo.priceUsd.toString()
+        const priceSp = usdtToSp(priceUsd)
+        if (priceSp <= 0n) throw new PurchaseError('invalid_price')
 
-      try {
-        await assertOwnershipCapacity(tx, userId, ceo)
-      } catch (error) {
-        if (error instanceof OwnershipLimitError) throw new PurchaseError('ownership_limit')
-        throw error
+        try {
+          await assertOwnershipCapacity(tx, userId, ceo)
+        } catch (error) {
+          if (error instanceof OwnershipLimitError) throw new PurchaseError('ownership_limit')
+          throw error
+        }
+
+        try {
+          await spendSp(tx, {
+            userId,
+            amountSp: priceSp,
+            sourceType: 'CEO_PURCHASE',
+            metadata: { ceoId, priceUsd, priceSp: priceSp.toString() },
+          })
+        } catch (error) {
+          if (error instanceof InsufficientSpError) throw new PurchaseError('insufficient_sp')
+          throw error
+        }
+
+        const owned = await tx.ownedCeo.create({
+          data: { userId, templateId: ceoId, acquisitionType: 'PURCHASE', status: 'IDLE' },
+          select: { id: true },
+        })
+        const now = new Date()
+        const purchase = await tx.ceoPurchase.create({
+          data: {
+            userId,
+            ceoId,
+            priceUsdSnap: priceUsd,
+            status: 'DELIVERED',
+            ownedCeoId: owned.id,
+            idempotencyKey,
+            paidAt: now,
+            deliveredAt: now,
+          },
+        })
+        return { row: purchase, ceoName: ceo.name, priceSp, already: false }
+      })
+    } catch (error) {
+      // Concurrent identical request: the loser rolls back and reconciles here.
+      if (isUniqueViolation(error)) {
+        const existing = await db.ceoPurchase.findUnique({ where: { idempotencyKey } })
+        if (existing) {
+          return {
+            row: existing,
+            ceoName: undefined as string | undefined,
+            priceSp: usdtToSp(existing.priceUsdSnap.toString()),
+            already: true,
+          }
+        }
       }
-
-      const purchase = await tx.ceoPurchase.create({
-        data: { userId, ceoId, priceUsdSnap: priceUsd, status: 'PENDING', idempotencyKey },
-      })
-      const intent = await tx.paymentIntent.create({
-        data: {
-          userId,
-          provider: 'OXAPAY',
-          externalId: `inv_${purchase.id}_${Date.now().toString(36)}`,
-          amountUsdt: priceUsd,
-          purpose: 'purchase',
-          status: 'CREATED',
-        },
-      })
-      const linked = await tx.ceoPurchase.update({
-        where: { id: purchase.id },
-        data: { paymentIntentId: intent.id },
-      })
-      return serializePurchase(linked)
-    })
-  } catch (error) {
-    // Concurrent identical request: reconcile to the persisted row.
-    if (isUniqueViolation(error)) {
-      const existing = await db.ceoPurchase.findUnique({ where: { idempotencyKey } })
-      if (existing) return serializePurchase(existing)
+      throw error
     }
-    throw error
+  })()
+
+  if (!result.already) {
+    try {
+      await recordReferralPurchaseEvent(db, {
+        purchaseRef: `purchase:${result.row.id}`,
+        referredUserId: userId,
+        valueSp: result.priceSp,
+        status: 'SETTLED',
+        occurredAt: new Date(),
+        metadata: { purchaseId: result.row.id, ceoId },
+      })
+    } catch {
+      /* referral linkage must never block a purchase */
+    }
   }
+
+  return serializePurchase(result.row, result.ceoName ? { ceoName: result.ceoName } : {})
 }
 
 /** Marks a purchase paid after a verified payment. Guarded PENDING -> PAID. */

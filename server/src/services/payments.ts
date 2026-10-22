@@ -1,6 +1,8 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { isUniqueViolation } from '../lib/idempotency'
+import { buildDepositDiagnostic, evaluateDepositSettlement, synthesizeWebhookEventId } from '../lib/oxapay'
+import { isSupportedDepositPair, normalizeAsset, normalizeNetwork } from '../lib/oxapayAssets'
 import {
   PAYMENTS_ENABLED,
   isValidUsdtAmount,
@@ -8,6 +10,14 @@ import {
   usdtToSp,
   type PaymentIntentStatusName,
 } from '../lib/payments'
+import {
+  createInvoice,
+  getAcceptedCurrencies,
+  getPaymentInfo,
+  loadOxapayConfig,
+  type OxapayConfig,
+  type PaymentInfo,
+} from './oxapay'
 import { creditSp } from './spLedger'
 
 export type PaymentErrorCode =
@@ -16,6 +26,8 @@ export type PaymentErrorCode =
   | 'not_found'
   | 'invalid_state'
   | 'duplicate'
+  | 'unsupported_pair'
+  | 'asset_not_accepted'
 
 export class PaymentError extends Error {
   constructor(public code: PaymentErrorCode, message?: string) {
@@ -26,21 +38,38 @@ export class PaymentError extends Error {
 
 export const PAYMENT_PROVIDER = 'OXAPAY'
 
-export type WebhookStatus = 'pending' | 'paid' | 'failed' | 'expired'
+export type ProcessWebhookReason =
+  | 'payments_disabled'
+  | 'intent_not_found'
+  | 'duplicate'
+  | 'non_confirming'
+  | 'amount_missing'
+  | 'amount_mismatch'
+  | 'order_mismatch'
+  | 'unsupported_asset'
+  | 'unsupported_network'
+  | 'unsupported_pair'
+  | 'asset_mismatch'
+  | 'network_mismatch'
+  | 'already_confirmed'
 
 export interface ProcessWebhookInput {
   eventId: string
   externalId: string
-  status: WebhookStatus
+  status: string
   amountUsdt?: string
+  orderId?: string
+  asset?: string
+  network?: string
   metadata?: Prisma.InputJsonValue
 }
 
 export interface ProcessWebhookResult {
   ignored: boolean
-  reason?: 'payments_disabled' | 'intent_not_found' | 'duplicate' | 'non_confirming'
+  reason?: ProcessWebhookReason
   paymentIntentId?: number
   confirmed?: boolean
+  alreadyConfirmed?: boolean
 }
 
 function serializeIntent(row: {
@@ -54,6 +83,7 @@ function serializeIntent(row: {
   purpose: string
   payAddress: string | null
   payUrl: string | null
+  metadata?: Prisma.JsonValue | null
   createdAt: Date
   confirmedAt: Date | null
 }) {
@@ -68,31 +98,110 @@ function serializeIntent(row: {
     purpose: row.purpose,
     payAddress: row.payAddress,
     payUrl: row.payUrl,
+    expectedAsset: readMetadataString(row.metadata ?? null, 'asset') ?? null,
+    expectedNetwork: readMetadataString(row.metadata ?? null, 'network') ?? null,
     createdAt: row.createdAt.toISOString(),
     confirmedAt: row.confirmedAt ? row.confirmedAt.toISOString() : null,
   }
 }
 
 /**
- * Creates a deposit invoice (OxaPay in future). DISABLED until payments are
- * activated; the invoice is still the intended entry point for the gateway.
+ * Reads a non-empty string field from a Prisma JSON metadata blob.
  */
-export async function createDepositIntent(db: PrismaClient, userId: number, amountUsdt: string) {
-  if (!PAYMENTS_ENABLED) throw new PaymentError('payments_disabled')
-  if (!isValidUsdtAmount(amountUsdt) || usdtToSp(amountUsdt) <= 0n) throw new PaymentError('invalid_amount')
+function readMetadataString(
+  metadata: Prisma.JsonValue | null | undefined,
+  key: string,
+): string | undefined {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined
+  const value = (metadata as Record<string, unknown>)[key]
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined
+}
+
+/** Structured, non-sensitive settlement logging (no payloads/keys/signatures/PII). */
+function logDepositDiagnostic(diagnostic: ReturnType<typeof buildDepositDiagnostic>): void {
+  console.log(JSON.stringify({ scope: 'oxapay.deposit', ...diagnostic }))
+}
+
+/** Optional user-selected deposit asset/network (verified against the allowlist). */
+export interface DepositSelection {
+  asset?: string
+  network?: string
+}
+
+/**
+ * Creates an OxaPay invoice and persists the intent. Internal helper kept
+ * ungated so it can be exercised directly by tests; the public entry point
+ * `createDepositIntent` enforces the `PAYMENTS_ENABLED` gate.
+ *
+ * When a selection is supplied, its asset/network must be a verified allowlisted
+ * pair AND the asset must be enabled in the merchant's OxaPay accepted
+ * currencies. The canonical pair is stored as the intent expectation so the
+ * callback is validated against it. The invoice amount stays USD-denominated
+ * (OxaPay's invoice API lets the payer choose the asset/network).
+ */
+export async function createDepositInvoice(
+  db: PrismaClient,
+  config: OxapayConfig,
+  userId: number,
+  amountUsdt: string,
+  selection?: DepositSelection,
+) {
+  const metadata: Record<string, unknown> = { orderId: `dep_${randomUUID()}` }
+
+  if (selection && (selection.asset || selection.network)) {
+    const asset = normalizeAsset(selection.asset)
+    const network = normalizeNetwork(selection.network)
+    if (!asset || !network || !isSupportedDepositPair(asset, network)) {
+      throw new PaymentError('unsupported_pair')
+    }
+    const accepted = await getAcceptedCurrencies(config)
+    const acceptedAssets = new Set(
+      accepted.map((symbol) => normalizeAsset(symbol)).filter((symbol): symbol is string => Boolean(symbol)),
+    )
+    if (!acceptedAssets.has(asset)) throw new PaymentError('asset_not_accepted')
+    metadata.asset = asset
+    metadata.network = network
+  }
+
+  const invoice = await createInvoice(config, {
+    amountUsdt,
+    orderId: String(metadata.orderId),
+    // Merchant dashboard has "payer pays fees" enabled; send it explicitly.
+    feePaidByPayer: true,
+    ...(config.callbackUrl ? { callbackUrl: config.callbackUrl } : {}),
+    description: 'TycoonX deposit',
+  })
 
   const intent = await db.paymentIntent.create({
     data: {
       userId,
       provider: PAYMENT_PROVIDER,
-      externalId: `inv_${randomUUID()}`,
+      externalId: invoice.trackId,
       amountUsdt,
       creditedSp: usdtToSp(amountUsdt),
       purpose: 'deposit',
       status: 'CREATED',
+      payUrl: invoice.paymentUrl,
+      metadata: { ...metadata, expiredAt: invoice.expiredAt },
     },
   })
   return serializeIntent(intent)
+}
+
+/**
+ * Creates a deposit invoice (OxaPay in future). DISABLED until payments are
+ * activated; while disabled this always throws and no invoice is created.
+ */
+export async function createDepositIntent(
+  db: PrismaClient,
+  userId: number,
+  amountUsdt: string,
+  config?: OxapayConfig,
+  selection?: DepositSelection,
+) {
+  if (!PAYMENTS_ENABLED) throw new PaymentError('payments_disabled')
+  if (!isValidUsdtAmount(amountUsdt) || usdtToSp(amountUsdt) <= 0n) throw new PaymentError('invalid_amount')
+  return createDepositInvoice(db, config ?? loadOxapayConfig(), userId, amountUsdt, selection)
 }
 
 export async function listUserPaymentIntents(db: PrismaClient, userId: number) {
@@ -138,8 +247,9 @@ export async function confirmDepositIntent(db: PrismaClient, paymentIntentId: nu
 
 /**
  * Processes a gateway webhook idempotently. DISABLED: while payments are off the
- * event is recorded and ignored (never credits). When enabled, a paid event
- * confirms the intent through the guarded transition.
+ * event is recorded and ignored (never credits). When enabled, a `paid` event is
+ * only settled after amount/order/currency consistency checks against the stored
+ * intent, then confirmed through the guarded transition.
  */
 export async function processWebhook(
   db: PrismaClient,
@@ -178,20 +288,138 @@ export async function processWebhook(
     return { ignored: true, reason: 'intent_not_found' }
   }
 
-  if (input.status !== 'paid') {
+  if (intent.status === 'CONFIRMED') {
     await db.paymentWebhookEvent.update({
       where: { id: eventId },
       data: { status: 'PROCESSED', processedAt: new Date(), paymentIntentId: intent.id },
     })
-    return { ignored: true, reason: 'non_confirming', paymentIntentId: intent.id }
+    logDepositDiagnostic(
+      buildDepositDiagnostic({
+        outcome: 'already_confirmed',
+        status: input.status,
+        asset: input.asset ?? null,
+        network: input.network ?? null,
+        invoiceAmountUsdt: intent.amountUsdt.toString(),
+        paymentIntentId: intent.id,
+      }),
+    )
+    return {
+      ignored: true,
+      reason: 'already_confirmed',
+      paymentIntentId: intent.id,
+      confirmed: true,
+      alreadyConfirmed: true,
+    }
   }
 
-  await confirmDepositIntent(db, intent.id)
+  const decision = evaluateDepositSettlement(
+    {
+      status: input.status,
+      amount: input.amountUsdt ?? null,
+      asset: input.asset ?? null,
+      network: input.network ?? null,
+      orderId: input.orderId ?? null,
+    },
+    {
+      amountUsdt: intent.amountUsdt.toString(),
+      orderId: readMetadataString(intent.metadata, 'orderId'),
+      asset: readMetadataString(intent.metadata, 'asset'),
+      network: readMetadataString(intent.metadata, 'network'),
+    },
+  )
+
+  if (!decision.settle) {
+    // Non-confirming provider statuses are expected transitions; verification
+    // failures are recorded as IGNORED. Neither credits anything.
+    const eventStatus = decision.reason === 'non_confirming' ? 'PROCESSED' : 'IGNORED'
+    await db.paymentWebhookEvent.update({
+      where: { id: eventId },
+      data: { status: eventStatus, processedAt: new Date(), paymentIntentId: intent.id },
+    })
+    logDepositDiagnostic(
+      buildDepositDiagnostic({
+        outcome: decision.reason,
+        status: input.status,
+        asset: input.asset ?? null,
+        network: input.network ?? null,
+        invoiceAmountUsdt: input.amountUsdt ?? null,
+        paymentIntentId: intent.id,
+      }),
+    )
+    return { ignored: true, reason: decision.reason, paymentIntentId: intent.id }
+  }
+
+  try {
+    await confirmDepositIntent(db, intent.id)
+  } catch (error) {
+    // A concurrent callback may have confirmed the intent first; that is a
+    // successful exactly-once outcome, not an error to retry.
+    if (!(error instanceof PaymentError && error.code === 'invalid_state')) throw error
+  }
   await db.paymentWebhookEvent.update({
     where: { id: eventId },
     data: { status: 'PROCESSED', processedAt: new Date(), paymentIntentId: intent.id },
   })
+  logDepositDiagnostic(
+    buildDepositDiagnostic({
+      outcome: 'settled',
+      status: input.status,
+      asset: input.asset ?? null,
+      network: input.network ?? null,
+      invoiceAmountUsdt: intent.amountUsdt.toString(),
+      creditedSp: intent.creditedSp ?? usdtToSp(intent.amountUsdt.toString()),
+      paymentIntentId: intent.id,
+    }),
+  )
   return { ignored: false, paymentIntentId: intent.id, confirmed: true }
+}
+
+/**
+ * Maps a provider payment lookup into the same normalized webhook input used by
+ * callbacks, so reconciliation shares replay protection and settlement rules.
+ */
+export function buildReconciliationInput(trackId: string, info: PaymentInfo): ProcessWebhookInput {
+  const tx = info.transactions.find((t) => t.txHash) ?? info.transactions[0]
+  const txHash = tx?.txHash ?? null
+  const rawStatus = info.rawStatus || info.status || 'unknown'
+  return {
+    eventId: synthesizeWebhookEventId({ trackId, status: rawStatus, txHash }),
+    externalId: trackId,
+    status: rawStatus,
+    ...(info.amount ? { amountUsdt: info.amount } : {}),
+    ...(info.orderId ? { orderId: info.orderId } : {}),
+    ...(tx?.currency ? { asset: tx.currency } : {}),
+    ...(tx?.network ? { network: tx.network } : {}),
+    metadata: { source: 'reconcile', status: info.rawStatus } as Prisma.InputJsonValue,
+  }
+}
+
+/**
+ * Independently reconciles a deposit intent against the provider's payment
+ * lookup. Gated by `PAYMENTS_ENABLED` and replay-safe through the same webhook
+ * event uniqueness used by callbacks. Intended for the admin reconcile endpoint.
+ */
+export async function reconcileDepositIntent(
+  db: PrismaClient,
+  config: OxapayConfig,
+  paymentIntentId: number,
+): Promise<ProcessWebhookResult> {
+  if (!PAYMENTS_ENABLED) throw new PaymentError('payments_disabled')
+
+  const intent = await db.paymentIntent.findUnique({ where: { id: paymentIntentId } })
+  if (!intent) throw new PaymentError('not_found')
+  if (intent.status === 'CONFIRMED') {
+    return {
+      ignored: true,
+      reason: 'already_confirmed',
+      paymentIntentId: intent.id,
+      confirmed: true,
+      alreadyConfirmed: true,
+    }
+  }
+
+  const info = await getPaymentInfo(config, intent.externalId)
+  return processWebhook(db, buildReconciliationInput(intent.externalId, info))
 }
 
 export interface AdminPaymentFilter {

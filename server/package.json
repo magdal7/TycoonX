@@ -7,9 +7,10 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "node --import tsx --test src/lib/idempotency.test.ts src/lib/gameMath.test.ts src/lib/tasks.test.ts src/lib/achievements.test.ts src/lib/specialTasks.test.ts src/lib/siteSettings.test.ts src/lib/referralRules.test.ts src/lib/payments.test.ts src/services/economy.test.ts src/services/production.test.ts src/services/progression.test.ts src/services/referral.test.ts src/services/referrals.test.ts src/services/walletPayments.test.ts src/services/specialTasks.test.ts src/services/adminManagement.test.ts src/validation/auth.test.ts src/validation/admin.test.ts src/middleware/auth.test.ts src/routes/game/ceos.test.ts",
+    "test": "node --import tsx --test src/lib/idempotency.test.ts src/lib/gameMath.test.ts src/lib/tasks.test.ts src/lib/achievements.test.ts src/lib/specialTasks.test.ts src/lib/siteSettings.test.ts src/lib/referralRules.test.ts src/lib/payments.test.ts src/services/economy.test.ts src/services/production.test.ts src/services/progression.test.ts src/services/referral.test.ts src/services/referrals.test.ts src/services/walletPayments.test.ts src/services/specialTasks.test.ts src/services/adminManagement.test.ts src/validation/auth.test.ts src/validation/admin.test.ts src/middleware/auth.test.ts src/routes/game/ceos.test.ts src/lib/oxapay.test.ts src/lib/oxapayAmounts.test.ts src/lib/oxapayAssets.test.ts src/lib/oxapayDiagnostics.test.ts src/services/oxapay.test.ts src/services/oxapayDeposits.test.ts",
     "test:integration": "node --import tsx --test src/integration/ownership.integration.test.ts",
     "test:smoke": "node src/integration/api-smoke.mjs",
+    "diag:oxapay": "node --import tsx src/scripts/oxapayDiagnostics.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },

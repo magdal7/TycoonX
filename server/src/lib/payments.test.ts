@@ -9,8 +9,8 @@ import {
   usdtToSp,
 } from './payments'
 
-test('payments remain disabled', () => {
-  assert.equal(PAYMENTS_ENABLED, false)
+test('payments are enabled (deposits activated)', () => {
+  assert.equal(PAYMENTS_ENABLED, true)
 })
 
 test('usdt amounts are validated', () => {

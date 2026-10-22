@@ -439,6 +439,9 @@ export interface DepositView {
   creditedSp: string | null
   status: string
   purpose: string
+  payUrl: string | null
+  expectedAsset: string | null
+  expectedNetwork: string | null
   createdAt: string
   confirmedAt: string | null
 }
@@ -470,8 +473,8 @@ export const fetchWalletTransactions = () =>
 export const fetchDeposits = () =>
   request<{ deposits: DepositView[]; paymentsEnabled: boolean }>('/api/game/deposits')
 
-export const createDeposit = (amountUsdt: string) =>
-  request<{ deposit: DepositView }>('/api/game/deposits', jsonPost({ amountUsdt, confirm: true })).then(
+export const createDeposit = (input: { amountUsdt: string; asset?: string; network?: string }) =>
+  request<{ deposit: DepositView }>('/api/game/deposits', jsonPost({ ...input, confirm: true })).then(
     (d) => d.deposit,
   )
 

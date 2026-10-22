@@ -64,6 +64,12 @@ app.use(
   })
 )
 app.use(cookieParser())
+
+// Payment gateway callbacks must read the exact raw request body for HMAC
+// verification, so this router is mounted BEFORE the JSON body parser and parses
+// the body itself.
+app.use('/api/payments', createPaymentRouter(prisma))
+
 app.use(express.json())
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true })
@@ -80,8 +86,6 @@ app.use('/api/game', gameLimiter, createGameProgressionRouter(prisma))
 app.use('/api/game', gameLimiter, createGameWithdrawalRouter(prisma))
 app.use('/api/game', gameLimiter, createGameSpecialTaskRouter(prisma))
 app.use('/api/game', gameLimiter, createGameWalletRouter(prisma))
-
-app.use('/api/payments', createPaymentRouter(prisma))
 
 app.use('/api/public', createPublicRouter(prisma))
 const adminLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 240, standardHeaders: true })

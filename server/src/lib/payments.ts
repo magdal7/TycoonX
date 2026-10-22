@@ -9,11 +9,17 @@ export type PaymentIntentStatusName =
 export type PurchaseStatusName = 'PENDING' | 'PAID' | 'DELIVERED' | 'FAILED' | 'REFUNDED'
 
 /**
- * Master payments flag. OxaPay integration is prepared but NOT activated: all
- * deposit/purchase/webhook flows are disabled until the owner approves the
- * gateway go-live gates. This constant is authoritative.
+ * Master payments flag. Deposits are ACTIVATED: authenticated users may create
+ * OxaPay invoices and spend the resulting Bonus SP on CEO purchases. The
+ * settlement rules remain fail-closed. This constant is authoritative.
  */
-export const PAYMENTS_ENABLED = false
+export const PAYMENTS_ENABLED = true
+
+/**
+ * Master payouts flag. Withdrawal payout execution stays disabled independently
+ * of deposits. This constant is authoritative.
+ */
+export const PAYOUTS_ENABLED = false
 
 /** Owner-confirmed accounting conversion (Master Spec §0): 1 USDT = 1,000 SP. */
 export const USDT_TO_SP = 1000n

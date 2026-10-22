@@ -210,17 +210,17 @@ function expectPurchase(code: string) {
   }
 }
 
-test('deposit creation is disabled', async () => {
+test('deposit creation fails closed without provider configuration', async () => {
   const f = new FakePrisma()
-  await assert.rejects(() => createDepositIntent(asClient(f), 1, '10'), expectPayment('payments_disabled'))
+  await assert.rejects(() => createDepositIntent(asClient(f), 1, '10'))
   assert.equal(f.intents.length, 0)
 })
 
-test('webhook processing is inert while payments are disabled (records + ignores)', async () => {
+test('webhook processing ignores an unknown track id (records + ignores)', async () => {
   const f = new FakePrisma()
   const result = await processWebhook(asClient(f), { eventId: 'evt_1', externalId: 'inv_x', status: 'paid' })
   assert.equal(result.ignored, true)
-  assert.equal(result.reason, 'payments_disabled')
+  assert.equal(result.reason, 'intent_not_found')
   assert.equal(f.events.length, 1)
   assert.equal(f.events[0].status, 'IGNORED')
   assert.equal(f.ledger.length, 0)
@@ -258,10 +258,21 @@ test('concurrent deposit confirmations credit once', async () => {
   assert.equal(f.ledger.filter((l) => l.sourceType === 'DEPOSIT_CREDIT').length, 1)
 })
 
-test('CEO purchase creation is disabled', async () => {
+test('CEO purchase spends SP (Bonus first) and delivers ownership', async () => {
   const f = new FakePrisma()
-  await assert.rejects(() => createPurchase(asClient(f), 1, 2, 'idem_key_123'), expectPurchase('payments_disabled'))
+  f.accounts.push({ userId: 1, earnedSp: 0n, bonusSp: 5000n, lifetimeEarnedSp: 0n, version: 0 })
+  const purchase = await createPurchase(asClient(f), 1, 2, 'idem_key_ok')
+  assert.equal(purchase.status, 'DELIVERED')
+  assert.equal(f.purchases.length, 1)
+  assert.equal(f.owned.length, 1)
+  assert.equal(f.ledger.filter((l) => l.sourceType === 'CEO_PURCHASE').length, 1)
+})
+
+test('CEO purchase fails closed without sufficient SP', async () => {
+  const f = new FakePrisma()
+  await assert.rejects(() => createPurchase(asClient(f), 1, 2, 'idem_key_low'), expectPurchase('insufficient_sp'))
   assert.equal(f.purchases.length, 0)
+  assert.equal(f.owned.length, 0)
 })
 
 test('markPurchasePaid transitions PENDING -> PAID guarded', async () => {
@@ -294,7 +305,7 @@ test('deliverPurchase rejects a purchase that is not paid', async () => {
   assert.equal(f.owned.length, 0)
 })
 
-test('wallet summary reports SP, zero USDT and disabled payments', async () => {
+test('wallet summary reports SP, zero USDT and enabled payments', async () => {
   const f = new FakePrisma()
   f.accounts.push({ userId: 1, earnedSp: 1500n, bonusSp: 500n, lifetimeEarnedSp: 1500n, version: 0 })
   const summary = await getWalletSummary(asClient(f), 1)
@@ -302,6 +313,6 @@ test('wallet summary reports SP, zero USDT and disabled payments', async () => {
   assert.equal(summary.sp.bonusSp, '500')
   assert.equal(summary.sp.totalSp, '2000')
   assert.equal(summary.usdt.balance, '0.00')
-  assert.equal(summary.paymentsEnabled, false)
+  assert.equal(summary.paymentsEnabled, true)
   assert.equal(summary.payoutsEnabled, false)
 })

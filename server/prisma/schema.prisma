@@ -497,6 +497,7 @@ enum SpSourceType {
   WITHDRAWAL_SETTLE
   WITHDRAWAL_RELEASE
   DEPOSIT_CREDIT
+  CEO_PURCHASE
 }
 
 enum TaskEventType {
