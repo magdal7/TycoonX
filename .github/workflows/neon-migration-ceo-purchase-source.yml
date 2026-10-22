@@ -1,0 +1,383 @@
+name: Neon Migration Execute - V2.5 CEO Purchase Source (guarded, write)
+
+# Manually triggered ONLY. Applies the single additive enum migration
+# 20261022000000_v25_ceo_purchase_source to the production Neon branch
+# (br-delicate-butterfly-b4et73g9, project wandering-king-57462138) and records
+# Prisma migration history. Must be dispatched only after:
+#   1. a verified Neon backup/PITR recovery point exists, and
+#   2. the branch/project identity and pre-migration history checks below pass.
+# Never triggered by push, pull_request, or schedule.
+#
+# Scope is exactly one additive migration:
+#   ALTER TYPE "SpSourceType" ADD VALUE 'CEO_PURCHASE';
+# No other schema objects are created, altered, or dropped; no data is modified.
+# This workflow never runs `prisma migrate deploy`, never resets the database,
+# and never enables payouts or referral rewards.
+#
+# Safety model (mirrors neon-migration-execute-steps.yml):
+#   * required typed production confirmation token (fail-closed)
+#   * least-privilege permissions (contents: read) + non-cancelling concurrency group
+#   * frozen SHA-256 verification + transaction-safety scan before any write
+#   * exact production branch AND project identity verification before any write
+#   * abort if CEO_PURCHASE already exists, history differs, or any migration is
+#     incomplete/rolled back
+#   * payouts/referral rewards asserted disabled before any write
+#   * applied in ONE transaction (psql --single-transaction)
+#   * history recorded ONLY after the enum value is verified present
+#   * final verification: 12 rows, expected names, per-row checksum, no failures
+#   * credentials/SQL output are never streamed; captured output is redacted
+#
+# NOT guaranteed (documented): atomicity across the SQL commit and its
+# _prisma_migrations row (small commit->resolve window; the job fails closed and
+# requires manual recovery), and exclusion of external database writers.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type APPLY-V25-CEO-PURCHASE-br-delicate-butterfly-b4et73g9 to confirm a production migration'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-migration-ceo-purchase-source
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    name: Guarded production migration (20261022000000_v25_ceo_purchase_source)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # No connection string is exposed at job level. secrets.DIRECT is injected
+      # only into the specific database steps that require it, so npm ci and any
+      # dependency install scripts never receive the production DSN.
+      EXPECTED_BRANCH: br-delicate-butterfly-b4et73g9
+      EXPECTED_PROJECT_ID: wandering-king-57462138
+      CONFIRM_TOKEN: APPLY-V25-CEO-PURCHASE-br-delicate-butterfly-b4et73g9
+      SCHEMA: server/prisma/schema.prisma
+      MIG_NAME: 20261022000000_v25_ceo_purchase_source
+      MIG_FILE: server/prisma/migrations/20261022000000_v25_ceo_purchase_source/migration.sql
+      MIG_DIR: server/prisma/migrations
+      MIG_SHA256: b049471c99ae72ddd0cf7683c1ed1c3713c55a43ab6809b80a5941f6e3b75c1e
+      # Frozen SHA-256 checksums of the 11 expected baseline migration rows.
+      CHK_HIST_USER: 0cc0af4ab39b025d6953c196485bdfe76225c28729b529d9f3dbb46e6f7d7144
+      CHK_HIST_CEO: 1a0fd8415489877c774f6e0a0c726734afbf773931e6d684be6cf7cfe2ab2107
+      CHK_6B1: 1a04a9c5ba3bcc3fb66335c6ce79fbcea73915f106f7160f525da2ed559d7cb3
+      CHK_6B2A: f44f174b372e040b694e0c30b2dd2c5d31a921f154cb4399753af992820cce82
+      CHK_V25_ECON: 7700cb1f5b1514ba982b6349af7dae2085b6a8a83fee4511f6da82e122a03209
+      CHK_V25_PROG: 36e26e87469b671a8b4093e8f007a4fa46413c63d1af5f3042a2f271367cad9a
+      CHK_STEP1_CONSENT: c1b8e7ac863e723a6874fbb8a4fb592d4e1d6b235b081d064d394df3ee4b10aa
+      CHK_STEP3_SPECIAL: 1371a7579e0ee038f73de30c1447933ee728dc64228b1effecc9c20985970326
+      CHK_STEP4_ADMIN: 0e69e154ae935f20cdea9a44cbc5ad68b31714267fa85b4b52648f23b1898183
+      CHK_STEP5_REFERRAL: 8a2d9a71b5fc178822b4e14201c5f0fc919d5f1a66542afd3d63be0167be16a8
+      CHK_STEP6_WALLET: f13f6422230aa44a10ce4c5b000845b2e3b2c9aa08de1e33f42cca13e73d4473
+      # Expected production history BEFORE this migration (the 11 recorded rows).
+      BASELINE11_HIST: "20240101000000_add_user_model,20240102000000_create_ceo_model,20261017000000_phase6b1_economy_foundation,20261017010000_phase6b2a_username_case_insensitive,20261018000000_v25_economy_sp_production,20261018010000_v25_progression,20261019000000_v25_registration_policy_consent,20261019020000_v25_special_tasks,20261019030000_v25_admin_management,20261019040000_v25_referral_system,20261019050000_v25_wallet_purchases"
+      # Expected production history AFTER this migration (the 11 recorded rows + this one).
+      FINAL12_HIST: "20240101000000_add_user_model,20240102000000_create_ceo_model,20261017000000_phase6b1_economy_foundation,20261017010000_phase6b2a_username_case_insensitive,20261018000000_v25_economy_sp_production,20261018010000_v25_progression,20261019000000_v25_registration_policy_consent,20261019020000_v25_special_tasks,20261019030000_v25_admin_management,20261019040000_v25_referral_system,20261019050000_v25_wallet_purchases,20261022000000_v25_ceo_purchase_source"
+      CHK_NEW: b049471c99ae72ddd0cf7683c1ed1c3713c55a43ab6809b80a5941f6e3b75c1e
+    steps:
+      - name: Confirm intent (required token)
+        env:
+          CONFIRM_INPUT: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRM_INPUT" != "$CONFIRM_TOKEN" ]; then
+            echo "::error title=Confirmation failed::The confirmation input did not match the required token. No action taken."
+            exit 1
+          fi
+          echo "Confirmation accepted for branch \`$EXPECTED_BRANCH\` (20261022000000_v25_ceo_purchase_source)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies (workspaces + lockfile)
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify frozen migration checksums and transaction safety
+        run: |
+          set -euo pipefail
+          echo "### Frozen migration checksums" >> "$GITHUB_STEP_SUMMARY"
+          actual="$(sha256sum "$MIG_FILE" | awk '{print $1}')"
+          if [ "$actual" != "$MIG_SHA256" ]; then
+            echo "::error title=Checksum mismatch::$MIG_FILE changed since the freeze"
+            echo "- checksum FAIL: \`$MIG_FILE\`" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "- checksum OK: \`$MIG_FILE\`" >> "$GITHUB_STEP_SUMMARY"
+
+          # The 11 expected baseline migration files must be unchanged before any write.
+          declare -A BASELINE=(
+            ["$MIG_DIR/20240101000000_add_user_model/migration.sql"]="$CHK_HIST_USER"
+            ["$MIG_DIR/20240102000000_create_ceo_model/migration.sql"]="$CHK_HIST_CEO"
+            ["$MIG_DIR/20261017000000_phase6b1_economy_foundation/migration.sql"]="$CHK_6B1"
+            ["$MIG_DIR/20261017010000_phase6b2a_username_case_insensitive/migration.sql"]="$CHK_6B2A"
+            ["$MIG_DIR/20261018000000_v25_economy_sp_production/migration.sql"]="$CHK_V25_ECON"
+            ["$MIG_DIR/20261018010000_v25_progression/migration.sql"]="$CHK_V25_PROG"
+            ["$MIG_DIR/20261019000000_v25_registration_policy_consent/migration.sql"]="$CHK_STEP1_CONSENT"
+            ["$MIG_DIR/20261019020000_v25_special_tasks/migration.sql"]="$CHK_STEP3_SPECIAL"
+            ["$MIG_DIR/20261019030000_v25_admin_management/migration.sql"]="$CHK_STEP4_ADMIN"
+            ["$MIG_DIR/20261019040000_v25_referral_system/migration.sql"]="$CHK_STEP5_REFERRAL"
+            ["$MIG_DIR/20261019050000_v25_wallet_purchases/migration.sql"]="$CHK_STEP6_WALLET"
+          )
+          for f in "${!BASELINE[@]}"; do
+            actual="$(sha256sum "$f" | awk '{print $1}')"
+            if [ "$actual" != "${BASELINE[$f]}" ]; then
+              echo "::error title=Baseline checksum mismatch::$f changed since the freeze"
+              echo "- checksum FAIL: \`$f\`" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "- checksum OK: \`$f\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          # Refuse any statement that cannot run inside `psql --single-transaction`.
+          if grep -Eiq '(^|[^A-Za-z])(BEGIN|COMMIT|ROLLBACK)([^A-Za-z]|$)|CREATE[[:space:]]+INDEX[[:space:]]+CONCURRENTLY|CREATE[[:space:]]+DATABASE|DROP[[:space:]]+DATABASE|VACUUM|REINDEX[[:space:]]+.*CONCURRENTLY' "$MIG_FILE"; then
+            echo "::error title=Transaction-unsafe SQL::$MIG_FILE contains statements incompatible with psql --single-transaction"
+            exit 1
+          fi
+          echo "- migration is transaction-safe (no BEGIN/COMMIT/CONCURRENTLY)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Assert payouts and referral rewards stay disabled
+        run: |
+          set -euo pipefail
+          if ! grep -Rq 'export const PAYOUTS_ENABLED = false' server/src; then
+            echo "::error title=Payout gate::PAYOUTS_ENABLED is not the approved disabled constant"
+            exit 1
+          fi
+          if ! grep -Rq 'export const REFERRAL_REWARDS_ENABLED = false' server/src; then
+            echo "::error title=Rewards gate::REFERRAL_REWARDS_ENABLED is not the approved disabled constant"
+            exit 1
+          fi
+          echo "- payouts and referral rewards remain disabled (code constants verified)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Pre-migration read-only checks
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT }}
+        run: |
+          set -euo pipefail
+          OUTDIR="${RUNNER_TEMP:-/tmp}"
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          fi
+
+          q() {
+            local out
+            if ! out="$(psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "$1" 2>"$OUTDIR/psql.err")"; then
+              sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' "$OUTDIR/psql.err" >&2
+              return 1
+            fi
+            printf '%s' "$out"
+          }
+
+          echo "### Pre-migration state" >> "$GITHUB_STEP_SUMMARY"
+
+          BRANCH="$(q "SELECT current_setting('neon.branch_id', true)")"
+          PROJECT="$(q "SELECT current_setting('neon.project_id', true)")"
+          if [ -z "$BRANCH" ]; then
+            echo "::error title=Branch unverified::Neon branch identity is not exposed by this connection; refusing to proceed."
+            exit 1
+          fi
+          if [ "$BRANCH" != "$EXPECTED_BRANCH" ]; then
+            echo "::error title=Branch mismatch::connected branch is not the expected production branch"
+            exit 1
+          fi
+          if [ -z "$PROJECT" ] || [ "$PROJECT" != "$EXPECTED_PROJECT_ID" ]; then
+            echo "::error title=Project mismatch::connected project is not $EXPECTED_PROJECT_ID"
+            exit 1
+          fi
+          echo "- branch OK: \`${BRANCH}\` (project \`${PROJECT}\`)" >> "$GITHUB_STEP_SUMMARY"
+
+          HIST="$(q "SELECT string_agg(migration_name, ',' ORDER BY started_at, migration_name) FROM _prisma_migrations")"
+          INCOMPLETE="$(q "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL")"
+          ENUM_EXISTS="$(q "SELECT EXISTS (SELECT 1 FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace AND typname='SpSourceType')")"
+          DEPOSIT_CREDIT="$(q "SELECT EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='SpSourceType' AND e.enumlabel='DEPOSIT_CREDIT')")"
+          CEO_PURCHASE="$(q "SELECT EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='SpSourceType' AND e.enumlabel='CEO_PURCHASE')")"
+
+          echo "- _prisma_migrations: ${HIST}" >> "$GITHUB_STEP_SUMMARY"
+
+          fail=0
+          [ "$HIST" = "$BASELINE11_HIST" ] || { echo "::error title=Baseline history::expected exactly the 11 existing rows; refusing to apply"; fail=1; }
+          [ "$INCOMPLETE" = "0" ] || { echo "::error title=History::failed/incomplete rows present"; fail=1; }
+          [ "$ENUM_EXISTS" = "t" ] || { echo "::error title=Enum missing::SpSourceType does not exist"; fail=1; }
+          [ "$DEPOSIT_CREDIT" = "t" ] || { echo "::error title=Unexpected enum state::SpSourceType.DEPOSIT_CREDIT missing"; fail=1; }
+          [ "$CEO_PURCHASE" = "f" ] || { echo "::error title=Already applied::SpSourceType.CEO_PURCHASE already exists; refusing to reapply"; fail=1; }
+
+          # Every baseline row's recorded checksum must match the frozen SHA-256.
+          verify_row_checksum() {
+            local name="$1" expected="$2" row_chk
+            row_chk="$(q "SELECT checksum FROM _prisma_migrations WHERE migration_name='$name'")"
+            [ "$row_chk" = "$expected" ] || { echo "::error title=History checksum mismatch::$name recorded checksum does not match the frozen SHA-256"; fail=1; }
+          }
+          verify_row_checksum "20240101000000_add_user_model" "$CHK_HIST_USER"
+          verify_row_checksum "20240102000000_create_ceo_model" "$CHK_HIST_CEO"
+          verify_row_checksum "20261017000000_phase6b1_economy_foundation" "$CHK_6B1"
+          verify_row_checksum "20261017010000_phase6b2a_username_case_insensitive" "$CHK_6B2A"
+          verify_row_checksum "20261018000000_v25_economy_sp_production" "$CHK_V25_ECON"
+          verify_row_checksum "20261018010000_v25_progression" "$CHK_V25_PROG"
+          verify_row_checksum "20261019000000_v25_registration_policy_consent" "$CHK_STEP1_CONSENT"
+          verify_row_checksum "20261019020000_v25_special_tasks" "$CHK_STEP3_SPECIAL"
+          verify_row_checksum "20261019030000_v25_admin_management" "$CHK_STEP4_ADMIN"
+          verify_row_checksum "20261019040000_v25_referral_system" "$CHK_STEP5_REFERRAL"
+          verify_row_checksum "20261019050000_v25_wallet_purchases" "$CHK_STEP6_WALLET"
+
+          if [ "$fail" -ne 0 ]; then
+            echo "- ❌ pre-migration state failed" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "- baseline OK: 11 rows; SpSourceType present; CEO_PURCHASE absent" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply migration (single transaction)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT }}
+        run: |
+          set -euo pipefail
+          OUTDIR="${RUNNER_TEMP:-/tmp}"
+          actual="$(sha256sum "$MIG_FILE" | awk '{print $1}')"
+          if [ "$actual" != "$MIG_SHA256" ]; then
+            echo "::error title=Checksum mismatch::$MIG_FILE changed since the freeze"
+            exit 1
+          fi
+          if ! psql "$DIRECT_URL" -v ON_ERROR_STOP=1 --single-transaction -f "$MIG_FILE" >"$OUTDIR/apply.out" 2>"$OUTDIR/apply.err"; then
+            echo "::error title=Apply failed::$MIG_NAME transaction rolled back; no schema changes were committed"
+            { cat "$OUTDIR/apply.err"; cat "$OUTDIR/apply.out"; } | tail -n 40 | sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' >&2
+            exit 1
+          fi
+          echo "- $MIG_NAME applied inside a single transaction (psql output suppressed)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify migration effects (read-only)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT }}
+        run: |
+          set -euo pipefail
+          OUTDIR="${RUNNER_TEMP:-/tmp}"
+          q() {
+            local out
+            if ! out="$(psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "$1" 2>"$OUTDIR/psql.err")"; then
+              sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' "$OUTDIR/psql.err" >&2
+              return 1
+            fi
+            printf '%s' "$out"
+          }
+          result="$(q "SELECT EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace='public'::regnamespace AND t.typname='SpSourceType' AND e.enumlabel='CEO_PURCHASE')")"
+          if [ "$result" != "t" ]; then
+            echo "::error title=Verification failed::SpSourceType.CEO_PURCHASE absent after apply. DDL may be committed but history is NOT recorded."
+            echo "- ❌ effect verification failed (history not recorded)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "- ✅ SpSourceType.CEO_PURCHASE verified present" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record migration applied (metadata only)
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT }}
+          DIRECT_URL: ${{ secrets.DIRECT }}
+        run: |
+          set -euo pipefail
+          OUTDIR="${RUNNER_TEMP:-/tmp}"
+          if ! npx prisma migrate resolve --schema "$SCHEMA" --applied "$MIG_NAME" >"$OUTDIR/resolve.out" 2>"$OUTDIR/resolve.err"; then
+            { cat "$OUTDIR/resolve.err"; cat "$OUTDIR/resolve.out"; } | sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g' >&2
+            echo "::error title=Record failed::$MIG_NAME SQL is committed but history was NOT recorded. Do not re-dispatch; recover manually."
+            exit 1
+          fi
+          echo "- $MIG_NAME recorded in _prisma_migrations" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Final verification (12 rows: names, checksums, completion)"
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT }}
+          DIRECT_URL: ${{ secrets.DIRECT }}
+        run: |
+          set -euo pipefail
+          OUTDIR="${RUNNER_TEMP:-/tmp}"
+          redact() {
+            sed -E 's#postgres(ql)?://[^ ]+#[REDACTED_DSN]#g; s#[A-Za-z0-9.-]+\.neon\.tech#[REDACTED_HOST]#g'
+          }
+          q() {
+            local out
+            if ! out="$(psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "$1" 2>"$OUTDIR/psql.err")"; then
+              redact < "$OUTDIR/psql.err" >&2
+              return 1
+            fi
+            printf '%s' "$out"
+          }
+          echo "### Final verification" >> "$GITHUB_STEP_SUMMARY"
+
+          HIST="$(q "SELECT string_agg(migration_name, ',' ORDER BY started_at, migration_name) FROM _prisma_migrations")"
+          if [ "$HIST" != "$FINAL12_HIST" ]; then
+            echo "::error title=Migration history::unexpected applied set: $HIST"
+            exit 1
+          fi
+
+          COUNT="$(q "SELECT count(*) FROM _prisma_migrations")"
+          if [ "$COUNT" != "12" ]; then
+            echo "::error title=Migration count::expected 12 rows, got $COUNT"
+            exit 1
+          fi
+
+          INCOMPLETE="$(q "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL")"
+          if [ "$INCOMPLETE" != "0" ]; then
+            echo "::error title=Migration history::failed/incomplete migration rows present"
+            exit 1
+          fi
+
+          NEW_CHK="$(q "SELECT checksum FROM _prisma_migrations WHERE migration_name='$MIG_NAME'")"
+          if [ "$NEW_CHK" != "$CHK_NEW" ]; then
+            echo "::error title=History checksum mismatch::$MIG_NAME recorded checksum does not match the frozen SHA-256"
+            exit 1
+          fi
+          echo "- checksum OK: \`$MIG_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+
+          # Every expected baseline row's recorded checksum must also match the freeze.
+          verify_checksum() {
+            local name="$1" expected="$2" actual
+            actual="$(q "SELECT checksum FROM _prisma_migrations WHERE migration_name='$name'")"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error title=History checksum mismatch::$name recorded checksum does not match the frozen SHA-256"
+              return 1
+            fi
+            echo "- checksum OK: \`$name\`" >> "$GITHUB_STEP_SUMMARY"
+          }
+          verify_checksum "20240101000000_add_user_model" "$CHK_HIST_USER"
+          verify_checksum "20240102000000_create_ceo_model" "$CHK_HIST_CEO"
+          verify_checksum "20261017000000_phase6b1_economy_foundation" "$CHK_6B1"
+          verify_checksum "20261017010000_phase6b2a_username_case_insensitive" "$CHK_6B2A"
+          verify_checksum "20261018000000_v25_economy_sp_production" "$CHK_V25_ECON"
+          verify_checksum "20261018010000_v25_progression" "$CHK_V25_PROG"
+          verify_checksum "20261019000000_v25_registration_policy_consent" "$CHK_STEP1_CONSENT"
+          verify_checksum "20261019020000_v25_special_tasks" "$CHK_STEP3_SPECIAL"
+          verify_checksum "20261019030000_v25_admin_management" "$CHK_STEP4_ADMIN"
+          verify_checksum "20261019040000_v25_referral_system" "$CHK_STEP5_REFERRAL"
+          verify_checksum "20261019050000_v25_wallet_purchases" "$CHK_STEP6_WALLET"
+
+          echo "- history OK: 12 rows (all finished, no failed rows, checksums match)" >> "$GITHUB_STEP_SUMMARY"
+
+          npx prisma migrate status --schema "$SCHEMA" 2>&1 | redact
+          echo "- ✅ prisma migrate status: no pending migrations" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo ""
+            echo "---"
+            echo "Guarded write workflow for the single additive migration 20261022000000_v25_ceo_purchase_source: one transactional apply + effect verification + history recording."
+            echo "Production is recorded through 11 rows before this migration; 12 rows after. No re-baselining, no reset, no migrate deploy."
+            echo "Payouts and referral rewards remain disabled (code constants asserted)."
+            echo "Credentials/SQL output are never streamed; captured output is redacted."
+            echo "No automatic retry/reapply: re-dispatch is refused by the pre-migration check."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "**Result: ✅ PASS**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**Result: ❌ FAIL - inspect steps; recovery in docs/archive/PHASE_6B4E_PRODUCTION_READINESS.md**" >> "$GITHUB_STEP_SUMMARY"
+          fi
