@@ -52,6 +52,8 @@ export function createAdminWithdrawalRouter(db: PrismaClient): Router {
         note: r.note,
         reviewedBy: r.reviewedBy,
         reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
+        payoutTrackId: r.payoutTrackId,
+        paidAt: r.paidAt ? r.paidAt.toISOString() : null,
         createdAt: r.createdAt.toISOString(),
       })),
       payoutsEnabled: isPayoutsEnabled(),

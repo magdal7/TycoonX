@@ -278,6 +278,8 @@ model WithdrawalRequest {
   note       String?
   reviewedBy Int?
   reviewedAt DateTime?
+  payoutTrackId String?
+  paidAt        DateTime?
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
 

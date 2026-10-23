@@ -6,6 +6,7 @@ import {
   isPaymentsEnabled,
   isPayoutsEnabled,
   isValidUsdtAmount,
+  minDepositUsdt,
   nextIntentStatus,
   nextPurchaseStatus,
   spToUsdtString,
@@ -46,6 +47,15 @@ test('usdt amounts are validated', () => {
   assert.equal(isValidUsdtAmount('-1'), false)
   assert.equal(isValidUsdtAmount('1.2345678'), false)
   assert.equal(isValidUsdtAmount('abc'), false)
+})
+
+test('minDepositUsdt defaults to 0 and only accepts a valid provider minimum', () => {
+  assert.equal(minDepositUsdt({}), '0')
+  assert.equal(minDepositUsdt({ OXAPAY_MIN_DEPOSIT_USDT: '0.01' }), '0.01')
+  assert.equal(minDepositUsdt({ OXAPAY_MIN_DEPOSIT_USDT: '5' }), '5')
+  assert.equal(minDepositUsdt({ OXAPAY_MIN_DEPOSIT_USDT: 'abc' }), '0')
+  assert.equal(minDepositUsdt({ OXAPAY_MIN_DEPOSIT_USDT: '-1' }), '0')
+  assert.equal(minDepositUsdt({ OXAPAY_MIN_DEPOSIT_USDT: '1.2345678' }), '0')
 })
 
 test('USDT converts to integer SP exactly (1 USDT = 1,000 SP)', () => {

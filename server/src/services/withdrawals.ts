@@ -65,6 +65,8 @@ export interface WithdrawalView {
   address: string
   network: string
   status: string
+  payoutTrackId: string | null
+  paidAt: string | null
   createdAt: string
 }
 
@@ -76,6 +78,8 @@ function toView(row: {
   address: string
   network: string
   status: string
+  payoutTrackId?: string | null
+  paidAt?: Date | null
   createdAt: Date
 }): WithdrawalView {
   return {
@@ -86,6 +90,8 @@ function toView(row: {
     address: row.address,
     network: row.network,
     status: row.status,
+    payoutTrackId: row.payoutTrackId ?? null,
+    paidAt: row.paidAt ? row.paidAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   }
 }
@@ -477,7 +483,7 @@ export async function processPayoutWebhook(
       }
       await tx.withdrawalRequest.updateMany({
         where: { id: row.id, status: row.status },
-        data: { status: 'PAID' },
+        data: { status: 'PAID', paidAt: new Date(), payoutTrackId: input.trackId },
       })
       await tx.paymentIntent.update({
         where: { id: intent.id },

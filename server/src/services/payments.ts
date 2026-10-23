@@ -1,11 +1,12 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { isUniqueViolation } from '../lib/idempotency'
-import { buildDepositDiagnostic, evaluateDepositSettlement, synthesizeWebhookEventId } from '../lib/oxapay'
+import { buildDepositDiagnostic, compareDecimal, evaluateDepositSettlement, synthesizeWebhookEventId } from '../lib/oxapay'
 import { isSupportedDepositPair, normalizeAsset, normalizeNetwork } from '../lib/oxapayAssets'
 import {
   isPaymentsEnabled,
   isValidUsdtAmount,
+  minDepositUsdt,
   nextIntentStatus,
   usdtToSp,
   type PaymentIntentStatusName,
@@ -201,6 +202,7 @@ export async function createDepositIntent(
 ) {
   if (!isPaymentsEnabled()) throw new PaymentError('payments_disabled')
   if (!isValidUsdtAmount(amountUsdt) || usdtToSp(amountUsdt) <= 0n) throw new PaymentError('invalid_amount')
+  if (compareDecimal(amountUsdt, minDepositUsdt()) < 0) throw new PaymentError('invalid_amount')
   return createDepositInvoice(db, config ?? loadOxapayConfig(), userId, amountUsdt, selection)
 }
 

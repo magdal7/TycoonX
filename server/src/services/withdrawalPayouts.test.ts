@@ -24,6 +24,8 @@ interface WithdrawalRow {
   note: string | null
   reviewedBy: number | null
   reviewedAt: Date | null
+  payoutTrackId?: string | null
+  paidAt?: Date | null
   createdAt: Date
   updatedAt: Date
 }
@@ -390,6 +392,8 @@ test('a confirmed payout webhook marks the request PAID exactly once', async () 
     const first = await processPayoutWebhook(asClient(f), { eventId: 'evt_1', trackId: 'pay_1', status: 'Confirmed' })
     assert.equal(first.reason, 'settled')
     assert.equal(f.withdrawals[0].status, 'PAID')
+    assert.equal(f.withdrawals[0].payoutTrackId, 'pay_1')
+    assert.ok(f.withdrawals[0].paidAt instanceof Date)
     assert.equal(f.ledger.length, 0)
 
     const replay = await processPayoutWebhook(asClient(f), { eventId: 'evt_2', trackId: 'pay_1', status: 'Confirmed' })

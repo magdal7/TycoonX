@@ -49,6 +49,16 @@ export function isValidUsdtAmount(amount: string): boolean {
 }
 
 /**
+ * Provider-verified minimum deposit amount in USDT (`OXAPAY_MIN_DEPOSIT_USDT`).
+ * Defaults to "0" (no enforcement) until the owner sets the value verified
+ * against the live OxaPay merchant configuration. Invalid values fail to "0".
+ */
+export function minDepositUsdt(env: Record<string, string | undefined> = process.env): string {
+  const raw = (env.OXAPAY_MIN_DEPOSIT_USDT ?? '').trim()
+  return USDT_RE.test(raw) ? raw : '0'
+}
+
+/**
  * Converts a USDT decimal string to integer SP exactly (no floating point).
  * 1 USDT = 1,000 SP, so 0.001 USDT = 1 SP; extra decimals beyond 3 are truncated.
  */
