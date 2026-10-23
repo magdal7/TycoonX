@@ -51,6 +51,9 @@ jobs:
   execute:
     name: Guarded production migration (20261023000000_v25_withdrawal_wallet)
     runs-on: ubuntu-latest
+    # Access the production Environment secret (DIRECT) and apply its protection
+    # rules (required reviewers) to this production-writing job.
+    environment: production
     timeout-minutes: 20
     env:
       EXPECTED_BRANCH: br-delicate-butterfly-b4et73g9
