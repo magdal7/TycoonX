@@ -1,9 +1,11 @@
 import 'dotenv/config'
+import 'express-async-errors'
 import express, { Application } from 'express'
 import cors from 'cors'
 import cookieParser from 'cookie-parser'
 import rateLimit from 'express-rate-limit'
 import { prisma } from './lib/prisma'
+import { installErrorHandling } from './lib/errorHandling'
 import authRoutes from './routes/auth'
 import ceoRoutes from './routes/ceo'
 import { createGameCeoRouter } from './routes/game/ceos'
@@ -112,6 +114,17 @@ app.get('/api/health', async (_req, res) => {
 
 app.get('/api/admin/ping', requireAuth, requireAdmin, (_req, res) => {
   res.json({ ok: true })
+})
+
+// Terminal error handling: async route rejections are forwarded here (via
+// express-async-errors) and answered with JSON instead of terminating the
+// process. Registered after every route; safe to log only non-sensitive names.
+installErrorHandling(app)
+
+// Last-resort process safety net: never let a stray rejected promise take the
+// API down. Route errors are handled above; this only guards the unexpected.
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] unhandledRejection: ' + (reason instanceof Error ? reason.name : typeof reason))
 })
 
 app.listen(PORT, () => {
