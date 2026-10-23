@@ -1,9 +1,9 @@
 import type { WorldState, BuildingDef, PlotDef, DecorDef, Cell } from './types'
 
-const HQ_PALETTE = { top: '#7aa8ff', left: '#16224a', right: '#2d4fa0', detail: '#8B5CF6' }
+const HQ_PALETTE = { top: '#34d399', left: '#0b2f26', right: '#0f5f4a', detail: '#D4AF65' }
 const SERVER_PALETTE = { top: '#4ad3a0', left: '#0f2f27', right: '#1a6b52', detail: '#16A879' }
-const LABS_PALETTE = { top: '#c4b5fd', left: '#241a44', right: '#4c3a86', detail: '#8B5CF6' }
-const TOWER_PALETTE = { top: '#fcd34d', left: '#3a2b10', right: '#8a6a1e', detail: '#F5C451' }
+const LABS_PALETTE = { top: '#5eead4', left: '#0f2f2a', right: '#0f6b5c', detail: '#14b8a6' }
+const TOWER_PALETTE = { top: '#fcd34d', left: '#3a2b10', right: '#8a6a1e', detail: '#D4AF65' }
 
 export function buildDemoWorld(): WorldState {
   const buildings: BuildingDef[] = [
@@ -18,7 +18,7 @@ export function buildDemoWorld(): WorldState {
       maxLevel: 5,
       description: 'Central command of your growing technology empire.',
       nextUpgrade: 'Executive Wing',
-      accent: '#3478FF',
+      accent: '#10B981',
       palette: HQ_PALETTE,
       status: 'operating'
     },
@@ -48,7 +48,7 @@ export function buildDemoWorld(): WorldState {
       maxLevel: 5,
       description: 'Where future products and upgrades are prototyped.',
       nextUpgrade: 'AI Research Floor',
-      accent: '#8B5CF6',
+      accent: '#14B8A6',
       palette: LABS_PALETTE,
       status: 'upgrading'
     },
@@ -63,7 +63,7 @@ export function buildDemoWorld(): WorldState {
       maxLevel: 5,
       description: 'A prestige landmark that will raise your empire’s rank.',
       nextUpgrade: 'Sky Lobby',
-      accent: '#F5C451',
+      accent: '#D4AF65',
       palette: TOWER_PALETTE,
       status: 'operating'
     }

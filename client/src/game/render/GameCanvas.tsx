@@ -154,17 +154,17 @@ function IsoBuilding({
         strokeWidth={ring ? 2 : 1}
       />
       {frontWins.map((p, i) => (
-        <polygon key={`fw${i}`} points={p} fill="#bcd6ff" opacity="0.85" />
+        <polygon key={`fw${i}`} points={p} fill="#a7f3d0" opacity="0.85" />
       ))}
       {rightWins.map((p, i) => (
-        <polygon key={`rw${i}`} points={p} fill="#9fc2ff" opacity="0.55" />
+        <polygon key={`rw${i}`} points={p} fill="#6ee7b7" opacity="0.55" />
       ))}
-      <polygon points={entrance} fill="#0b1020" opacity="0.92" />
+      <polygon points={entrance} fill="#06201a" opacity="0.92" />
       <polygon points={entrance} fill="none" stroke={b.palette.detail} strokeWidth="1.5" opacity="0.8" />
       <polygon points={top} fill={b.palette.top} stroke="rgba(255,255,255,0.16)" strokeWidth="1" />
       <polygon points={roof} fill={b.palette.detail} opacity="0.3" stroke={b.palette.top} strokeOpacity="0.5" strokeWidth="1" />
       <circle cx={ctrTop.x} cy={ctrTop.y} r="10" fill={b.palette.detail} opacity="0.35" />
-      <circle cx={ctrTop.x} cy={ctrTop.y} r="4" fill="#dbeafe" opacity="0.9" />
+      <circle cx={ctrTop.x} cy={ctrTop.y} r="4" fill="#d1fae5" opacity="0.9" />
       <line x1={ctrTop.x} y1={ctrTop.y} x2={antTop.x} y2={antTop.y} stroke={b.palette.top} strokeWidth="1.5" />
       <circle cx={antTop.x} cy={antTop.y} r="4" fill={b.accent} className="motion-safe:animate-pulse" />
     </>
@@ -206,8 +206,8 @@ function IsoBuilding({
       )}
       {b.status === 'upgrading' && (
         <g className="motion-safe:animate-pulse">
-          <polygon points={top} fill="none" stroke="#F5C451" strokeWidth="2" strokeDasharray="5 4" opacity="0.9" />
-          <circle cx={antTop.x} cy={antTop.y - 12} r="4" fill="#F5C451" />
+          <polygon points={top} fill="none" stroke="#D4AF65" strokeWidth="2" strokeDasharray="5 4" opacity="0.9" />
+          <circle cx={antTop.x} cy={antTop.y - 12} r="4" fill="#D4AF65" />
         </g>
       )}
       {Array.from({ length: b.maxLevel }, (_, i) => {
@@ -219,7 +219,7 @@ function IsoBuilding({
             cy={D.y + 12}
             r="3"
             fill={i < b.level ? b.accent : 'rgba(148,163,184,0.28)'}
-            stroke="#0b1020"
+            stroke="#06201a"
             strokeWidth="1"
           />
         )
@@ -261,7 +261,7 @@ function IsoPlot({
   const D = toScreen(plot.gx, plot.gy + plot.footprint.h, ORIGIN)
   const ctr = center(A, B, C, D)
   const locked = plot.status === 'locked'
-  const color = locked ? '#F59E0B' : '#3478FF'
+  const color = locked ? '#E0A93B' : '#10B981'
   const ring = selected || focused
   const diamondPts = points([A, B, C, D])
 
@@ -283,8 +283,8 @@ function IsoPlot({
       />
       {locked ? (
         <>
-          <rect x={ctr.x - 5} y={ctr.y - 4} width="10" height="8" rx="1.5" fill="#F59E0B" opacity="0.85" />
-          <path d={`M${ctr.x - 3},${ctr.y - 4} a3,3 0 0 1 6,0`} fill="none" stroke="#F59E0B" strokeWidth="1.5" opacity="0.85" />
+          <rect x={ctr.x - 5} y={ctr.y - 4} width="10" height="8" rx="1.5" fill="#E0A93B" opacity="0.85" />
+          <path d={`M${ctr.x - 3},${ctr.y - 4} a3,3 0 0 1 6,0`} fill="none" stroke="#E0A93B" strokeWidth="1.5" opacity="0.85" />
         </>
       ) : (
         <>
@@ -292,7 +292,7 @@ function IsoPlot({
           <line x1={ctr.x} y1={ctr.y - 9} x2={ctr.x} y2={ctr.y + 9} stroke={color} strokeWidth="2" />
         </>
       )}
-      <text x={ctr.x} y={ctr.y + 24} textAnchor="middle" fontSize="9" fill={locked ? '#94a3b8' : '#c7d2fe'} className="select-none">
+      <text x={ctr.x} y={ctr.y + 24} textAnchor="middle" fontSize="9" fill={locked ? '#A7B9B0' : '#a7f3d0'} className="select-none">
         {locked ? 'Locked' : 'Available'}
       </text>
     </>
@@ -351,9 +351,9 @@ function IsoDecor({ d }: { d: DecorDef }) {
   const vector: ReactNode =
     d.kind === 'lamp' ? (
       <>
-        <rect x={c.x - 1.5} y={c.y - 26} width="3" height="26" fill="#334155" />
-        <circle cx={c.x} cy={c.y - 28} r="5" fill="#F59E0B" opacity="0.85" />
-        <circle cx={c.x} cy={c.y - 28} r="9" fill="#F59E0B" opacity="0.18" className="motion-safe:animate-pulse" />
+        <rect x={c.x - 1.5} y={c.y - 26} width="3" height="26" fill="#1f3d35" />
+        <circle cx={c.x} cy={c.y - 28} r="5" fill="#E0A93B" opacity="0.85" />
+        <circle cx={c.x} cy={c.y - 28} r="9" fill="#E0A93B" opacity="0.18" className="motion-safe:animate-pulse" />
       </>
     ) : d.kind === 'bush' ? (
       <>
@@ -425,8 +425,8 @@ export default function GameCanvas({
         <polygon
           key={`t${gx}-${gy}`}
           points={tilePoints(c)}
-          fill={dark ? '#101830' : '#0d1428'}
-          stroke="#16203c"
+          fill={dark ? '#0b1f1b' : '#091916'}
+          stroke="#1f3d35"
           strokeWidth="1"
         />
       )
@@ -476,7 +476,7 @@ export default function GameCanvas({
   items.sort((a, b) => a.depth - b.depth)
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-800/60 bg-gradient-to-b from-[#0e1530] to-bg">
+    <div className="overflow-hidden rounded-2xl border border-line bg-gradient-to-b from-[#0a201b] to-bg">
       <svg
         viewBox={VIEW_BOX}
         className="h-auto w-full"
@@ -489,24 +489,24 @@ export default function GameCanvas({
       >
         <defs>
           <radialGradient id="groundGlow" cx="50%" cy="45%" r="60%">
-            <stop offset="0%" stopColor="#3478FF" stopOpacity="0.16" />
-            <stop offset="100%" stopColor="#3478FF" stopOpacity="0" />
+            <stop offset="0%" stopColor="#10B981" stopOpacity="0.16" />
+            <stop offset="100%" stopColor="#10B981" stopOpacity="0" />
           </radialGradient>
         </defs>
         {tiles}
         {world.paths.map((p) => {
           const c = toScreen(p.gx + 0.5, p.gy + 0.5, ORIGIN)
-          return <polygon key={`path${p.gx}-${p.gy}`} points={tilePoints(c)} fill="#243456" stroke="#33477a" strokeWidth="1" />
+          return <polygon key={`path${p.gx}-${p.gy}`} points={tilePoints(c)} fill="#14332b" stroke="#245043" strokeWidth="1" />
         })}
         <ellipse cx="380" cy="232" rx="300" ry="150" fill="url(#groundGlow)" />
         {items.map((it) => it.node)}
       </svg>
       <div className="flex flex-wrap items-center gap-3 px-3 pb-3 text-[10px] text-muted">
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#3478FF]" /> HQ</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#10B981]" /> HQ</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#16A879]" /> Data</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#8B5CF6]" /> Labs</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#F5C451]" /> Tower</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#F59E0B]" /> Locked plot</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#14B8A6]" /> Labs</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#D4AF65]" /> Tower</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#E0A93B]" /> Locked plot</span>
         <span className="ml-auto">PREVIEW — tap a building to inspect. No purchases or production logic.</span>
       </div>
     </div>

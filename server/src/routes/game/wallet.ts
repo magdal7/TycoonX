@@ -9,6 +9,7 @@ import {
 } from '../../services/purchases'
 import { getWalletSummary, getWalletTransactions } from '../../services/wallet'
 import { isPaymentsEnabled } from '../../lib/payments'
+import { canCreateDeposit } from '../../lib/paymentAccess'
 import { depositCreateSchema, purchaseCreateSchema } from '../../validation/game'
 
 function sendError(res: Response, error: unknown) {
@@ -50,6 +51,7 @@ export function createGameWalletRouter(db: PrismaClient): Router {
   router.post('/deposits', async (req: AuthRequest, res: Response) => {
     const parsed = depositCreateSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors })
+    if (!canCreateDeposit(req.user!)) return res.status(503).json({ error: 'payments_disabled' })
     try {
       res.status(201).json({
         deposit: await createDepositIntent(db, req.user!.id, parsed.data.amountUsdt, undefined, {

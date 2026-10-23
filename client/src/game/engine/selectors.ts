@@ -58,7 +58,7 @@ export function describeSelection(world: WorldState, selected: Selected): Select
     nextUpgrade: null,
     footprint: `${p.footprint.w} × ${p.footprint.h}`,
     status: p.status === 'locked' ? 'Locked' : 'Available (preview)',
-    accent: p.status === 'locked' ? '#F59E0B' : '#3478FF',
+    accent: p.status === 'locked' ? '#E0A93B' : '#10B981',
     actionLabel: 'Build facility',
     upgrading: false
   }

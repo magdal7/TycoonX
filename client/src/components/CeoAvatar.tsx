@@ -2,23 +2,23 @@ import type { ReactNode } from 'react'
 import { rarityStyle } from '../lib/ceos'
 
 const SKINS = ['#f1c9a5', '#e0ac82', '#c68642', '#8d5524', '#ffd9b3', '#a9744f']
-const HAIR = ['#2b2b2b', '#5a3a22', '#111827', '#6b7280', '#3b2f2f', '#4b5563']
-const SUITS = ['#1f2a44', '#22304f', '#2a2440', '#203a3a', '#2b2b3a']
+const HAIR = ['#2b2b2b', '#5a3a22', '#0d1f1b', '#6b7280', '#3b2f2f', '#4b5563']
+const SUITS = ['#0f2f27', '#12332b', '#0b2a33', '#1a2e2a', '#152b26']
 
 export const RARITY_FRAME: Record<string, string> = {
-  Common: 'border-white/15',
+  Common: 'border-line',
   Rare: 'border-primary/50',
   Epic: 'border-accent/55',
-  Legendary: 'border-amber-500/55',
-  Mythic: 'border-rose-500/55'
+  Legendary: 'border-gold/60',
+  Mythic: 'border-gold'
 }
 
 export const RARITY_GLOW: Record<string, string> = {
   Common: '',
-  Rare: 'shadow-[0_0_22px_-10px_rgba(59,130,246,0.6)]',
-  Epic: 'shadow-[0_0_24px_-8px_rgba(139,92,246,0.6)]',
-  Legendary: 'shadow-[0_0_24px_-6px_rgba(245,158,11,0.6)]',
-  Mythic: 'shadow-[0_0_28px_-6px_rgba(244,63,94,0.65)]'
+  Rare: 'shadow-[0_0_22px_-10px_rgba(16,185,129,0.55)]',
+  Epic: 'shadow-[0_0_24px_-8px_rgba(20,184,166,0.55)]',
+  Legendary: 'shadow-[0_0_24px_-6px_rgba(212,175,101,0.60)]',
+  Mythic: 'shadow-[0_0_30px_-6px_rgba(16,185,129,0.70)]'
 }
 
 function hashSlug(str: string): number {
@@ -94,9 +94,9 @@ export function CeoAvatar({
         <circle cx="82" cy="60" r="4.5" fill={skin} />
         <circle cx="60" cy="56" r="22" fill={skin} />
         <path d="M37,52 C37,30 83,30 83,52 C79,40 72,37 60,37 C48,37 41,40 37,52 Z" fill={hair} />
-        <circle cx="51" cy="57" r="2.4" fill="#0b1020" />
-        <circle cx="69" cy="57" r="2.4" fill="#0b1020" />
-        <path d="M53,66 Q60,70 67,66" fill="none" stroke="#0b1020" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
+        <circle cx="51" cy="57" r="2.4" fill="#06201a" />
+        <circle cx="69" cy="57" r="2.4" fill="#06201a" />
+        <path d="M53,66 Q60,70 67,66" fill="none" stroke="#06201a" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
         {accessory}
       </svg>
     </div>
