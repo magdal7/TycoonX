@@ -59,3 +59,61 @@ Migrating to Workers is an HTTP-layer rewrite, not a configuration change.
 - `npm run build --workspace=server` (tsc typecheck, no emit)
 - `npm test --workspace=server` (unit)
 - `npm run build --prefix client` (tsc + vite build; emits `dist/` with `_redirects`/`_headers`)
+
+## Release automation (prepared; not yet enabled end-to-end)
+
+### CI (active)
+`.github/workflows/ci.yml` runs on push/PR: install, `prisma generate`, server unit tests, server build,
+client build, `prisma validate`. It never deploys and never enables a financial flag.
+
+### Guarded production migrations (manual)
+- `neon-migration-withdrawal-wallet.yml` — applies the single additive migration
+  `20261023000000_v25_withdrawal_wallet` (production is on 12 rows; 13 after).
+- `neon-migration-execute-steps.yml`, `neon-migration-ceo-purchase-source.yml` — earlier V2.5 migrations.
+- Every workflow requires a typed confirmation token, verifies the Neon branch/project identity, freezes
+  migration checksums, scans SQL for transaction-unsafe statements, asserts the three financial gates are
+  env-driven/fail-closed, applies in one transaction, records history only after the effect is verified,
+  and re-verifies the full history/checksums.
+- **Never** run `prisma db push`, reset, or `prisma migrate deploy` against production.
+
+### Production deploy (manual, environment-protected)
+`.github/workflows/deploy-production.yml` SSHes to the VPS, fast-forwards `master` (no reset/force),
+installs deps, regenerates the Prisma client, builds server + client, restarts `tycoonx.service`, and runs
+public smoke tests. It does **not** run on push and does **not** apply migrations. Requires the GitHub
+Environment `production` with required reviewers.
+
+### Required GitHub secrets (names only — set in GitHub, never in chat/source)
+- `DIRECT` — production Neon direct connection string (used by the migration workflows).
+- `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` — deploy target (SSH private key).
+- Optional: `VPS_PORT`, `VPS_KNOWN_HOSTS` (else `ssh-keyscan`).
+- GitHub Environment `production` protection/approvers.
+
+### Deploy sequence
+1. Confirm CI is green on the intended `master` commit.
+2. If migrations are pending: create/verify a Neon recovery checkpoint, then dispatch the matching guarded
+   migration workflow with its exact confirmation token; verify the new columns and the 13-row history.
+3. Dispatch **Deploy Production** with `DEPLOY-TYCOONX-PRODUCTION` (optionally `expected_sha`) after
+   environment approval.
+4. Run smoke tests (below). Confirm `PAYMENTS_ENABLED`/`PAYOUTS_ENABLED`/`REFERRAL_REWARDS_ENABLED` are
+   unset or `false`.
+
+### Smoke tests
+- `GET https://api.tycoonx.top/api/health` → `{"status":"ok"}` (DB connected).
+- `GET https://api.tycoonx.top/api/auth/me` → **401** (unauthenticated is expected).
+- `GET https://tycoonx.top/` → **200**.
+- Optional login with an operator-provided safe test account → 200. Do not use real user credentials here.
+
+### Rollback
+- **App:** redeploy the previous known-good commit via **Deploy Production** with its `expected_sha`
+  (fast-forward only). If the VPS tree has diverged, an operator performs a controlled checkout of the
+  known-good SHA, rebuilds, and restarts — never `git reset --hard` on the deploy path.
+- **Database:** migrations are additive-only with no automated down-migration. Recovery uses the Neon
+  recovery branch / point-in-time workflows (`neon-recovery-*.yml`) with operator approval. Do not drop
+  columns without explicit owner review.
+
+### Current status (this task)
+- GitHub `master` pushed through `d778cf7`.
+- Production DB: 12 migrations; `20261023000000_v25_withdrawal_wallet` pending (workflow prepared).
+- Migration dispatch and VPS deploy were **not executed from this environment** (no `gh` CLI; no VPS SSH
+  credentials). Operator action required.
+

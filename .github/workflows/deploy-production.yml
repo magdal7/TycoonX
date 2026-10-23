@@ -1,0 +1,139 @@
+name: Deploy Production (manual, environment-protected)
+
+# Manually triggered ONLY, and gated by the GitHub Environment "production"
+# (configure required reviewers on that environment before first use). This
+# workflow does NOT run on push/PR and does NOT enable any financial feature.
+#
+# Prerequisites before first run (all manual, verified by the operator):
+#   * GitHub Environment "production" exists with required reviewers.
+#   * Repository/environment secrets are configured (names below); values are
+#     never entered in chat or committed.
+#   * The required database migration has already been applied and VERIFIED via
+#     the guarded migration workflow (neon-migration-*.yml). This deploy workflow
+#     never applies migrations.
+#   * A rollback target (previous known-good commit) is recorded.
+#
+# Deploy model: SSH to the VPS, fast-forward the working tree to origin/master
+# (no reset, no force), install deps, regenerate the Prisma client, build server
+# and client with the repository scripts, restart tycoonx.service, then smoke
+# test. /opt/tycoonx/server/.env and all production secrets are preserved.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DEPLOY-TYCOONX-PRODUCTION to confirm a production deploy'
+        required: true
+        type: string
+      expected_sha:
+        description: 'Optional: the exact 40-char commit SHA to deploy (blank = current origin/master)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy master to VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      DEPLOY_PATH: /opt/tycoonx
+      SERVICE: tycoonx.service
+    steps:
+      - name: Confirm intent (required token)
+        env:
+          CONFIRM_INPUT: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRM_INPUT" != "DEPLOY-TYCOONX-PRODUCTION" ]; then
+            echo "::error title=Confirmation failed::confirmation input did not match. No action taken."
+            exit 1
+          fi
+
+      - name: Preflight — required secrets present (names only)
+        run: |
+          set -euo pipefail
+          missing=0
+          for v in VPS_HOST VPS_USER VPS_SSH_KEY; do
+            if [ -z "${!v:-}" ]; then echo "::error title=Missing secret::$v is not configured"; missing=1; fi
+          done
+          [ "$missing" = "0" ] || exit 1
+          echo "- required secrets present (names verified; values never printed)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Configure SSH
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          if [ -n "${VPS_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "${VPS_PORT:-22}" "$VPS_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Remote fast-forward deploy and build
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          SSH="ssh -i ~/.ssh/id_deploy -p ${VPS_PORT:-22} -o BatchMode=yes -o StrictHostKeyChecking=yes ${VPS_USER}@${VPS_HOST}"
+          $SSH "EXPECTED_SHA='${EXPECTED_SHA}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd /opt/tycoonx
+          test -f server/.env || { echo "server/.env missing; refusing to deploy"; exit 1; }
+          git fetch origin master
+          git checkout master
+          git merge --ff-only origin/master
+          if [ -n "${EXPECTED_SHA:-}" ]; then
+            test "$(git rev-parse HEAD)" = "$EXPECTED_SHA" || { echo "HEAD != expected SHA; aborting"; exit 1; }
+          fi
+          echo "deployed commit: $(git rev-parse HEAD)"
+          npm ci --no-audit --no-fund
+          npm run prisma:generate --workspace=server
+          npm run build --workspace=server
+          npm run build --prefix client
+          sudo systemctl restart tycoonx.service
+          sleep 3
+          systemctl is-active --quiet tycoonx.service
+          echo "tycoonx.service active"
+          REMOTE
+
+      - name: Smoke tests (public)
+        run: |
+          set -euo pipefail
+          echo "### Smoke tests" >> "$GITHUB_STEP_SUMMARY"
+          health="$(curl -fsS --max-time 15 https://api.tycoonx.top/api/health)"
+          echo "- /api/health: $health" >> "$GITHUB_STEP_SUMMARY"
+          echo "$health" | grep -q '"status":"ok"' || { echo "::error title=Smoke::health not ok"; exit 1; }
+          me_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://api.tycoonx.top/api/auth/me)"
+          echo "- /api/auth/me (unauthenticated) HTTP $me_code (expect 401)" >> "$GITHUB_STEP_SUMMARY"
+          [ "$me_code" = "401" ] || { echo "::error title=Smoke::/api/auth/me did not return 401"; exit 1; }
+          site_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://tycoonx.top/)"
+          echo "- https://tycoonx.top/ HTTP $site_code (expect 200)" >> "$GITHUB_STEP_SUMMARY"
+          [ "$site_code" = "200" ] || { echo "::error title=Smoke::site did not return 200"; exit 1; }
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo ""
+            echo "---"
+            echo "Manual production deploy to /opt/tycoonx. Fast-forward only; no reset/force; server/.env preserved."
+            echo "Database migrations are NOT applied here — use the guarded neon-migration-*.yml workflow and verify first."
+            echo "Financial gates are not modified by this workflow and remain fail-closed unless independently approved and enabled."
+            echo "Rollback: redeploy the previous known-good commit via this workflow's expected_sha input (see docs/DEPLOYMENT.md)."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -149,18 +149,26 @@ jobs:
           fi
           echo "- migration is transaction-safe (no BEGIN/COMMIT/CONCURRENTLY)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Assert payouts and referral rewards stay disabled
+      - name: Assert financial gates are env-driven and fail-closed
         run: |
           set -euo pipefail
-          if ! grep -Rq 'export const PAYOUTS_ENABLED = false' server/src; then
-            echo "::error title=Payout gate::PAYOUTS_ENABLED is not the approved disabled constant"
+          if ! grep -Rq "env.PAYMENTS_ENABLED === 'true'" server/src; then
+            echo "::error title=Payments gate::PAYMENTS_ENABLED must be env-driven and default disabled"
             exit 1
           fi
-          if ! grep -Rq 'export const REFERRAL_REWARDS_ENABLED = false' server/src; then
-            echo "::error title=Rewards gate::REFERRAL_REWARDS_ENABLED is not the approved disabled constant"
+          if ! grep -Rq "env.PAYOUTS_ENABLED === 'true'" server/src; then
+            echo "::error title=Payout gate::PAYOUTS_ENABLED must be env-driven and default disabled"
             exit 1
           fi
-          echo "- payouts and referral rewards remain disabled (code constants verified)" >> "$GITHUB_STEP_SUMMARY"
+          if ! grep -Rq "env.REFERRAL_REWARDS_ENABLED === 'true'" server/src; then
+            echo "::error title=Rewards gate::REFERRAL_REWARDS_ENABLED must be env-driven and default disabled"
+            exit 1
+          fi
+          if grep -RqE 'export const (PAYMENTS_ENABLED|PAYOUTS_ENABLED|REFERRAL_REWARDS_ENABLED) = true' server/src; then
+            echo "::error title=Gate hardcoded::a financial gate is hardcoded enabled"
+            exit 1
+          fi
+          echo "- all three financial gates are env-driven and fail-closed (only exact \"true\" enables)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Pre-migration read-only checks
         env:
