@@ -87,7 +87,7 @@ function MarketCard({ ceo }: { ceo: Ceo }) {
         </p>
 
         {notice && <p className="mb-2 text-[10px] text-amber-300">{notice}</p>}
-        <Button variant="outline" size="sm" className="mt-auto w-full" isLoading={busy} disabled={ceo.priceUsd <= 0} onClick={buy}>
+        <Button variant="primary" size="sm" className="mt-auto w-full" isLoading={busy} disabled={ceo.priceUsd <= 0} onClick={buy}>
           <ShoppingCart className="h-3.5 w-3.5 mr-2" /> {ceo.priceUsd <= 0 ? 'Included free' : 'Buy with SP'}
         </Button>
       </div>

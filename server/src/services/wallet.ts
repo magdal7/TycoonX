@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { getSpBalances } from './spLedger'
-import { PAYMENTS_ENABLED, spToUsdtString, usdtToSp } from '../lib/payments'
+import { isPaymentsEnabled, isPayoutsEnabled, spToUsdtString, usdtToSp } from '../lib/payments'
 
 const PENDING_WITHDRAWAL = ['REQUESTED', 'ON_HOLD', 'APPROVED'] as const
 
@@ -39,8 +39,8 @@ export async function getWalletSummary(db: PrismaClient, userId: number) {
       paidOut: paidOutUsdt,
     },
     pendingWithdrawalSp: (pendingAgg._sum.grossSp ?? 0n).toString(),
-    paymentsEnabled: PAYMENTS_ENABLED,
-    payoutsEnabled: false,
+    paymentsEnabled: isPaymentsEnabled(),
+    payoutsEnabled: isPayoutsEnabled(),
   }
 }
 

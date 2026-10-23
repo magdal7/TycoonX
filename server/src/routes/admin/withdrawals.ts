@@ -2,10 +2,13 @@ import { Router, Response } from 'express'
 import type { PrismaClient } from '@prisma/client'
 import { AuthRequest, requireAdmin, requireAuth } from '../../middleware/auth'
 import {
+  executeWithdrawalPayout,
+  reconcileWithdrawalPayout,
   reviewWithdrawal,
   WithdrawalError,
   type WithdrawalErrorCode,
 } from '../../services/withdrawals'
+import { isPayoutsEnabled } from '../../lib/payments'
 import { idParamSchema, withdrawalReviewSchema } from '../../validation/game'
 
 const STATUS: Record<WithdrawalErrorCode, number> = {
@@ -14,6 +17,12 @@ const STATUS: Record<WithdrawalErrorCode, number> = {
   pending_exists: 409,
   not_found: 404,
   invalid_state: 409,
+  cooldown: 409,
+  payouts_disabled: 503,
+  not_submitted: 409,
+  wallet_hold: 409,
+  wallet_pending: 409,
+  wallet_mismatch: 422,
 }
 
 /** Admin withdrawal review queue. Approving never triggers a real payout. */
@@ -45,7 +54,7 @@ export function createAdminWithdrawalRouter(db: PrismaClient): Router {
         reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
         createdAt: r.createdAt.toISOString(),
       })),
-      payoutsEnabled: false,
+      payoutsEnabled: isPayoutsEnabled(),
     })
   })
 
@@ -62,12 +71,44 @@ export function createAdminWithdrawalRouter(db: PrismaClient): Router {
         body.data.decision,
         body.data.note,
       )
-      res.json({ withdrawal, payoutsEnabled: false })
+      res.json({ withdrawal, payoutsEnabled: isPayoutsEnabled() })
     } catch (error) {
       if (error instanceof WithdrawalError) {
         return res.status(STATUS[error.code]).json({ error: error.code })
       }
       throw error
+    }
+  })
+
+  // Submit an APPROVED withdrawal to the provider (requires PAYOUTS_ENABLED).
+  router.post('/withdrawals/:id/payout', async (req: AuthRequest, res: Response) => {
+    const params = idParamSchema.safeParse(req.params)
+    if (!params.success) return res.status(400).json({ error: 'invalid id' })
+    try {
+      const submission = await executeWithdrawalPayout(db, params.data.id)
+      res.json({ submission, payoutsEnabled: isPayoutsEnabled() })
+    } catch (error) {
+      if (error instanceof WithdrawalError) {
+        return res.status(STATUS[error.code]).json({ error: error.code })
+      }
+      console.error('[admin/withdrawals] payout error')
+      return res.status(502).json({ error: 'provider_error' })
+    }
+  })
+
+  // Independently reconcile a submitted payout against the provider lookup.
+  router.post('/withdrawals/:id/reconcile', async (req: AuthRequest, res: Response) => {
+    const params = idParamSchema.safeParse(req.params)
+    if (!params.success) return res.status(400).json({ error: 'invalid id' })
+    try {
+      const result = await reconcileWithdrawalPayout(db, params.data.id)
+      res.json({ result, payoutsEnabled: isPayoutsEnabled() })
+    } catch (error) {
+      if (error instanceof WithdrawalError) {
+        return res.status(STATUS[error.code]).json({ error: error.code })
+      }
+      console.error('[admin/withdrawals] reconcile error')
+      return res.status(502).json({ error: 'provider_error' })
     }
   })
 

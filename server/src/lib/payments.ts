@@ -9,17 +9,33 @@ export type PaymentIntentStatusName =
 export type PurchaseStatusName = 'PENDING' | 'PAID' | 'DELIVERED' | 'FAILED' | 'REFUNDED'
 
 /**
- * Master payments flag. Deposits are ACTIVATED: authenticated users may create
- * OxaPay invoices and spend the resulting Bonus SP on CEO purchases. The
- * settlement rules remain fail-closed. This constant is authoritative.
+ * Master payments gate. Server-side environment switch read on every call so
+ * the decision is never stale. Fail-closed: only the exact value "true"
+ * enables deposits, CEO purchases and webhook settlement. Settlement rules
+ * remain fail-closed. Payouts/rewards stay disabled independently below.
  */
-export const PAYMENTS_ENABLED = true
+export function isPaymentsEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env.PAYMENTS_ENABLED === 'true'
+}
+
+/** Module-load snapshot of the gate, for display. Enforcement uses `isPaymentsEnabled()`. */
+export const PAYMENTS_ENABLED = isPaymentsEnabled()
 
 /**
- * Master payouts flag. Withdrawal payout execution stays disabled independently
- * of deposits. This constant is authoritative.
+ * Master payouts gate. Independent of deposits. Server-side environment switch
+ * read on every call. Fail-closed: only the exact value "true" enables real
+ * withdrawal payout execution.
  */
-export const PAYOUTS_ENABLED = false
+export function isPayoutsEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env.PAYOUTS_ENABLED === 'true'
+}
+
+/** Module-load snapshot of the payout gate, for display. Enforcement uses `isPayoutsEnabled()`. */
+export const PAYOUTS_ENABLED = isPayoutsEnabled()
 
 /** Owner-confirmed accounting conversion (Master Spec §0): 1 USDT = 1,000 SP. */
 export const USDT_TO_SP = 1000n

@@ -22,7 +22,7 @@ export function Card({
   }
   return (
     <div
-      className={`rounded-xl ${border ? 'border border-gray-800' : ''} bg-bg/60 backdrop-blur-sm hover:bg-gray-900/30 ${hover ? 'transition-colors' : ''} ${paddingClasses[padding]} ${className}`}
+      className={`rounded-2xl ${border ? 'border border-line' : ''} bg-surface/60 backdrop-blur-sm ${hover ? 'transition-colors hover:border-primary/40 hover:bg-surface/80' : ''} ${paddingClasses[padding]} ${className}`}
       {...props}
     >
       {children}

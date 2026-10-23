@@ -7,6 +7,7 @@ import {
   commissionSp,
   evaluateQualification,
   isNonEarningPurchaseStatus,
+  isReferralRewardsEnabled,
   isReversalPurchaseStatus,
 } from './referralRules'
 
@@ -23,6 +24,15 @@ test('referral rewards remain disabled and amounts are the owner-confirmed value
   assert.equal(REFERRAL_REWARDS_ENABLED, false)
   assert.equal(REFERRAL_REGISTRATION_BONUS_SP, 10n)
   assert.equal(REFERRAL_COMMISSION_BPS, 1000)
+})
+
+test('referral rewards are independently gated and disabled by default', () => {
+  assert.equal(isReferralRewardsEnabled({}), false)
+  assert.equal(isReferralRewardsEnabled({ REFERRAL_REWARDS_ENABLED: 'true' }), true)
+  assert.equal(isReferralRewardsEnabled({ PAYMENTS_ENABLED: 'true' }), false)
+  assert.equal(isReferralRewardsEnabled({ REFERRAL_REWARDS_ENABLED: 'TRUE' }), false)
+  assert.equal(isReferralRewardsEnabled({ REFERRAL_REWARDS_ENABLED: ' true ' }), false)
+  assert.equal(isReferralRewardsEnabled({ REFERRAL_REWARDS_ENABLED: '1' }), false)
 })
 
 test('commission floors to whole units and ignores non-positive input', () => {

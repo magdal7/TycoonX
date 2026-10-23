@@ -8,20 +8,26 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: '#0B1020',
-        surface: '#111A33',
-        'surface-2': '#0E1730',
-        line: '#1F2B4A',
-        primary: '#3B82F6',
-        accent: '#8B5CF6',
-        success: '#22C55E',
-        warning: '#F59E0B',
-        danger: '#EF4444',
-        gold: '#F5C451',
-        muted: '#94A3B8'
+        bg: 'rgb(var(--c-bg) / <alpha-value>)',
+        surface: 'rgb(var(--c-surface) / <alpha-value>)',
+        'surface-2': 'rgb(var(--c-surface-2) / <alpha-value>)',
+        line: 'rgb(var(--c-line) / <alpha-value>)',
+        primary: 'rgb(var(--c-primary) / <alpha-value>)',
+        accent: 'rgb(var(--c-accent) / <alpha-value>)',
+        success: 'rgb(var(--c-success) / <alpha-value>)',
+        warning: 'rgb(var(--c-warning) / <alpha-value>)',
+        danger: 'rgb(var(--c-danger) / <alpha-value>)',
+        gold: 'rgb(var(--c-gold) / <alpha-value>)',
+        muted: 'rgb(var(--c-muted) / <alpha-value>)',
+        ink: 'rgb(var(--c-ink) / <alpha-value>)'
+      },
+      fontFamily: {
+        sans: ['"Plus Jakarta Sans"', 'Inter', 'system-ui', 'sans-serif'],
+        display: ['"Plus Jakarta Sans"', 'Inter', 'system-ui', 'sans-serif']
       },
       boxShadow: {
-        glow: '0 0 44px -14px rgba(59,130,246,0.55)',
+        glow: '0 0 44px -14px rgb(var(--c-primary) / 0.5)',
+        gold: '0 0 34px -16px rgb(var(--c-gold) / 0.55)',
         card: '0 18px 40px -24px rgba(0,0,0,0.85)'
       },
       keyframes: {

@@ -146,11 +146,11 @@ jobs:
           done
           echo "- the five pending migrations are transaction-safe (no BEGIN/COMMIT/CONCURRENTLY)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Assert payment activation and payout/reward gating
+      - name: Assert payments env gate and payout/reward restrictions
         run: |
           set -euo pipefail
-          if ! grep -Rq 'export const PAYMENTS_ENABLED = true' server/src; then
-            echo "::error title=Payments gate::PAYMENTS_ENABLED is not the approved enabled constant"
+          if ! grep -Rq 'export function isPaymentsEnabled' server/src; then
+            echo "::error title=Payments gate::PAYMENTS_ENABLED must be env-driven and default disabled"
             exit 1
           fi
           if ! grep -Rq 'export const PAYOUTS_ENABLED = false' server/src; then
@@ -161,7 +161,7 @@ jobs:
             echo "::error title=Rewards gate::REFERRAL_REWARDS_ENABLED is not the approved disabled constant"
             exit 1
           fi
-          echo "- deposits enabled, payouts/rewards remain disabled (code constants verified)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- payments are env-gated (default disabled); payouts/rewards remain disabled (code constants verified)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Pre-migration read-only checks
         run: |

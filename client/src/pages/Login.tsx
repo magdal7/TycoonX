@@ -27,7 +27,7 @@ export default function Login({ navigate }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-bg text-white font-sans px-4 py-6 pb-[calc(env(safe-area-inset-bottom)_+_2rem)]">
+    <div className="min-h-screen bg-bg text-ink font-sans px-4 py-6 pb-[calc(env(safe-area-inset-bottom)_+_2rem)]">
       <a
         href="/"
         onClick={(e) => { e.preventDefault(); navigate('/') }}
@@ -41,23 +41,23 @@ export default function Login({ navigate }: Props) {
         <div className="text-center mb-8">
           <LogoMark size={48} className="mx-auto mb-4" />
           <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
-          <p className="text-gray-400 text-sm mt-2">Sign in to your TycoonX empire</p>
+          <p className="text-muted text-sm mt-2">Sign in to your TycoonX empire</p>
         </div>
 
-        <Card padding="lg" hover={false} className="border border-gray-800/50">
+        <Card padding="lg" hover={false} className="border border-line">
           <form onSubmit={onSubmit} className="space-y-5">
             <div>
               <div className="flex items-center gap-2">
-                <Mail className="h-5 w-5 text-gray-500" />
-                <label className="text-sm font-medium text-gray-300">Email address</label>
+                <Mail className="h-5 w-5 text-muted" />
+                <label className="text-sm font-medium text-ink">Email address</label>
               </div>
               <Input name="email" type="email" required autoComplete="email" className="mt-1" />
             </div>
 
             <div>
               <div className="flex items-center gap-2">
-                <Lock className="h-5 w-5 text-gray-500" />
-                <label className="text-sm font-medium text-gray-300">Password</label>
+                <Lock className="h-5 w-5 text-muted" />
+                <label className="text-sm font-medium text-ink">Password</label>
               </div>
               <Input name="password" type="password" required minLength={8} autoComplete="current-password" showPasswordToggle className="mt-1" />
             </div>
@@ -75,8 +75,8 @@ export default function Login({ navigate }: Props) {
             </Button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-gray-800/50">
-            <p className="text-center text-sm text-gray-400 mb-4">Don&apos;t have an account?</p>
+          <div className="mt-6 pt-6 border-t border-line">
+            <p className="text-center text-sm text-muted mb-4">Don&apos;t have an account?</p>
             <a
               href="/register"
               onClick={(e) => { e.preventDefault(); navigate('/register') }}
@@ -87,13 +87,13 @@ export default function Login({ navigate }: Props) {
           </div>
 
           <div className="mt-4">
-            <p className="text-[10px] text-gray-500 text-center">Free to play · Production is a game mechanic</p>
+            <p className="text-[10px] text-muted text-center">Free to play · Production is a game mechanic</p>
           </div>
         </Card>
       </div>
 
       <div className="fixed bottom-[calc(env(safe-area-inset-bottom)_+_1rem)] left-4 right-4 text-center pointer-events-none">
-        <p className="text-[10px] text-gray-400">TycoonX &bull; Premium UI Preview</p>
+        <p className="text-[10px] text-muted">TycoonX &bull; Premium UI Preview</p>
       </div>
     </div>
   )

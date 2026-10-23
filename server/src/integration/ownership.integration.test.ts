@@ -11,6 +11,8 @@ import { startProduction, collectProduction, ProductionError } from '../services
 import { buildReconciliationInput, confirmDepositIntent, createDepositInvoice, processWebhook } from '../services/payments'
 import type { OxapayConfig, OxapayFetch, OxapayFetchResponse } from '../services/oxapay'
 
+process.env.PAYMENTS_ENABLED = 'true'
+
 /**
  * PostgreSQL integration tests for starter provisioning.
  *

@@ -119,7 +119,7 @@ export default function Policy({ kind, navigate }: { kind: PolicyKind; navigate:
   const sections = kind === 'terms' ? TERMS : PRIVACY
 
   return (
-    <div className="min-h-screen bg-bg text-white font-sans">
+    <div className="min-h-screen bg-bg text-ink font-sans">
       <div className="mx-auto w-full max-w-2xl px-4 py-6 pb-[calc(env(safe-area-inset-bottom)_+_3rem)] md:px-6 md:py-10">
         <a
           href="/"
@@ -136,28 +136,28 @@ export default function Policy({ kind, navigate }: { kind: PolicyKind; navigate:
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">{meta.title}</h1>
-            <p className="text-xs text-gray-400">Version {meta.version} · Effective {meta.effective}</p>
+            <p className="text-xs text-muted">Version {meta.version} · Effective {meta.effective}</p>
           </div>
         </div>
 
-        <p className="mt-6 text-sm text-gray-400">
+        <p className="mt-6 text-sm text-muted">
           TycoonX is a game. This summary explains how the service works and how we handle your data. It is not legal advice.
         </p>
 
         <div className="mt-8 space-y-7">
           {sections.map((section) => (
             <section key={section.heading}>
-              <h2 className="text-base font-semibold text-white">{section.heading}</h2>
+              <h2 className="text-base font-semibold text-ink">{section.heading}</h2>
               <div className="mt-2 space-y-2">
                 {section.paragraphs.map((p, i) => (
-                  <p key={i} className="text-sm leading-relaxed text-gray-400">{p}</p>
+                  <p key={i} className="text-sm leading-relaxed text-muted">{p}</p>
                 ))}
               </div>
             </section>
           ))}
         </div>
 
-        <div className="mt-10 flex flex-wrap gap-4 border-t border-gray-800/60 pt-6 text-sm">
+        <div className="mt-10 flex flex-wrap gap-4 border-t border-line pt-6 text-sm">
           <a
             href={kind === 'terms' ? '/privacy' : '/terms'}
             onClick={(e) => { e.preventDefault(); navigate(kind === 'terms' ? '/privacy' : '/terms') }}
@@ -167,7 +167,7 @@ export default function Policy({ kind, navigate }: { kind: PolicyKind; navigate:
           </a>
         </div>
 
-        <p className="mt-8 text-[10px] text-gray-500">© {new Date().getFullYear()} TycoonX. A game — not a financial product.</p>
+        <p className="mt-8 text-[10px] text-muted">© {new Date().getFullYear()} TycoonX. A game — not a financial product.</p>
       </div>
     </div>
   )

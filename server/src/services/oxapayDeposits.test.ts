@@ -14,6 +14,8 @@ import { OxapayError, type OxapayConfig, type OxapayFetch, type OxapayFetchRespo
 import { computeHmacSha512, evaluateDepositSettlement, verifyHmacSha512 } from '../lib/oxapay'
 import { oxapayCallbackSchema } from '../validation/game'
 
+process.env.PAYMENTS_ENABLED = 'true'
+
 function uniqueViolation(): never {
   const err = new Error('unique violation') as Error & { code?: string }
   err.code = 'P2002'

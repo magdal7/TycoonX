@@ -2,6 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   PAYMENTS_ENABLED,
+  PAYOUTS_ENABLED,
+  isPaymentsEnabled,
+  isPayoutsEnabled,
   isValidUsdtAmount,
   nextIntentStatus,
   nextPurchaseStatus,
@@ -9,8 +12,30 @@ import {
   usdtToSp,
 } from './payments'
 
-test('payments are enabled (deposits activated)', () => {
-  assert.equal(PAYMENTS_ENABLED, true)
+test('payments are disabled by default (env gate off)', () => {
+  assert.equal(PAYMENTS_ENABLED, false)
+  assert.equal(isPaymentsEnabled({}), false)
+})
+
+test('only the exact env value "true" enables payments', () => {
+  assert.equal(isPaymentsEnabled({ PAYMENTS_ENABLED: 'true' }), true)
+  assert.equal(isPaymentsEnabled({ PAYMENTS_ENABLED: 'TRUE' }), false)
+  assert.equal(isPaymentsEnabled({ PAYMENTS_ENABLED: 'True' }), false)
+  assert.equal(isPaymentsEnabled({ PAYMENTS_ENABLED: '1' }), false)
+  assert.equal(isPaymentsEnabled({ PAYMENTS_ENABLED: ' true ' }), false)
+  assert.equal(isPaymentsEnabled({ PAYMENTS_ENABLED: 'false' }), false)
+  assert.equal(isPaymentsEnabled({ PAYMENTS_ENABLED: '' }), false)
+  assert.equal(isPaymentsEnabled({ PAYMENTS_ENABLED: undefined }), false)
+})
+
+test('payouts are independently gated and disabled by default', () => {
+  assert.equal(PAYOUTS_ENABLED, false)
+  assert.equal(isPayoutsEnabled({}), false)
+  assert.equal(isPayoutsEnabled({ PAYOUTS_ENABLED: 'true' }), true)
+  assert.equal(isPayoutsEnabled({ PAYMENTS_ENABLED: 'true' }), false)
+  assert.equal(isPayoutsEnabled({ PAYOUTS_ENABLED: 'TRUE' }), false)
+  assert.equal(isPayoutsEnabled({ PAYOUTS_ENABLED: ' true ' }), false)
+  assert.equal(isPayoutsEnabled({ PAYOUTS_ENABLED: '1' }), false)
 })
 
 test('usdt amounts are validated', () => {

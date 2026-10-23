@@ -25,6 +25,8 @@ model User {
   isSuspended Boolean @default(false)
   suspendedAt DateTime?
   suspensionReason String?
+  withdrawalWallet String?
+  withdrawalWalletChangedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

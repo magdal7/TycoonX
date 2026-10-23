@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Coins, Gem, DollarSign, ArrowDownToLine, AlertTriangle, ShieldCheck, RefreshCw, Wallet as WalletIcon, History, X, ShoppingCart } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Coins, Gem, DollarSign, ArrowDownToLine, AlertTriangle, ShieldCheck, RefreshCw, Wallet as WalletIcon, History, X, ShoppingCart, Save } from 'lucide-react'
 import { Card } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -13,7 +13,8 @@ import {
   fetchPurchases,
   fetchWallet,
   fetchWalletTransactions,
-  fetchWithdrawals
+  fetchWithdrawals,
+  saveWithdrawalWallet
 } from '../lib/game'
 import { formatNumber } from '../lib/format'
 
@@ -77,10 +78,34 @@ export default function Wallet() {
   const [invoiceUrl, setInvoiceUrl] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [walletInput, setWalletInput] = useState('')
+  const [walletBusy, setWalletBusy] = useState(false)
+  const [walletNotice, setWalletNotice] = useState('')
 
   const sp = wallet.data?.sp
   const usdt = wallet.data?.usdt
   const earned = Number(sp?.earnedSp ?? 0)
+  const savedWallet = withdrawals.data?.wallet
+
+  useEffect(() => {
+    if (savedWallet?.address) setAddress((a) => a || savedWallet.address!)
+  }, [savedWallet?.address])
+
+  async function submitWallet(e: React.FormEvent) {
+    e.preventDefault()
+    setWalletBusy(true)
+    setWalletNotice('')
+    try {
+      await saveWithdrawalWallet(walletInput.trim())
+      setWalletNotice('Withdrawal wallet saved. New requests are subject to the security hold.')
+      setWalletInput('')
+      reloadAll()
+    } catch (err) {
+      setWalletNotice(err instanceof Error ? err.message : 'Could not save wallet')
+    } finally {
+      setWalletBusy(false)
+    }
+  }
 
   function reloadAll() {
     wallet.reload()
@@ -237,6 +262,44 @@ export default function Wallet() {
         )}
       </Card>
 
+      {/* Withdrawal wallet */}
+      <Card padding="md" className="border-line">
+        <div className="flex items-center gap-2">
+          <WalletIcon className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-bold text-ink">Withdrawal wallet</h3>
+          {savedWallet?.holdActive ? (
+            <Badge variant="warning" className="ml-auto">Security hold</Badge>
+          ) : savedWallet?.address ? (
+            <Badge variant="success" className="ml-auto">Saved</Badge>
+          ) : (
+            <Badge variant="default" className="ml-auto">Not set</Badge>
+          )}
+        </div>
+        <p className="mt-2 text-[11px] text-muted">
+          {savedWallet?.address ? (
+            <>Saved BEP20 address: <span className="font-mono text-ink">{savedWallet.address}</span></>
+          ) : (
+            'Save a USDT BEP20 wallet before requesting a withdrawal. The saved wallet is the only payout destination.'
+          )}
+          {savedWallet?.holdActive && savedWallet.holdUntil
+            ? ` New requests unlock ${new Date(savedWallet.holdUntil).toLocaleString()}.`
+            : ''}
+        </p>
+        <form onSubmit={submitWallet} className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <input
+            value={walletInput}
+            onChange={(e) => setWalletInput(e.target.value)}
+            placeholder="0x… BEP20 wallet address"
+            aria-label="Withdrawal wallet address"
+            className="flex-1 rounded-xl border border-line bg-surface-2/60 px-3 py-2 font-mono text-xs text-ink placeholder-muted outline-none focus:border-primary"
+          />
+          <Button type="submit" size="sm" disabled={walletBusy || !walletInput.trim()} isLoading={walletBusy} iconLeft={<Save className="h-4 w-4" />}>
+            {savedWallet?.address ? 'Change wallet' : 'Save wallet'}
+          </Button>
+        </form>
+        {walletNotice && <p className="mt-2 text-[11px] text-amber-300">{walletNotice}</p>}
+      </Card>
+
       {/* Withdrawal request */}
       <Card padding="md" className="border-line">
         <div className="flex items-center gap-2">
@@ -245,7 +308,9 @@ export default function Wallet() {
         </div>
         <div className="mt-2 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-amber-200">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Withdrawals are disabled for the MVP. Requests are recorded and reviewed, but no crypto is transferred.
+          {withdrawals.data?.payoutsEnabled
+            ? 'Requests are recorded and reviewed. A payout is only marked paid after the provider confirms it on-chain.'
+            : 'Withdrawals are disabled for the MVP. Requests are recorded and reviewed, but no crypto is transferred.'}
         </div>
 
         {pending ? (

@@ -4,7 +4,7 @@ import { AuthRequest, requireAdmin, requireAuth } from '../../middleware/auth'
 import { PaymentError, listPaymentIntentsAdmin, reconcileDepositIntent } from '../../services/payments'
 import { OxapayError, loadOxapayConfig } from '../../services/oxapay'
 import { listPurchasesAdmin } from '../../services/purchases'
-import { PAYMENTS_ENABLED } from '../../lib/payments'
+import { isPaymentsEnabled } from '../../lib/payments'
 import { idParamSchema } from '../../validation/game'
 
 /** Admin view of payments (deposit invoices) and CEO purchases. Payouts disabled. */
@@ -16,7 +16,7 @@ export function createAdminPaymentRouter(db: PrismaClient): Router {
     const status = typeof req.query.status === 'string' ? (req.query.status as never) : undefined
     res.json({
       payments: await listPaymentIntentsAdmin(db, status ? { status } : {}),
-      paymentsEnabled: PAYMENTS_ENABLED,
+      paymentsEnabled: isPaymentsEnabled(),
     })
   })
 
@@ -24,7 +24,7 @@ export function createAdminPaymentRouter(db: PrismaClient): Router {
     const status = typeof req.query.status === 'string' ? (req.query.status as never) : undefined
     res.json({
       purchases: await listPurchasesAdmin(db, status ? { status } : {}),
-      paymentsEnabled: PAYMENTS_ENABLED,
+      paymentsEnabled: isPaymentsEnabled(),
     })
   })
 
@@ -35,7 +35,7 @@ export function createAdminPaymentRouter(db: PrismaClient): Router {
     if (!params.success) return res.status(400).json({ error: 'invalid id' })
     try {
       const result = await reconcileDepositIntent(db, loadOxapayConfig(), params.data.id)
-      res.json({ result, paymentsEnabled: PAYMENTS_ENABLED })
+      res.json({ result, paymentsEnabled: isPaymentsEnabled() })
     } catch (error) {
       if (error instanceof PaymentError) {
         const status = error.code === 'payments_disabled' ? 503 : error.code === 'not_found' ? 404 : 409

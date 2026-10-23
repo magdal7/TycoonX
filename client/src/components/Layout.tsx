@@ -73,7 +73,7 @@ export function Layout({ children }: LayoutProps) {
   const activeLabel = all.find((i) => isActive(currentPath, i.href))?.label ?? 'TycoonX'
 
   return (
-    <div className="flex min-h-screen bg-bg text-white">
+    <div className="theme-emerald flex min-h-screen bg-bg text-ink">
       {/* Sidebar (md+) */}
       <aside
         className={`hidden shrink-0 flex-col border-r border-line bg-surface-2/60 backdrop-blur md:flex ${
@@ -110,7 +110,7 @@ export function Layout({ children }: LayoutProps) {
             type="button"
             onClick={() => setCollapsed((c) => !c)}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs text-muted transition-colors hover:bg-white/5 hover:text-white"
+            className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs text-muted transition-colors hover:bg-white/5 hover:text-ink"
           >
             {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <><PanelLeftClose className="h-4 w-4" /><span>Collapse</span></>}
           </button>
@@ -136,7 +136,7 @@ export function Layout({ children }: LayoutProps) {
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="text-white md:hidden"
+            className="text-ink md:hidden"
             aria-label="Open menu"
           >
             <Menu className="h-6 w-6" />
@@ -144,7 +144,7 @@ export function Layout({ children }: LayoutProps) {
           <div className="flex items-center gap-2 md:hidden">
             <LogoMark size={28} />
           </div>
-          <span className="hidden text-sm font-semibold text-white md:block">{activeLabel}</span>
+          <span className="hidden text-sm font-semibold text-ink md:block">{activeLabel}</span>
 
           <div className="ml-auto flex items-center gap-2">
             <div className="hidden items-center gap-1.5 rounded-full border border-line bg-surface-2/70 px-3 py-1.5 text-xs font-semibold text-gold sm:flex">
@@ -154,7 +154,7 @@ export function Layout({ children }: LayoutProps) {
             </div>
             <Link
               to="/dashboard/profile"
-              className="grid h-9 w-9 place-items-center rounded-full border border-line bg-surface-2/70 text-xs font-bold text-white"
+              className="grid h-9 w-9 place-items-center rounded-full border border-line bg-surface-2/70 text-xs font-bold text-ink"
               title={user?.username ?? 'Profile'}
             >
               {(user?.username ?? 'TX').slice(0, 2).toUpperCase()}
@@ -202,7 +202,7 @@ export function Layout({ children }: LayoutProps) {
           >
             <div className="mb-6 flex items-center justify-between">
               <Logo size={32} />
-              <button type="button" onClick={() => setMobileOpen(false)} className="text-muted hover:text-white" aria-label="Close menu">
+              <button type="button" onClick={() => setMobileOpen(false)} className="text-muted hover:text-ink" aria-label="Close menu">
                 <X className="h-6 w-6" />
               </button>
             </div>
@@ -215,7 +215,7 @@ export function Layout({ children }: LayoutProps) {
                     to={item.href}
                     onClick={() => setMobileOpen(false)}
                     className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors ${
-                      active ? 'bg-primary/15 text-primary' : 'text-muted hover:bg-white/5 hover:text-white'
+                      active ? 'bg-primary/15 text-primary' : 'text-muted hover:bg-white/5 hover:text-ink'
                     }`}
                   >
                     <item.Icon className="h-5 w-5" />
@@ -250,7 +250,7 @@ function SideLink({ item, active, collapsed }: { item: NavItem; active: boolean;
       to={item.href}
       title={item.label}
       className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-        active ? 'bg-gradient-to-r from-primary/20 to-accent/10 text-white' : 'text-muted hover:bg-white/5 hover:text-white'
+        active ? 'bg-gradient-to-r from-primary/25 to-gold/10 text-ink shadow-[inset_2px_0_0_0_rgb(var(--c-gold))]' : 'text-muted hover:bg-white/5 hover:text-ink'
       } ${collapsed ? 'justify-center' : ''}`}
     >
       <item.Icon className="h-5 w-5 shrink-0" />

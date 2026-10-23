@@ -59,6 +59,8 @@ class FakePrisma {
   rewards: RewardRow[] = []
   events: EventRow[] = []
   audits: Array<{ actorId: number; action: string; targetType: string; targetId: string }> = []
+  accounts: Array<{ userId: number; earnedSp: bigint; bonusSp: bigint; lifetimeEarnedSp: bigint; version: number }> = []
+  ledger: Array<{ id: number; userId: number; bucket: string; amountSp: bigint; sourceType: string; sourceId: bigint | null }> = []
   private seq = 1
 
   private username(id: number) {
@@ -203,7 +205,51 @@ class FakePrisma {
     },
   }
 
+  spAccount = {
+    findUniqueOrThrow: async (args: any) => this.accounts.find((a) => a.userId === args?.where?.userId)!,
+    upsert: async (args: any) => {
+      const userId = args.where.userId
+      let row = this.accounts.find((a) => a.userId === userId)
+      if (!row) {
+        row = { userId, earnedSp: args.create.earnedSp ?? 0n, bonusSp: args.create.bonusSp ?? 0n, lifetimeEarnedSp: args.create.lifetimeEarnedSp ?? 0n, version: 0 }
+        this.accounts.push(row)
+      } else {
+        if (args.update.bonusSp?.increment) row.bonusSp += BigInt(args.update.bonusSp.increment)
+        if (args.update.earnedSp?.increment) row.earnedSp += BigInt(args.update.earnedSp.increment)
+        if (args.update.lifetimeEarnedSp?.increment) row.lifetimeEarnedSp += BigInt(args.update.lifetimeEarnedSp.increment)
+      }
+      return row
+    },
+  }
+
+  spLedgerEntry = {
+    create: async (args: any) => {
+      const d = args.data
+      if (d.sourceId != null && this.ledger.some((l) => l.userId === d.userId && l.sourceType === d.sourceType && l.sourceId === d.sourceId && l.bucket === d.bucket)) {
+        const err = new Error('unique violation') as Error & { code?: string }
+        err.code = 'P2002'
+        throw err
+      }
+      const row = { id: this.seq++, userId: d.userId, bucket: d.bucket, amountSp: d.amountSp, sourceType: d.sourceType, sourceId: d.sourceId ?? null }
+      this.ledger.push(row)
+      return row
+    },
+  }
+
   $transaction = async <T>(fn: (tx: FakePrisma) => Promise<T>): Promise<T> => fn(this)
+}
+
+const withRewards = async (fn: () => Promise<void>): Promise<void> => {
+  const saved = process.env.REFERRAL_REWARDS_ENABLED
+  process.env.REFERRAL_REWARDS_ENABLED = 'true'
+  invalidateSiteSettingsCache()
+  try {
+    await fn()
+  } finally {
+    if (saved === undefined) delete process.env.REFERRAL_REWARDS_ENABLED
+    else process.env.REFERRAL_REWARDS_ENABLED = saved
+    invalidateSiteSettingsCache()
+  }
 }
 
 const asClient = (f: FakePrisma): PrismaClient => f as unknown as PrismaClient
@@ -367,6 +413,58 @@ test('purchases for non-qualified referrals do not earn commission', async () =>
   assert.equal(result.ignored, true)
   assert.equal(result.reason, 'not_qualified')
   assert.equal(f.rewards.length, 0)
+})
+
+test('enabling rewards credits the registration bonus exactly once', async () => {
+  await withRewards(async () => {
+    const f = new FakePrisma()
+    seedReferral(f)
+    await reviewReferral(asClient(f), 9, 1, 'QUALIFY', undefined, true)
+
+    assert.equal(f.rewards[0].status, 'PAID')
+    assert.equal(f.accounts.find((a) => a.userId === 1)!.bonusSp, 10n)
+    assert.equal(f.ledger.filter((l) => l.sourceType === 'REFERRAL_REWARD').length, 1)
+
+    await assert.rejects(
+      () => reviewReferral(asClient(f), 9, 1, 'QUALIFY', undefined, true),
+      expectCode('invalid_state'),
+    )
+    assert.equal(f.accounts.find((a) => a.userId === 1)!.bonusSp, 10n)
+    assert.equal(f.ledger.filter((l) => l.sourceType === 'REFERRAL_REWARD').length, 1)
+  })
+})
+
+test('enabling rewards credits a purchase commission exactly once and is replay-safe', async () => {
+  await withRewards(async () => {
+    const f = new FakePrisma()
+    seedReferral(f, 'QUALIFIED')
+    const input = { purchaseRef: 'pay_on', referredUserId: 2, valueSp: 10000n, status: 'SETTLED' as const, occurredAt: new Date() }
+    const first = await recordReferralPurchaseEvent(asClient(f), input)
+    assert.equal(first.commissionSp, '1000')
+    assert.equal(f.rewards[0].status, 'PAID')
+    assert.equal(f.accounts.find((a) => a.userId === 1)!.bonusSp, 1000n)
+    assert.equal(f.ledger.filter((l) => l.sourceType === 'REFERRAL_REWARD').length, 1)
+
+    const replay = await recordReferralPurchaseEvent(asClient(f), input)
+    assert.equal(replay.reason, 'duplicate')
+    assert.equal(f.accounts.find((a) => a.userId === 1)!.bonusSp, 1000n)
+    assert.equal(f.ledger.filter((l) => l.sourceType === 'REFERRAL_REWARD').length, 1)
+  })
+})
+
+test('a refund after payout marks the commission reversed (funds frozen for review)', async () => {
+  await withRewards(async () => {
+    const f = new FakePrisma()
+    seedReferral(f, 'QUALIFIED')
+    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_rf', referredUserId: 2, valueSp: 10000n, status: 'SETTLED', occurredAt: new Date() })
+    assert.equal(f.rewards[0].status, 'PAID')
+
+    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_rf', referredUserId: 2, valueSp: 10000n, status: 'REFUNDED', occurredAt: new Date() })
+    assert.equal(f.rewards[0].status, 'REVERSED')
+    assert.equal(f.rewards[0].reversedAt instanceof Date, true)
+    assert.equal(f.rewards.length, 1)
+    assert.equal(f.ledger.filter((l) => l.sourceType === 'REFERRAL_REWARD').length, 1)
+  })
 })
 
 test('player summary exposes code, link, totals and pending rewards', async () => {

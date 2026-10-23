@@ -1,7 +1,7 @@
 import React from 'react'
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
-  variant?: 'default' | 'demo' | 'success' | 'warning'
+  variant?: 'default' | 'demo' | 'success' | 'warning' | 'gold' | 'danger'
 }
 
 export function Badge({
@@ -11,12 +11,14 @@ export function Badge({
   ...props
 }: BadgeProps) {
   const base =
-    'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border'
+    'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border'
   const variants: Record<string, string> = {
-    default: 'border-gray-700 text-gray-400 bg-gray-800/30',
-    demo: 'border-accent/30 text-accent bg-accent/10',
+    default: 'border-line text-muted bg-surface-2/50',
+    demo: 'border-primary/30 text-primary bg-primary/10',
     success: 'border-success/30 text-success bg-success/10',
-    warning: 'border-amber-500/30 text-amber-400 bg-amber-500/10'
+    warning: 'border-warning/30 text-warning bg-warning/10',
+    gold: 'border-gold/40 text-gold bg-gold/10',
+    danger: 'border-danger/30 text-danger bg-danger/10'
   }
   return (
     <span className={`${base} ${variants[variant]} ${className}`} {...props}>

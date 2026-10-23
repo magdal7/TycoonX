@@ -4,7 +4,7 @@ import { isUniqueViolation } from '../lib/idempotency'
 import { buildDepositDiagnostic, evaluateDepositSettlement, synthesizeWebhookEventId } from '../lib/oxapay'
 import { isSupportedDepositPair, normalizeAsset, normalizeNetwork } from '../lib/oxapayAssets'
 import {
-  PAYMENTS_ENABLED,
+  isPaymentsEnabled,
   isValidUsdtAmount,
   nextIntentStatus,
   usdtToSp,
@@ -199,7 +199,7 @@ export async function createDepositIntent(
   config?: OxapayConfig,
   selection?: DepositSelection,
 ) {
-  if (!PAYMENTS_ENABLED) throw new PaymentError('payments_disabled')
+  if (!isPaymentsEnabled()) throw new PaymentError('payments_disabled')
   if (!isValidUsdtAmount(amountUsdt) || usdtToSp(amountUsdt) <= 0n) throw new PaymentError('invalid_amount')
   return createDepositInvoice(db, config ?? loadOxapayConfig(), userId, amountUsdt, selection)
 }
@@ -275,7 +275,7 @@ export async function processWebhook(
 
   const intent = await db.paymentIntent.findUnique({ where: { externalId: input.externalId } })
 
-  if (!PAYMENTS_ENABLED) {
+  if (!isPaymentsEnabled()) {
     await db.paymentWebhookEvent.update({
       where: { id: eventId },
       data: { status: 'IGNORED', processedAt: new Date(), paymentIntentId: intent?.id ?? null },
@@ -404,7 +404,7 @@ export async function reconcileDepositIntent(
   config: OxapayConfig,
   paymentIntentId: number,
 ): Promise<ProcessWebhookResult> {
-  if (!PAYMENTS_ENABLED) throw new PaymentError('payments_disabled')
+  if (!isPaymentsEnabled()) throw new PaymentError('payments_disabled')
 
   const intent = await db.paymentIntent.findUnique({ where: { id: paymentIntentId } })
   if (!intent) throw new PaymentError('not_found')

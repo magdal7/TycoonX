@@ -8,7 +8,7 @@ import {
   listUserPurchases,
 } from '../../services/purchases'
 import { getWalletSummary, getWalletTransactions } from '../../services/wallet'
-import { PAYMENTS_ENABLED } from '../../lib/payments'
+import { isPaymentsEnabled } from '../../lib/payments'
 import { depositCreateSchema, purchaseCreateSchema } from '../../validation/game'
 
 function sendError(res: Response, error: unknown) {
@@ -44,7 +44,7 @@ export function createGameWalletRouter(db: PrismaClient): Router {
   })
 
   router.get('/deposits', async (req: AuthRequest, res: Response) => {
-    res.json({ deposits: await listUserPaymentIntents(db, req.user!.id), paymentsEnabled: PAYMENTS_ENABLED })
+    res.json({ deposits: await listUserPaymentIntents(db, req.user!.id), paymentsEnabled: isPaymentsEnabled() })
   })
 
   router.post('/deposits', async (req: AuthRequest, res: Response) => {
@@ -63,7 +63,7 @@ export function createGameWalletRouter(db: PrismaClient): Router {
   })
 
   router.get('/purchases', async (req: AuthRequest, res: Response) => {
-    res.json({ purchases: await listUserPurchases(db, req.user!.id), paymentsEnabled: PAYMENTS_ENABLED })
+    res.json({ purchases: await listUserPurchases(db, req.user!.id), paymentsEnabled: isPaymentsEnabled() })
   })
 
   router.post('/purchases', async (req: AuthRequest, res: Response) => {

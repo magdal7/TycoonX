@@ -71,6 +71,10 @@ export const withdrawalReviewSchema = z.object({
   note: z.string().trim().max(500).optional(),
 })
 
+export const withdrawalWalletSchema = z.object({
+  address: z.string().trim().min(10).max(100),
+})
+
 export const depositCreateSchema = z.object({
   amountUsdt: z
     .string()

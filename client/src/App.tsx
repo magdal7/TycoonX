@@ -92,7 +92,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-bg font-sans text-white">
+      <div className="theme-emerald flex min-h-screen items-center justify-center bg-bg font-sans text-ink">
         <div className="flex items-center gap-2 text-sm text-muted">
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           Loading TycoonX...
@@ -105,20 +105,20 @@ export default function App() {
   const wrap = (el: ReactNode) => <Layout>{el}</Layout>
 
   return (
-    <div className="min-h-screen bg-bg font-sans text-white">
+    <div className="min-h-screen bg-bg font-sans text-ink">
       {page === '/login' ? (
-        <Login navigate={navigate} />
+        <div className="theme-emerald min-h-screen bg-bg text-ink"><Login navigate={navigate} /></div>
       ) : page === '/register' ? (
-        <Register navigate={navigate} />
+        <div className="theme-emerald min-h-screen bg-bg text-ink"><Register navigate={navigate} /></div>
       ) : page === '/terms' ? (
-        <Policy kind="terms" navigate={navigate} />
+        <div className="theme-emerald min-h-screen bg-bg text-ink"><Policy kind="terms" navigate={navigate} /></div>
       ) : page === '/privacy' ? (
-        <Policy kind="privacy" navigate={navigate} />
+        <div className="theme-emerald min-h-screen bg-bg text-ink"><Policy kind="privacy" navigate={navigate} /></div>
       ) : (
         <RouterProvider
-          fallback={<NotFound navigate={navigate} />}
+          fallback={<div className="theme-emerald"><NotFound navigate={navigate} /></div>}
           routes={[
-            { path: '/', element: <Landing navigate={navigate} authed={authed} /> },
+            { path: '/', element: <div className="theme-emerald min-h-screen bg-bg text-ink"><Landing navigate={navigate} authed={authed} /></div> },
             { path: '/dashboard', element: wrap(<Home />) },
             { path: '/dashboard/market', element: wrap(<Market />) },
             { path: '/dashboard/collection', element: wrap(<Collection />) },

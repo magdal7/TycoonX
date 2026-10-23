@@ -7,10 +7,10 @@
  * `REFERRAL_REWARDS_ENABLED` is false and these helpers are inert.
  */
 import type { Prisma } from '@prisma/client'
+import { isReferralRewardsEnabled } from '../lib/referralRules'
 
 export const REFERRAL_REGISTRATION_BONUS_SP = 10n
 export const REFERRAL_COMMISSION_BPS = 1000 // 10.00%
-export const REFERRAL_REWARDS_ENABLED = false
 
 export type ReferralRewardResult =
   | { awarded: true; bonusSpSpent: string }
@@ -21,7 +21,7 @@ export async function rewardQualifiedRegistration(
   _tx: Prisma.TransactionClient,
   _input: { referrerId: number; referredUserId: number },
 ): Promise<ReferralRewardResult> {
-  if (!REFERRAL_REWARDS_ENABLED) return { awarded: false, reason: 'disabled' }
+  if (!isReferralRewardsEnabled()) return { awarded: false, reason: 'disabled' }
   return { awarded: false, reason: 'not_qualified' }
 }
 
@@ -30,7 +30,7 @@ export async function rewardPurchaseCommission(
   _tx: Prisma.TransactionClient,
   _input: { referrerId: number; referredUserId: number; purchaseValueSp: bigint; sourceId: bigint },
 ): Promise<ReferralRewardResult> {
-  if (!REFERRAL_REWARDS_ENABLED) return { awarded: false, reason: 'disabled' }
+  if (!isReferralRewardsEnabled()) return { awarded: false, reason: 'disabled' }
   return { awarded: false, reason: 'not_qualified' }
 }
 

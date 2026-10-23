@@ -112,6 +112,8 @@ export default function Home() {
 
   const startable = owned.filter((c) => c.canStart).length
   const collectable = owned.filter((c) => c.canCollect).length
+  const activeCycles = owned.filter((c) => c.cycleEndsAt && !c.archivedAt && c.status !== 'EXHAUSTED').length
+  const fleetOutput = owned.reduce((sum, c) => sum + (c.nominalSpPer24h ?? 0), 0)
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -122,7 +124,7 @@ export default function Home() {
         <div className="relative z-10">
           <div className="flex flex-wrap items-center gap-2">
             <span className="chip border-primary/40 text-primary">
-              <Rocket className="h-3.5 w-3.5" /> Command Center
+              <Rocket className="h-3.5 w-3.5" /> Emerald Empire · Command Center
             </span>
             <span className="chip">
               <Trophy className="h-3.5 w-3.5" /> {progress?.rank ?? 'Rookie'} · Level {level}
@@ -136,11 +138,13 @@ export default function Home() {
             is the only potentially withdrawable balance, and withdrawals are currently disabled.
           </p>
 
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat label="Earned SP" value={sp ? formatNumber(sp.earnedSp) : '—'} Icon={Coins} tone="text-gold" />
-            <Stat label="Bonus SP" value={sp ? formatNumber(sp.bonusSp) : '—'} Icon={Gem} tone="text-accent" />
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            <Stat label="Earned SP" value={sp ? formatNumber(sp.earnedSp) : '—'} Icon={Coins} tone="text-gold" hint="potentially withdrawable" />
+            <Stat label="Bonus SP" value={sp ? formatNumber(sp.bonusSp) : '—'} Icon={Gem} tone="text-accent" hint="non-withdrawable" />
             <Stat label="Lifetime XP" value={progress ? formatNumber(progress.xp) : '—'} Icon={Star} tone="text-primary" />
             <Stat label="CEO Fleet" value={owned.length} Icon={Cpu} />
+            <Stat label="Fleet output" value={formatNumber(fleetOutput)} Icon={Rocket} tone="text-primary" hint="SP / 24h · gameplay" />
+            <Stat label="Active cycles" value={activeCycles} Icon={Clock} hint={collectable > 0 ? `${collectable} ready` : 'in progress'} />
           </div>
 
           {progress && (

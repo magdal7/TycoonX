@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client'
 import { isUniqueViolation } from '../lib/idempotency'
-import { PAYMENTS_ENABLED, nextPurchaseStatus, usdtToSp, type PurchaseStatusName } from '../lib/payments'
+import { nextPurchaseStatus, usdtToSp, type PurchaseStatusName } from '../lib/payments'
 import { assertOwnershipCapacity, OwnershipLimitError } from './ownership'
 import { recordReferralPurchaseEvent } from './referrals'
 import { InsufficientSpError, spendSp } from './spLedger'
@@ -62,8 +62,6 @@ export async function createPurchase(
   ceoId: number,
   idempotencyKey: string,
 ) {
-  if (!PAYMENTS_ENABLED) throw new PurchaseError('payments_disabled')
-
   const result = await (async () => {
     try {
       return await db.$transaction(async (tx) => {

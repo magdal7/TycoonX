@@ -39,7 +39,7 @@ export function Stat({
   value,
   hint,
   Icon,
-  tone = 'text-white'
+  tone = 'text-ink'
 }: {
   label: string
   value: React.ReactNode
@@ -74,7 +74,7 @@ export function SectionHeading({
     <div className="flex items-start justify-between gap-3">
       <div>
         {eyebrow && <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">{eyebrow}</div>}
-        <h1 className="mt-0.5 text-xl font-bold tracking-tight text-white sm:text-2xl">{title}</h1>
+        <h1 className="mt-0.5 text-xl font-bold tracking-tight text-ink sm:text-2xl">{title}</h1>
         {description && <p className="mt-1 text-sm text-muted">{description}</p>}
       </div>
       {right}

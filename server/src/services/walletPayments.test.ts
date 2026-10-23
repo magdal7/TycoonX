@@ -5,6 +5,8 @@ import { PaymentError, confirmDepositIntent, createDepositIntent, processWebhook
 import { PurchaseError, deliverPurchase, markPurchasePaid, createPurchase } from './purchases'
 import { getWalletSummary } from './wallet'
 
+process.env.PAYMENTS_ENABLED = 'true'
+
 interface IntentRow {
   id: number
   userId: number
@@ -209,6 +211,27 @@ function expectPurchase(code: string) {
     return true
   }
 }
+
+test('payments gate blocks external deposits but not internal SP purchases', async () => {
+  const saved = process.env.PAYMENTS_ENABLED
+  delete process.env.PAYMENTS_ENABLED
+  try {
+    const f = new FakePrisma()
+    f.accounts.push({ userId: 1, earnedSp: 0n, bonusSp: 5000n, lifetimeEarnedSp: 0n, version: 0 })
+    await assert.rejects(() => createDepositIntent(asClient(f), 1, '10'), expectPayment('payments_disabled'))
+    const webhook = await processWebhook(asClient(f), { eventId: 'evt_gate', externalId: 'inv_x', status: 'paid' })
+    assert.equal(webhook.reason, 'payments_disabled')
+    assert.equal(f.intents.length, 0)
+    const purchase = await createPurchase(asClient(f), 1, 2, 'idem_gate')
+    assert.equal(purchase.status, 'DELIVERED')
+    assert.equal(f.purchases.length, 1)
+    assert.equal(f.owned.length, 1)
+    assert.equal(f.ledger.filter((l) => l.sourceType === 'CEO_PURCHASE').length, 1)
+  } finally {
+    if (saved === undefined) delete process.env.PAYMENTS_ENABLED
+    else process.env.PAYMENTS_ENABLED = saved
+  }
+})
 
 test('deposit creation fails closed without provider configuration', async () => {
   const f = new FakePrisma()

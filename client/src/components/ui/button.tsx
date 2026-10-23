@@ -14,11 +14,11 @@ export interface ButtonProps
 
 function variantClass(v: ButtonVariant): string {
   switch (v) {
-    case 'primary': return 'bg-primary text-white hover:bg-primary/90'
-    case 'outline': return 'border border-gray-600 bg-transparent text-white hover:bg-gray-800/50'
-    case 'ghost': return 'text-gray-400 hover:bg-gray-800/50 hover:text-white'
-    case 'danger': return 'bg-red-900/20 text-red-400 hover:bg-red-900/40'
-    case 'success': return 'bg-success text-white hover:bg-success/90'
+    case 'primary': return 'bg-primary text-white hover:bg-primary/90 shadow-[0_10px_30px_-14px_rgb(var(--c-primary)/0.9)]'
+    case 'outline': return 'border border-line bg-surface-2/40 text-ink hover:border-primary/50 hover:bg-surface-2/70'
+    case 'ghost': return 'text-muted hover:bg-white/5 hover:text-ink'
+    case 'danger': return 'bg-danger/15 text-danger hover:bg-danger/25'
+    case 'success': return 'bg-success text-[#05201A] hover:bg-success/90 shadow-[0_10px_30px_-14px_rgb(var(--c-success)/0.8)]'
     default: return 'bg-primary text-white hover:bg-primary/90'
   }
 }
@@ -45,7 +45,7 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
-      className={`inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${variantClass(variant)} ${sizeClass(size)} ${className}`}
+      className={`inline-flex items-center justify-center rounded-xl font-semibold tracking-tight transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:pointer-events-none disabled:opacity-50 ${variantClass(variant)} ${sizeClass(size)} ${className}`}
       disabled={disabled || isLoading}
       {...props}
     >

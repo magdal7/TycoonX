@@ -52,7 +52,7 @@ export default function Register({ navigate }: Props) {
   const closed = settings.data && (!settings.data.registrationEnabled || settings.data.maintenance.enabled)
 
   return (
-    <div className="min-h-screen bg-bg text-white font-sans px-4 py-6 pb-[calc(env(safe-area-inset-bottom)_+_2rem)]">
+    <div className="min-h-screen bg-bg text-ink font-sans px-4 py-6 pb-[calc(env(safe-area-inset-bottom)_+_2rem)]">
       <a
         href="/"
         onClick={(e) => { e.preventDefault(); navigate('/') }}
@@ -66,10 +66,10 @@ export default function Register({ navigate }: Props) {
         <div className="text-center mb-8">
           <LogoMark size={48} className="mx-auto mb-4" />
           <h1 className="text-2xl font-bold tracking-tight">Create account</h1>
-          <p className="text-gray-400 text-sm mt-2">Start building your TycoonX empire</p>
+          <p className="text-muted text-sm mt-2">Start building your TycoonX empire</p>
         </div>
 
-        <Card padding="lg" hover={false} className="border border-gray-800/50">
+        <Card padding="lg" hover={false} className="border border-line">
           {closed && (
             <div className="mb-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
               {settings.data?.maintenance.enabled
@@ -80,42 +80,42 @@ export default function Register({ navigate }: Props) {
           <form onSubmit={onSubmit} className="space-y-5">
             <div>
               <div className="flex items-center gap-2">
-                <Mail className="h-5 w-5 text-gray-500" />
-                <label className="text-sm font-medium text-gray-300">Email address</label>
+                <Mail className="h-5 w-5 text-muted" />
+                <label className="text-sm font-medium text-ink">Email address</label>
               </div>
               <Input name="email" type="email" required autoComplete="email" className="mt-1" />
             </div>
 
             <div>
               <div className="flex items-center gap-2">
-                <User className="h-5 w-5 text-gray-500" />
-                <label className="text-sm font-medium text-gray-300">Username</label>
+                <User className="h-5 w-5 text-muted" />
+                <label className="text-sm font-medium text-ink">Username</label>
               </div>
               <Input name="username" type="text" required minLength={3} maxLength={20} pattern="[a-zA-Z0-9_]+" autoComplete="username" className="mt-1" />
-              <p className="text-[10px] text-gray-500 mt-1">3–20 characters, letters, numbers, underscores only</p>
+              <p className="text-[10px] text-muted mt-1">3–20 characters, letters, numbers, underscores only</p>
             </div>
 
             <div>
               <div className="flex items-center gap-2">
-                <Lock className="h-5 w-5 text-gray-500" />
-                <label className="text-sm font-medium text-gray-300">Password</label>
+                <Lock className="h-5 w-5 text-muted" />
+                <label className="text-sm font-medium text-ink">Password</label>
               </div>
               <Input name="password" type="password" required minLength={8} autoComplete="new-password" showPasswordToggle className="mt-1" />
-              <p className="text-[10px] text-gray-500 mt-1">At least 8 characters</p>
+              <p className="text-[10px] text-muted mt-1">At least 8 characters</p>
             </div>
 
             <div>
               <div className="flex items-center gap-2">
-                <Lock className="h-5 w-5 text-gray-500" />
-                <label className="text-sm font-medium text-gray-300">Confirm password</label>
+                <Lock className="h-5 w-5 text-muted" />
+                <label className="text-sm font-medium text-ink">Confirm password</label>
               </div>
               <Input name="confirmPassword" type="password" required minLength={8} autoComplete="new-password" showPasswordToggle className="mt-1" />
             </div>
 
             <div>
               <div className="flex items-center gap-2">
-                <Gift className="h-5 w-5 text-gray-500" />
-                <label className="text-sm font-medium text-gray-300">Referral code <span className="font-normal text-gray-500">(optional)</span></label>
+                <Gift className="h-5 w-5 text-muted" />
+                <label className="text-sm font-medium text-ink">Referral code <span className="font-normal text-muted">(optional)</span></label>
               </div>
               <Input
                 name="ref"
@@ -128,7 +128,7 @@ export default function Register({ navigate }: Props) {
                 onChange={(e) => setRef(e.target.value)}
                 className="mt-1"
               />
-              <p className="text-[10px] text-gray-500 mt-1">Referral rewards stay disabled until qualification is approved.</p>
+              <p className="text-[10px] text-muted mt-1">Referral rewards stay disabled until qualification is approved.</p>
             </div>
 
             <label className="flex items-start gap-3 cursor-pointer">
@@ -136,9 +136,9 @@ export default function Register({ navigate }: Props) {
                 type="checkbox"
                 name="acceptTerms"
                 required
-                className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-600 bg-gray-800/50 text-primary focus:ring-primary focus:ring-offset-0"
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-line bg-surface-2/60 text-primary focus:ring-primary focus:ring-offset-0"
               />
-              <span className="text-xs leading-relaxed text-gray-400">
+              <span className="text-xs leading-relaxed text-muted">
                 I agree to the{' '}
                 <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-accent underline">Terms of Service</a>
                 {' '}and{' '}
@@ -159,8 +159,8 @@ export default function Register({ navigate }: Props) {
             </Button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-gray-800/50">
-            <p className="text-center text-sm text-gray-400 mb-4">Already have an account?</p>
+          <div className="mt-6 pt-6 border-t border-line">
+            <p className="text-center text-sm text-muted mb-4">Already have an account?</p>
             <a
               href="/login"
               onClick={(e) => { e.preventDefault(); navigate('/login') }}
@@ -171,13 +171,13 @@ export default function Register({ navigate }: Props) {
           </div>
 
           <div className="mt-4">
-            <p className="text-[10px] text-gray-500 text-center">Free to play · Email verification is not required for the MVP</p>
+            <p className="text-[10px] text-muted text-center">Free to play · Email verification is not required for the MVP</p>
           </div>
         </Card>
       </div>
 
       <div className="fixed bottom-[calc(env(safe-area-inset-bottom)_+_1rem)] left-4 right-4 text-center pointer-events-none">
-        <p className="text-[10px] text-gray-400">TycoonX &bull; Premium UI Preview</p>
+        <p className="text-[10px] text-muted">TycoonX &bull; Premium UI Preview</p>
       </div>
     </div>
   )

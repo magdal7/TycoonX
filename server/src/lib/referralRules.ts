@@ -14,11 +14,20 @@ export const REFERRAL_REGISTRATION_BONUS_SP = 10n
 export const REFERRAL_COMMISSION_BPS = 1000 // 10.00%
 
 /**
- * Master activation flag. Rewards stay DISABLED until the owner approves the
- * unresolved economic details (commission currency, qualification, refunds).
- * This constant is authoritative regardless of stored configuration.
+ * Master activation gate. Independent of payments/payouts. Server-side
+ * environment switch read on every call. Fail-closed: only the exact value
+ * "true" enables referral reward crediting. Rewards stay DISABLED until the
+ * owner approves the unresolved economic details (commission currency,
+ * qualification, refunds). Stored configuration can never enable them alone.
  */
-export const REFERRAL_REWARDS_ENABLED = false
+export function isReferralRewardsEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env.REFERRAL_REWARDS_ENABLED === 'true'
+}
+
+/** Module-load snapshot of the rewards gate, for display. Enforcement uses `isReferralRewardsEnabled()`. */
+export const REFERRAL_REWARDS_ENABLED = isReferralRewardsEnabled()
 
 export interface ReferralQualificationConfig {
   minLevel: number

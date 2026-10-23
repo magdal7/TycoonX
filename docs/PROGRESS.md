@@ -1,7 +1,36 @@
 # TycoonX — Implementation Status (PROGRESS)
 
 Canonical status file. Product rules live in `docs/TYCOONX_V2_MASTER_SPEC.md` (do not duplicate rules here).
-Last updated: 2026-10-20.
+Last updated: 2026-10-23.
+
+## Release-candidate hardening (2026-10-23)
+- **Three independent, env-gated financial switches, all default disabled** (exact value `"true"` only):
+  `PAYMENTS_ENABLED` (external OxaPay deposits + settlement/reconciliation), `PAYOUTS_ENABLED` (payout
+  execution), `REFERRAL_REWARDS_ENABLED` (reward crediting). Enforcement re-reads the environment per call.
+- **Internal CEO purchases are decoupled from `PAYMENTS_ENABLED`**: purchases spend existing SP
+  (Bonus-first, idempotent, transactional) regardless of deposit activation. Only external deposits and
+  their webhooks are payments-gated.
+- **Payout workflow prepared (disabled by default):** `executeWithdrawalPayout` (idempotent submission via
+  a deterministic `PaymentIntent` anchor), `processPayoutWebhook` (confirmed → `PAID`; failed → release
+  locked Earned SP + `REJECTED`; duplicate → ignored), and `reconcileWithdrawalPayout` (provider lookup).
+  Deposit vs payout callbacks are verified with separate merchant/payout keys. New 24h post-payout
+  cooldown on new requests. `PAYOUTS_ENABLED`/`REFERRAL_REWARDS_ENABLED` are no longer hardcoded.
+- **Migration workflow guard updated** to assert the env-driven payments gate instead of the old
+  hardcoded enabled constant; payout/referral disabled assertions preserved.
+- **Emerald Empire design system (player-facing):** CSS-variable design tokens (`theme-emerald` scope:
+  bg `#091916`, surface `#122A25`, emerald primary `#10B981`, luxury gold `#D4AF65`, cream ink
+  `#F2E9D5`, muted `#A7B9B0`) mapped through Tailwind. The Admin panel retains the default palette
+  (`:root` blue tokens unchanged; no `theme-emerald`). Shared UI primitives (card/button/badge/kit),
+  player `Layout`, auth/landing, dashboard, market and wallet updated. Plus Jakarta Sans loaded.
+- **Withdrawals UI** now reflects the live `payoutsEnabled` flag instead of a hardcoded warning.
+- **Withdrawal wallet security (V2.5):** saved BEP20 wallet on `User` (`withdrawalWallet`,
+  `withdrawalWalletChangedAt`), configurable change-hold (`WITHDRAWAL_WALLET_HOLD_HOURS`, default 24h),
+  wallet changes blocked while a withdrawal is pending, requests must match the saved wallet, and a
+  non-sensitive security log on change. Migration `20261023000000_v25_withdrawal_wallet` (additive;
+  **authored, NOT applied** — no production DB access).
+- **Referral reward activation path:** env-gated `REFERRAL_REWARDS_ENABLED`; exactly-once Bonus-SP
+  crediting and refund reversal tested when enabled (single-level only).
+- **Emerald theme extended** to auth, legal, and world-map/player panels (gray → semantic tokens).
 
 ## Verified current state
 - **Repo:** git repository, default branch `master` (V2.5 economy/progression backend, UI redesign,

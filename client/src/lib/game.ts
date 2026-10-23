@@ -345,11 +345,29 @@ const mapWithdrawal = (w: RawWithdrawal): WithdrawalView => ({
   netUsdt: toNumber(w.netUsdt),
 })
 
+export interface WithdrawalWallet {
+  address: string | null
+  changedAt: string | null
+  holdUntil: string | null
+  holdActive: boolean
+}
+
 export const fetchWithdrawals = () =>
-  request<{ withdrawals: RawWithdrawal[]; payoutsEnabled: boolean }>('/api/game/withdrawals').then((d) => ({
+  request<{ withdrawals: RawWithdrawal[]; wallet: WithdrawalWallet; payoutsEnabled: boolean }>('/api/game/withdrawals').then((d) => ({
     withdrawals: d.withdrawals.map(mapWithdrawal),
+    wallet: d.wallet,
     payoutsEnabled: d.payoutsEnabled,
   }))
+
+export const fetchWithdrawalWallet = () =>
+  request<{ wallet: WithdrawalWallet }>('/api/game/withdrawals/wallet').then((d) => d.wallet)
+
+export const saveWithdrawalWallet = (address: string) =>
+  request<{ wallet: WithdrawalWallet }>('/api/game/withdrawals/wallet', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address }),
+  }).then((d) => d.wallet)
 
 export const createWithdrawal = (grossSp: number, address: string) =>
   request<{ withdrawal: RawWithdrawal; payoutsEnabled: boolean }>('/api/game/withdrawals', {

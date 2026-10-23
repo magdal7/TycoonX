@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { isUniqueViolation } from '../lib/idempotency'
 import {
-  REFERRAL_REWARDS_ENABLED,
+  isReferralRewardsEnabled,
   commissionSp,
   isNonEarningPurchaseStatus,
   isReversalPurchaseStatus,
@@ -29,7 +29,7 @@ export const SUSPICIOUS_SHARED_IP_THRESHOLD = 3
 
 async function referralConfig(db: PrismaClient) {
   const settings = await getSiteSettings(db)
-  return { ...settings.referral, rewardsEnabled: REFERRAL_REWARDS_ENABLED }
+  return { ...settings.referral, rewardsEnabled: isReferralRewardsEnabled() }
 }
 
 // ---------------------------------------------------------------------------

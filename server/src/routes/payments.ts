@@ -2,6 +2,7 @@ import express, { Router, Request, Response } from 'express'
 import rateLimit from 'express-rate-limit'
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { processWebhook } from '../services/payments'
+import { processPayoutWebhook } from '../services/withdrawals'
 import { loadOxapayConfig } from '../services/oxapay'
 import { synthesizeWebhookEventId, verifyHmacSha512 } from '../lib/oxapay'
 import { oxapayCallbackSchema } from '../validation/game'
@@ -25,13 +26,17 @@ export function createPaymentRouter(db: PrismaClient): Router {
 
   router.post('/oxapay/webhook', webhookLimiter, rawBody, async (req: Request, res: Response) => {
     const config = loadOxapayConfig()
-    const secret = config.merchantApiKey
-    // Fail closed when the verification secret is not configured.
-    if (!secret) return res.status(503).json({ error: 'payments_not_configured' })
+    // Merchant and payout credentials are separate (Master Spec §9). A callback
+    // is accepted only if it verifies against the key matching its type.
+    const merchantKey = config.merchantApiKey
+    const payoutKey = config.payoutApiKey
+    if (!merchantKey && !payoutKey) return res.status(503).json({ error: 'payments_not_configured' })
 
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from('')
     const signature = req.get('hmac')
-    if (!verifyHmacSha512(raw, signature, secret)) {
+    const merchantOk = merchantKey ? verifyHmacSha512(raw, signature, merchantKey) : false
+    const payoutOk = payoutKey ? verifyHmacSha512(raw, signature, payoutKey) : false
+    if (!merchantOk && !payoutOk) {
       return res.status(401).json({ error: 'invalid_signature' })
     }
 
@@ -46,10 +51,28 @@ export function createPaymentRouter(db: PrismaClient): Router {
     if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' })
     const callback = parsed.data
 
-    // Deposit integration only: payout callbacks are acknowledged without processing.
+    // Payout callbacks are verified with the payout key and settled idempotently.
     if (typeof callback.type === 'string' && callback.type.trim().toLowerCase() === 'payout') {
-      return res.status(200).send('OK')
+      if (!payoutOk) return res.status(401).json({ error: 'invalid_signature' })
+      try {
+        await processPayoutWebhook(db, {
+          eventId: synthesizeWebhookEventId({
+            trackId: String(callback.track_id),
+            status: callback.status,
+            txHash: null,
+          }),
+          trackId: String(callback.track_id),
+          status: callback.status,
+          metadata: callback as unknown as Prisma.InputJsonValue,
+        })
+        return res.status(200).send('OK')
+      } catch {
+        console.error('[payments/webhook] unexpected payout processing error')
+        return res.status(500).json({ error: 'internal error' })
+      }
     }
+
+    if (!merchantOk) return res.status(401).json({ error: 'invalid_signature' })
 
     const txs = Array.isArray(callback.txs) ? callback.txs : []
     const tx = txs.find((t) => typeof t.tx_hash === 'string' && t.tx_hash.trim() !== '') ?? txs[0]
