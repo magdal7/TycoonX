@@ -6,11 +6,12 @@ Short, authoritative record of decisions that affect how we develop. Product rul
 ## Databases and environments
 - **Production branch:** Neon branch `br-delicate-butterfly-b4et73g9` (project `wandering-king-57462138`).
   Protected. Never target from a local machine. Do not modify to fix a local issue.
-- **Isolated dev/integration branch:** `br-plain-forest-b4zbd6xf` (same project). This is the sanctioned
-  local development and integration-testing target.
-- **Local `server/.env` (git-ignored):** `DATABASE_URL` / `DIRECT_URL` point at the isolated branch's
-  direct host; `TEST_DATABASE_URL` points at the isolated branch. The original production values are kept
-  as commented lines for reference only. Secrets are never printed or committed.
+- **Isolated dev/integration branch:** `br-floral-resonance-b4ruvusw` (`test-ownership-6c1`, same project).
+  This is the sanctioned local development and integration-testing target. The former
+  `br-plain-forest-b4zbd6xf` branch was deleted.
+- **Local `server/.env` (git-ignored):** `TEST_DATABASE_URL` = the isolated branch's direct host;
+  `DATABASE_URL` / `DIRECT_URL` = the same branch's pooled host (kept distinct so the integration guard's
+  "TEST must not equal DATABASE_URL/DIRECT_URL" check passes). Secrets are never printed or committed.
 - The integration suite refuses to run when `TEST_DATABASE_URL` equals `DATABASE_URL`/`DIRECT_URL` (a
   safety guard). That is why the app and the test URL use the isolated branch's **different hosts**
   (direct vs pooled) rather than identical strings.

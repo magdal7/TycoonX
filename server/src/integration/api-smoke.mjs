@@ -32,7 +32,7 @@ import { Pool } from '@neondatabase/serverless'
  *   npm run test:smoke --workspace=server
  */
 
-const EXPECTED_BRANCH_ID = 'br-plain-forest-b4zbd6xf'
+const EXPECTED_BRANCH_ID = 'br-floral-resonance-b4ruvusw'
 const EXPECTED_PROJECT_ID = 'wandering-king-57462138'
 
 // HMAC secret used only by this smoke run so callbacks can be signed; the server

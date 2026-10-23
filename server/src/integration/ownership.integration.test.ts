@@ -39,7 +39,7 @@ process.env.PAYMENTS_ENABLED = 'true'
  * `itest_` are created and they are removed in `after`.
  */
 
-const EXPECTED_BRANCH_ID = 'br-plain-forest-b4zbd6xf'
+const EXPECTED_BRANCH_ID = 'br-floral-resonance-b4ruvusw'
 const EXPECTED_PROJECT_ID = 'wandering-king-57462138'
 
 const PROTECTED_BRANCHES = [
