@@ -3,7 +3,7 @@ import { isUniqueViolation } from '../lib/idempotency'
 import { isPayoutConfirmed, isPayoutFailed, synthesizeWebhookEventId } from '../lib/oxapay'
 import { isPayoutsEnabled } from '../lib/payments'
 import { createPayout, getPayoutInfo, loadOxapayConfig, type OxapayConfig } from './oxapay'
-import { creditSp, debitEarnedSp } from './spLedger'
+import { creditSp, debitEarnedSp, InsufficientSpError } from './spLedger'
 
 /** Owner-approved withdrawal rules (Master Spec §9): USDT BEP20 only. */
 export const MIN_GROSS_SP = 3000n // 3 USDT
@@ -33,6 +33,7 @@ export type WithdrawalErrorCode =
   | 'wallet_hold'
   | 'wallet_pending'
   | 'wallet_mismatch'
+  | 'insufficient_sp'
 
 export class WithdrawalError extends Error {
   readonly code: WithdrawalErrorCode
@@ -155,13 +156,18 @@ export async function createWithdrawalRequest(
         status: 'REQUESTED',
       },
     })
-    await debitEarnedSp(tx, {
-      userId,
-      amountSp: input.grossSp,
-      sourceType: 'WITHDRAWAL_LOCK',
-      sourceId: BigInt(row.id),
-      metadata: { requestId: row.id },
-    })
+    try {
+      await debitEarnedSp(tx, {
+        userId,
+        amountSp: input.grossSp,
+        sourceType: 'WITHDRAWAL_LOCK',
+        sourceId: BigInt(row.id),
+        metadata: { requestId: row.id },
+      })
+    } catch (error) {
+      if (error instanceof InsufficientSpError) throw new WithdrawalError('insufficient_sp')
+      throw error
+    }
     return toView(row)
   })
 }

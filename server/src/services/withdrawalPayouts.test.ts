@@ -491,6 +491,20 @@ test('walletHoldMs is configurable and defaults to 24h', () => {
   assert.equal(walletHoldMs({ WITHDRAWAL_WALLET_HOLD_HOURS: 'nope' }), 24 * 60 * 60 * 1000)
 })
 
+test('createWithdrawalRequest reports insufficient_sp (Earned only; Bonus excluded)', async () => {
+  const f = new FakePrisma()
+  f.accounts.push({ userId: 1, earnedSp: 3000n, bonusSp: 9000n, lifetimeEarnedSp: 3000n, version: 0 })
+  f.users.push({ id: 1, withdrawalWallet: null, withdrawalWalletChangedAt: null })
+
+  await assert.rejects(
+    () => createWithdrawalRequest(asClient(f), 1, { grossSp: 6000n, address: '0x' + 'a'.repeat(40) }),
+    (e: unknown) => e instanceof WithdrawalError && e.code === 'insufficient_sp',
+  )
+  // Bonus SP must never be touched by a withdrawal lock attempt.
+  assert.equal(f.accounts[0].bonusSp, 9000n)
+  assert.equal(f.accounts[0].earnedSp, 3000n)
+})
+
 test('setWithdrawalWallet saves the first wallet and starts the hold on a change', async () => {
   const f = new FakePrisma()
   f.users.push({ id: 1, withdrawalWallet: null, withdrawalWalletChangedAt: null })

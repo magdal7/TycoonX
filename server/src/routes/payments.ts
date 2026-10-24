@@ -4,7 +4,7 @@ import type { Prisma, PrismaClient } from '@prisma/client'
 import { processWebhook } from '../services/payments'
 import { processPayoutWebhook } from '../services/withdrawals'
 import { loadOxapayConfig } from '../services/oxapay'
-import { synthesizeWebhookEventId, verifyHmacSha512 } from '../lib/oxapay'
+import { resolveCallbackAsset, synthesizeWebhookEventId, verifyHmacSha512 } from '../lib/oxapay'
 import { oxapayCallbackSchema } from '../validation/game'
 
 /**
@@ -77,8 +77,10 @@ export function createPaymentRouter(db: PrismaClient): Router {
     const txs = Array.isArray(callback.txs) ? callback.txs : []
     const tx = txs.find((t) => typeof t.tx_hash === 'string' && t.tx_hash.trim() !== '') ?? txs[0]
     const trackId = String(callback.track_id)
-    // Top-level `currency` carries the paid asset; the network comes from the tx.
-    const asset = callback.currency ?? tx?.currency
+    // The settled asset/network come from the transaction (`txs[]`). OxaPay's
+    // top-level `currency` is the invoice currency ("USD" here), never the paid
+    // crypto, so it is only a fallback when no transaction is present.
+    const asset = resolveCallbackAsset(tx?.currency, callback.currency)
     const network = tx?.network
 
     try {

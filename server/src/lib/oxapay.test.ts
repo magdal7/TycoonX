@@ -13,6 +13,7 @@ import {
   isPayoutFailed,
   normalizePaymentStatus,
   normalizePayoutStatus,
+  resolveCallbackAsset,
   synthesizeWebhookEventId,
   toDecimalString,
   verifyHmacSha512,
@@ -23,6 +24,18 @@ const SECRET = 'test-secret-key'
 // Independently generated HMAC-SHA512(body, SECRET) hex vector.
 const SIGNATURE =
   'd94667155269d59429ce3685ec874bfd88d14cbf7d743988b9cb903057bd36c12959ef5759213ab1d6e50c8a792c2b2ad605bd1aaf4b29d6965fe4fde4a4064b'
+
+test('resolveCallbackAsset prefers the transaction crypto asset over the invoice currency', () => {
+  // Real OxaPay invoice callback: top-level currency is the invoice currency
+  // ("USD"), the paid asset lives on the transaction.
+  assert.equal(resolveCallbackAsset('USDT', 'USD'), 'USDT')
+  assert.equal(resolveCallbackAsset('  USDT  ', 'USD'), 'USDT')
+  // Fallback only when no transaction asset is present.
+  assert.equal(resolveCallbackAsset(undefined, 'USDT'), 'USDT')
+  assert.equal(resolveCallbackAsset('', 'USDT'), 'USDT')
+  assert.equal(resolveCallbackAsset(undefined, undefined), null)
+  assert.equal(resolveCallbackAsset('   ', ''), null)
+})
 
 test('computeHmacSha512 matches a known vector', () => {
   assert.equal(computeHmacSha512(BODY, SECRET), SIGNATURE)

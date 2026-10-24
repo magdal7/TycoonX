@@ -271,8 +271,30 @@ export async function processWebhook(
     })
     eventId = event.id
   } catch (error) {
-    if (isUniqueViolation(error)) return { ignored: true, reason: 'duplicate' }
-    throw error
+    if (!isUniqueViolation(error)) throw error
+    // A replayed delivery of a known transition is ignored. A transition that
+    // was recorded IGNORED *and* matched to a real intent (payments were
+    // disabled, or a since-fixed verification failure) may be safely
+    // re-evaluated: the SP-ledger unique source key still guarantees the credit
+    // happens at most once. Unmatched IGNORED events (unknown track id) keep
+    // their dedup behaviour.
+    const existing = await db.paymentWebhookEvent.findUnique({
+      where: { provider_eventId: { provider: PAYMENT_PROVIDER, eventId: input.eventId } },
+      select: { id: true, status: true, paymentIntentId: true },
+    })
+    const recoverable = existing?.status === 'IGNORED' && existing.paymentIntentId != null
+    if (!recoverable) return { ignored: true, reason: 'duplicate' }
+    const reopened = await db.paymentWebhookEvent.update({
+      where: { id: existing.id },
+      data: {
+        status: 'RECEIVED',
+        processedAt: null,
+        paymentIntentId: null,
+        payload: (input.metadata ?? {}) as Prisma.InputJsonValue,
+      },
+      select: { id: true },
+    })
+    eventId = reopened.id
   }
 
   const intent = await db.paymentIntent.findUnique({ where: { externalId: input.externalId } })

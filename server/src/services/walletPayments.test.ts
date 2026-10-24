@@ -93,6 +93,10 @@ class FakePrisma {
       this.events.push(row)
       return { id: row.id }
     },
+    findUnique: async (args: any): Promise<EventRow | null> => {
+      const w = args?.where?.provider_eventId ?? {}
+      return this.events.find((e) => e.provider === w.provider && e.eventId === w.eventId) ?? null
+    },
     update: async (args: any): Promise<EventRow> => {
       const row = this.events.find((e) => e.id === args?.where?.id)!
       Object.assign(row, args.data)

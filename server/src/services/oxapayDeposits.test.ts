@@ -128,6 +128,10 @@ class FakePrisma {
       this.events.push(row)
       return { id: row.id }
     },
+    findUnique: async (args: any): Promise<EventRow | null> => {
+      const w = args?.where?.provider_eventId ?? {}
+      return this.events.find((e) => e.provider === w.provider && e.eventId === w.eventId) ?? null
+    },
     update: async (args: any): Promise<EventRow> => {
       const row = this.events.find((e) => e.id === args?.where?.id)!
       Object.assign(row, args.data)
@@ -319,6 +323,63 @@ test('processWebhook deduplicates replayed events', async () => {
   })
   assert.equal(again.reason, 'duplicate')
   assert.equal(f.events.length, 1)
+})
+
+test('processWebhook re-evaluates a previously IGNORED event and credits exactly once', async () => {
+  // Reproduces the real incident: a paid callback first failed closed because the
+  // asset was read from the invoice-level currency ("USD"). Once fixed, the same
+  // provider transition must settle without double-crediting.
+  const f = new FakePrisma()
+  seedIntent(f, {
+    externalId: 'track-redo',
+    amountUsdt: '1',
+    creditedSp: 1000n,
+    metadata: { orderId: 'dep_1', asset: 'USDT', network: 'BSC' },
+  })
+  const eventId = 'track-redo:paid:0xabc'
+
+  const ignored = await processWebhook(asClient(f), {
+    eventId,
+    externalId: 'track-redo',
+    status: 'Paid',
+    amountUsdt: '1',
+    orderId: 'dep_1',
+    asset: 'USD',
+    network: 'Binance Smart Chain',
+  })
+  assert.equal(ignored.ignored, true)
+  assert.equal(ignored.reason, 'unsupported_pair')
+  assert.equal(f.events[0].status, 'IGNORED')
+  assert.equal(f.ledger.length, 0)
+
+  const settled = await processWebhook(asClient(f), {
+    eventId,
+    externalId: 'track-redo',
+    status: 'Paid',
+    amountUsdt: '1',
+    orderId: 'dep_1',
+    asset: 'USDT',
+    network: 'Binance Smart Chain',
+  })
+  assert.equal(settled.confirmed, true)
+  assert.equal(f.events.length, 1)
+  assert.equal(f.events[0].status, 'PROCESSED')
+  assert.equal(f.accounts.find((a) => a.userId === 1)!.bonusSp, 1000n)
+  assert.equal(f.accounts.find((a) => a.userId === 1)!.earnedSp, 0n)
+  assert.equal(f.ledger.filter((l) => l.sourceType === 'DEPOSIT_CREDIT').length, 1)
+
+  // A third delivery is now a strict duplicate and cannot credit again.
+  const replay = await processWebhook(asClient(f), {
+    eventId,
+    externalId: 'track-redo',
+    status: 'Paid',
+    amountUsdt: '1',
+    orderId: 'dep_1',
+    asset: 'USDT',
+    network: 'Binance Smart Chain',
+  })
+  assert.equal(replay.reason, 'duplicate')
+  assert.equal(f.ledger.filter((l) => l.sourceType === 'DEPOSIT_CREDIT').length, 1)
 })
 
 test('confirmDepositIntent credits Bonus SP exactly once under concurrent callbacks', async () => {

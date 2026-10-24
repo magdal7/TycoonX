@@ -161,9 +161,11 @@ export default function Wallet() {
           ? 'That asset is not enabled on the OxaPay merchant account.'
           : err instanceof Error && err.message === 'unsupported_pair'
             ? 'Unsupported asset/network combination.'
-            : err instanceof Error
-              ? err.message
-              : 'Deposit failed',
+            : err instanceof Error && err.message === 'payments_disabled'
+              ? 'Deposits are not open to your account yet.'
+              : err instanceof Error
+                ? err.message
+                : 'Deposit failed',
       )
     } finally {
       setBusy(false)
@@ -191,7 +193,9 @@ export default function Wallet() {
           </div>
           <p className="mt-3 text-[11px] text-muted">
             Conversion: 1 USDT = 1,000 SP. Deposits credit Bonus SP once the invoice is fully paid.
-            Withdrawals/payouts remain disabled.
+            {withdrawals.data?.payoutsEnabled
+              ? ' Withdrawals are reviewed and paid after provider confirmation.'
+              : ' Withdrawals/payouts remain disabled.'}
           </p>
         </Card>
       )}

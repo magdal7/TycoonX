@@ -25,6 +25,7 @@ const STATUS: Record<WithdrawalErrorCode, number> = {
   wallet_hold: 409,
   wallet_pending: 409,
   wallet_mismatch: 422,
+  insufficient_sp: 422,
 }
 
 function handle(error: unknown, res: Response): boolean {

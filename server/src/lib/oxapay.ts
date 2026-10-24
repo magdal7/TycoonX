@@ -127,6 +127,24 @@ export function synthesizeWebhookEventId(input: WebhookEventIdentity): string {
   return `${trackId}:${status}:${txHash}`
 }
 
+/**
+ * Selects the settled crypto asset from an OxaPay invoice callback.
+ *
+ * The transaction (`txs[].currency`) carries the actual paid crypto asset and
+ * network. The callback's top-level `currency` is the *invoice* currency and is
+ * `"USD"` for USD-denominated invoices (TycoonX invoices omit `currency`), so it
+ * is only a fallback and must never override the transaction asset.
+ */
+export function resolveCallbackAsset(
+  txCurrency: unknown,
+  callbackCurrency: unknown,
+): string | null {
+  const fromTx = typeof txCurrency === 'string' ? txCurrency.trim() : ''
+  if (fromTx) return fromTx
+  const fromCallback = typeof callbackCurrency === 'string' ? callbackCurrency.trim() : ''
+  return fromCallback || null
+}
+
 /** HMAC-SHA512 (hex) over the exact raw body using the shared API key. */
 export function computeHmacSha512(rawBody: string | Buffer, secret: string): string {
   return createHmac('sha512', secret).update(rawBody).digest('hex')
