@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Rocket,
   Coins,
@@ -21,6 +21,7 @@ import { Badge } from '../components/ui/badge'
 import { Logo } from '../components/Logo'
 import { CeoAvatar } from '../components/CeoAvatar'
 import { formatNumber, formatUsd } from '../lib/format'
+import { fetchPublicCeos } from '../lib/ceos'
 
 type Props = { navigate: (p: string) => void; authed: boolean }
 
@@ -60,18 +61,77 @@ const EARNING_PATHS = [
 
 const COMMUNITY_URL = 'https://t.me/tycoonX_official'
 
+type ShowCeo = { name: string; slug: string; rarity: string; priceUsd: number; sp24h: number; capSp: number }
+const FALLBACK_CEOS: ShowCeo[] = TIERS.map((t) => ({
+  name: t.name,
+  slug: t.name,
+  rarity: t.rarity,
+  priceUsd: t.price,
+  sp24h: t.sp,
+  capSp: t.cap
+}))
+
 const FAQS = [
-  { q: 'Is TycoonX free to play?', a: 'Yes. You start with a free Intern CEO and can complete daily and weekly missions without purchasing anything.' },
-  { q: 'What is SP?', a: 'SP (Strategy Points) is the in-game currency. Earned SP is produced by your CEOs; Bonus SP comes from bonuses and is non-withdrawable.' },
-  { q: 'Can I withdraw money right now?', a: 'No. Real-money withdrawals are disabled for the MVP. The wallet records requests for review, but no crypto is transferred.' },
-  { q: 'What happens when a CEO reaches its cap?', a: 'Each copy has a finite lifetime production cap. When reached, the copy is archived and keeps producing nothing further, but you keep ownership.' },
-  { q: 'Are the SP figures guaranteed earnings?', a: 'No. Production is a game mechanic. Nominal SP rates are not investment returns or guaranteed payouts.' }
+  {
+    q: 'What is TycoonX?',
+    a: 'TycoonX is a mobile-first tech-tycoon game. You build a company by recruiting collectible CEOs, running production cycles and completing missions. It is free to start.'
+  },
+  {
+    q: 'How do I start playing?',
+    a: 'Create a free account. A starter CEO is granted automatically the first time you sign in — start a production cycle in one tap and collect SP when it completes.'
+  },
+  {
+    q: 'What do CEOs do?',
+    a: 'Each CEO copy you own can run manual production cycles (4h, 6h or 8h with equipment). Start a cycle, wait for it to finish, then collect Earned SP. Every copy has a finite lifetime production cap and archives once exhausted; you keep ownership.'
+  },
+  {
+    q: 'What is the difference between Earned SP and Bonus SP?',
+    a: 'Earned SP is produced by your CEOs and is the only balance that can ever be withdrawn. Bonus SP comes from bonuses such as missions, referrals and confirmed deposits; it is spent first on eligible purchases but is never withdrawable.'
+  },
+  {
+    q: 'How do missions and tasks work?',
+    a: 'Daily and weekly missions reset on UTC boundaries and award XP when you claim them. Special campaigns can award XP and/or Bonus SP and may require Admin approval of your proof. Unclaimed rewards persist until you claim them.'
+  },
+  {
+    q: 'How do referrals work?',
+    a: 'Share your referral link. When a referred user makes their first eligible CEO purchase they qualify — earning you 10 Bonus SP — and you accrue a 10% Bonus SP commission on the deposit-funded portion of their later eligible purchases. Referral rewards are implemented but currently pending activation.'
+  },
+  {
+    q: 'How do deposits work, and can I withdraw?',
+    a: 'You can deposit supported cryptocurrencies through our payment provider; confirmed deposits are credited as Bonus SP at 1 USDT = 1,000 SP. Withdrawals of eligible Earned SP are not open yet — a request cannot be submitted until they are enabled — and Bonus SP can never be withdrawn.'
+  },
+  {
+    q: 'Is TycoonX affiliated with any real technology CEOs?',
+    a: 'No. All CEOs are original fictional characters created for gameplay. They are not real people, and nothing here implies endorsement, affiliation or investment by any public figure.'
+  },
+  {
+    q: 'Are SP rates guaranteed earnings?',
+    a: 'No. Production is a game mechanic. Nominal SP rates are not investment returns or guaranteed payouts.'
+  }
 ]
 
 export default function Landing({ navigate, authed }: Props) {
   const go = () => navigate(authed ? '/dashboard' : '/register')
   const ref = useMemo(() => new URLSearchParams(window.location.search).get('ref'), [])
   const startHref = ref ? `/register?ref=${encodeURIComponent(ref)}` : '/register'
+
+  const [catalog, setCatalog] = useState<ShowCeo[]>([])
+  useEffect(() => {
+    let alive = true
+    fetchPublicCeos()
+      .then((rows) => {
+        if (!alive) return
+        const shown = rows
+          .filter((r) => r.isForSale)
+          .map((r) => ({ name: r.name, slug: r.slug, rarity: r.rarity, priceUsd: r.priceUsd, sp24h: r.nominalSpPer24h ?? 0, capSp: r.lifetimeCapSp ?? 0 }))
+        if (shown.length) setCatalog(shown)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+  const featured = catalog.length ? catalog : FALLBACK_CEOS
 
   return (
     <div className="min-h-screen bg-bg text-white">
@@ -138,11 +198,11 @@ export default function Landing({ navigate, authed }: Props) {
                 <Badge variant="demo">Preview</Badge>
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2">
-                {TIERS.slice(0, 3).map((t) => (
-                  <div key={t.name} className="flex flex-col items-center rounded-xl border border-line bg-surface-2/60 p-3">
-                    <CeoAvatar name={t.name} slug={t.name} rarity={t.rarity} size={48} />
-                    <span className="mt-2 text-[11px] font-semibold">{t.name}</span>
-                    <span className="text-[10px] text-muted">{formatNumber(t.sp)} SP/24h</span>
+                {featured.slice(0, 3).map((t) => (
+                  <div key={t.slug} className="flex flex-col items-center rounded-xl border border-line bg-surface-2/60 p-3">
+                    <CeoAvatar name={t.name} slug={t.slug} rarity={t.rarity} size={48} />
+                    <span className="mt-2 max-w-full truncate text-[11px] font-semibold">{t.name}</span>
+                    <span className="text-[10px] text-muted">{formatNumber(t.sp24h)} SP/24h</span>
                   </div>
                 ))}
               </div>
@@ -211,14 +271,14 @@ export default function Landing({ navigate, authed }: Props) {
             <Badge variant="demo" className="hidden sm:inline-flex">Approved catalog</Badge>
           </div>
           <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            {TIERS.map((t) => (
-              <div key={t.name} className="rounded-2xl border border-line bg-surface/60 p-4 text-center">
-                <div className="flex justify-center"><CeoAvatar name={t.name} slug={t.name} rarity={t.rarity} size={56} /></div>
-                <h3 className="mt-2 text-sm font-bold">{t.name}</h3>
+            {featured.slice(0, 6).map((t) => (
+              <div key={t.slug} className="rounded-2xl border border-line bg-surface/60 p-4 text-center">
+                <div className="flex justify-center"><CeoAvatar name={t.name} slug={t.slug} rarity={t.rarity} size={56} /></div>
+                <h3 className="mt-2 truncate text-sm font-bold">{t.name}</h3>
                 <p className="text-[10px] text-muted">{t.rarity}</p>
-                <p className="mt-1 text-xs font-bold text-white">{t.price === 0 ? 'Free' : formatUsd(t.price)}</p>
-                <p className="text-[10px] text-gold">{formatNumber(t.sp)} SP/24h</p>
-                <p className="text-[10px] text-muted">cap {formatNumber(t.cap)} SP</p>
+                <p className="mt-1 text-xs font-bold text-white">{t.priceUsd === 0 ? 'Free' : formatUsd(t.priceUsd)}</p>
+                <p className="text-[10px] text-gold">{formatNumber(t.sp24h)} SP/24h</p>
+                <p className="text-[10px] text-muted">cap {formatNumber(t.capSp)} SP</p>
               </div>
             ))}
           </div>

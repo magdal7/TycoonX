@@ -175,7 +175,7 @@ export default function Profile() {
 
       <Card padding="md" className="flex items-center gap-3 border-line">
         <AlertTriangle className="h-4 w-4 text-muted" />
-        <p className="flex-1 text-[11px] text-muted">Email verification and password recovery are deferred for the MVP.</p>
+        <p className="flex-1 text-[11px] text-muted">Email verification and password recovery are not available yet.</p>
       </Card>
 
       <Button variant="danger" className="w-full" onClick={() => { logout(); window.history.pushState(null, '', '/'); window.dispatchEvent(new PopStateEvent('popstate')) }} iconLeft={<LogOut className="h-4 w-4" />}>

@@ -93,7 +93,7 @@ export default function Login({ navigate }: Props) {
       </div>
 
       <div className="fixed bottom-[calc(env(safe-area-inset-bottom)_+_1rem)] left-4 right-4 text-center pointer-events-none">
-        <p className="text-[10px] text-muted">TycoonX &bull; Premium UI Preview</p>
+        <p className="text-[10px] text-muted">TycoonX &bull; Build your tech empire</p>
       </div>
     </div>
   )

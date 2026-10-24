@@ -244,7 +244,7 @@ export function Layout({ children }: LayoutProps) {
               Community · Telegram
             </a>
             <p className="mt-4 px-3 text-[10px] leading-relaxed text-muted">
-              CEO production is a game mechanic. Real-money withdrawals are disabled.
+              CEO production is a game mechanic. Withdrawals aren&apos;t open yet.
             </p>
           </div>
         </div>

@@ -38,6 +38,48 @@ export function dailyProjected(priceUsd: number, dailyRatePercent: number): numb
   return (priceUsd * dailyRatePercent) / 100
 }
 
+export interface PublicCeo {
+  id: number
+  name: string
+  slug: string
+  rarity: string
+  priceUsd: number
+  nominalSpPer24h: number | null
+  lifetimeCapSp: number | null
+  cycleHours: number
+  isForSale: boolean
+}
+
+/** Public, unauthenticated catalog preview (display fields only). */
+export async function fetchPublicCeos(): Promise<PublicCeo[]> {
+  const res = await fetch(apiUrl('/api/public/ceos'), { credentials: 'omit' })
+  if (!res.ok) throw new Error(`Failed to load the catalog (status ${res.status}).`)
+  const data = (await res.json()) as {
+    ceos?: Array<{
+      id: number
+      name: string
+      slug: string
+      rarity: string
+      priceUsd: string | number
+      nominalSpPer24h: number | null
+      lifetimeCapSp: string | number | null
+      cycleHours: number
+      isForSale: boolean
+    }>
+  }
+  return (data.ceos ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    slug: c.slug,
+    rarity: c.rarity,
+    priceUsd: toNumber(c.priceUsd),
+    nominalSpPer24h: c.nominalSpPer24h ?? null,
+    lifetimeCapSp: c.lifetimeCapSp == null ? null : toNumber(c.lifetimeCapSp),
+    cycleHours: c.cycleHours,
+    isForSale: c.isForSale,
+  }))
+}
+
 export async function fetchCeos(): Promise<Ceo[]> {
   const res = await fetch(apiUrl('/api/ceos?isActive=true'), { credentials: 'include' })
   if (!res.ok) {

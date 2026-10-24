@@ -17,6 +17,39 @@ export function createPublicRouter(db: PrismaClient): Router {
     res.json({ entries: await getLeaderboard(db, 100) })
   })
 
+  // Public catalog preview: display fields only (no admin/economy internals).
+  router.get('/ceos', async (_req, res: Response) => {
+    const rows = await db.cEO.findMany({
+      where: { isActive: true },
+      orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
+      take: 12,
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        rarity: true,
+        priceUsd: true,
+        nominalSpPer24h: true,
+        lifetimeCapSp: true,
+        cycleHours: true,
+        isForSale: true,
+      },
+    })
+    res.json({
+      ceos: rows.map((c) => ({
+        id: c.id,
+        name: c.name,
+        slug: c.slug,
+        rarity: c.rarity,
+        priceUsd: c.priceUsd.toString(),
+        nominalSpPer24h: c.nominalSpPer24h,
+        lifetimeCapSp: c.lifetimeCapSp?.toString() ?? null,
+        cycleHours: c.cycleHours,
+        isForSale: c.isForSale,
+      })),
+    })
+  })
+
   router.get('/profile/:username', async (req, res: Response) => {
     const parsed = usernameParamSchema.safeParse(req.params)
     if (!parsed.success) return res.status(400).json({ error: 'invalid username' })

@@ -26,13 +26,13 @@ export default function GameHud({ onEmpire }: { onEmpire: () => void }) {
       <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2/60 px-2 py-1 text-xs text-muted">
         <Sparkles className="h-3.5 w-3.5 text-gold" /> {sp ? formatNumber(sp.totalSp) : '—'} SP
       </span>
-      <Badge variant="demo">PREVIEW</Badge>
+      <Badge variant="demo">Map preview</Badge>
       <button
         type="button"
         onClick={onEmpire}
         className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-muted transition-colors hover:bg-white/5 hover:text-white"
       >
-        <LayoutDashboard className="h-3.5 w-3.5" /> Empire view
+        <LayoutDashboard className="h-3.5 w-3.5" /> Dashboard
       </button>
     </div>
   )

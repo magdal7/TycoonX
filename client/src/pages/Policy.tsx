@@ -77,7 +77,7 @@ const PRIVACY: Section[] = [
   {
     heading: '2. What we do not collect',
     paragraphs: [
-      'Email verification is not required for the MVP, so we do not yet verify email ownership. Real-money payment flows and crypto wallet storage are disabled, so no wallet addresses or payment credentials are collected.',
+      'Email verification is not required for the MVP, so we do not yet verify email ownership. Crypto deposits are processed by our payment provider; we store a withdrawal wallet address only if you choose to save one, and it is used solely to pay withdrawals when they are enabled.',
     ],
   },
   {

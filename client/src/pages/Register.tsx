@@ -171,13 +171,13 @@ export default function Register({ navigate }: Props) {
           </div>
 
           <div className="mt-4">
-            <p className="text-[10px] text-muted text-center">Free to play · Email verification is not required for the MVP</p>
+            <p className="text-[10px] text-muted text-center">Free to play · Email verification not required yet</p>
           </div>
         </Card>
       </div>
 
       <div className="fixed bottom-[calc(env(safe-area-inset-bottom)_+_1rem)] left-4 right-4 text-center pointer-events-none">
-        <p className="text-[10px] text-muted">TycoonX &bull; Premium UI Preview</p>
+        <p className="text-[10px] text-muted">TycoonX &bull; Build your tech empire</p>
       </div>
     </div>
   )

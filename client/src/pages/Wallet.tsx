@@ -86,6 +86,7 @@ export default function Wallet() {
   const usdt = wallet.data?.usdt
   const earned = Number(sp?.earnedSp ?? 0)
   const savedWallet = withdrawals.data?.wallet
+  const payoutsEnabled = withdrawals.data?.payoutsEnabled ?? false
 
   useEffect(() => {
     if (savedWallet?.address) setAddress((a) => a || savedWallet.address!)
@@ -310,13 +311,17 @@ export default function Wallet() {
         <div className="flex items-center gap-2">
           <ArrowDownToLine className="h-4 w-4 text-primary" />
           <h3 className="text-sm font-bold text-white">Request withdrawal</h3>
+          {payoutsEnabled ? (
+            <Badge variant="success" className="ml-auto">Open</Badge>
+          ) : (
+            <Badge variant="warning" className="ml-auto">Opening soon</Badge>
+          )}
         </div>
-        <div className="mt-2 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-amber-200">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          {withdrawals.data?.payoutsEnabled
-            ? 'Requests are recorded and reviewed. A payout is only marked paid after the provider confirms it on-chain.'
-            : 'Withdrawals are disabled for the MVP. Requests are recorded and reviewed, but no crypto is transferred.'}
-        </div>
+        {payoutsEnabled && !pending && (
+          <p className="mt-2 text-[11px] text-muted">
+            Requests are reviewed by an admin. A payout is marked paid only after the provider confirms it on-chain.
+          </p>
+        )}
 
         {pending ? (
           <div className="mt-3 rounded-xl border border-line bg-surface-2/50 p-3">
@@ -327,7 +332,7 @@ export default function Wallet() {
               <Button size="sm" variant="ghost" className="ml-auto" onClick={() => cancel(pending.id)} disabled={busy} iconLeft={<X className="h-3.5 w-3.5" />}>Cancel</Button>
             </div>
           </div>
-        ) : (
+        ) : payoutsEnabled ? (
           <form onSubmit={submitWithdrawal} className="mt-3 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-xs text-muted">
@@ -370,6 +375,14 @@ export default function Wallet() {
               Submit request
             </Button>
           </form>
+        ) : (
+          <div className="mt-3 rounded-xl border border-line bg-surface-2/50 p-3 text-[11px] text-muted">
+            <p className="font-semibold text-white">Withdrawals aren&apos;t open yet.</p>
+            <p className="mt-1">
+              Your Earned SP stays in your account. You&apos;ll be able to submit a request once payouts are enabled.
+              Bonus SP is never withdrawable.
+            </p>
+          </div>
         )}
       </Card>
 
