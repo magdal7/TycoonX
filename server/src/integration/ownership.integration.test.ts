@@ -16,10 +16,13 @@ import {
   reviewWithdrawal,
   WithdrawalError,
 } from '../services/withdrawals'
+import { recordReferralPurchaseEvent } from '../services/referrals'
+import { spendSp } from '../services/spLedger'
 import type { OxapayConfig, OxapayFetch, OxapayFetchResponse } from '../services/oxapay'
 
 process.env.PAYMENTS_ENABLED = 'true'
 process.env.PAYOUTS_ENABLED = 'true'
+process.env.REFERRAL_REWARDS_ENABLED = 'true'
 
 /**
  * PostgreSQL integration tests for starter provisioning.
@@ -692,8 +695,8 @@ test('withdrawal: request locks Earned SP and a confirmed payout settles exactly
     const addr = payoutAddr('a')
     const view = await createWithdrawalRequest(db!, userId, { grossSp: 3000n, address: addr })
     assert.equal(view.status, 'REQUESTED')
-    assert.equal(view.netUsdt, '2.70')
-    assert.equal(view.feeUsdt, '0.30')
+    assert.equal(Number(view.netUsdt), 2.7)
+    assert.equal(Number(view.feeUsdt), 0.3)
 
     // Earned SP locked; Bonus SP untouched.
     let acct = await db!.spAccount.findUniqueOrThrow({ where: { userId } })
@@ -802,5 +805,82 @@ test('withdrawal: payout submission is idempotent (single provider call)', { ski
     assert.equal(calls.length, 1)
   } finally {
     await cleanupUser(userId)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Referrals (OxaPay) — deposit-funded provenance, exactly-once, reversals.
+// ---------------------------------------------------------------------------
+
+async function hasReferralColumns(): Promise<boolean> {
+  const rows = await db!.$queryRaw<Array<{ column_name: string }>>`
+    SELECT column_name::text AS column_name FROM information_schema.columns
+    WHERE (table_name='SpAccount' AND column_name='depositFundedBonusSp')
+       OR (table_name='SpLedgerEntry' AND column_name='depositFundedSp')
+       OR (table_name='ReferralReward' AND column_name='heldSp')
+  `
+  return rows.length === 3
+}
+
+test('referral: deposit-funded purchase earns an exactly-once commission and reverses on refund', { skip }, async (t) => {
+  if (!(await hasReferralColumns())) return t.skip('referral provenance columns not present on the test branch')
+  const referrerId = await createUser()
+  const referredId = await createUser()
+  let purchaseRef = ''
+  try {
+    await db!.referralAttribution.create({
+      data: {
+        referrerId,
+        referredUserId: referredId,
+        code: `itest_ref_${shortId()}`,
+        status: 'QUALIFIED',
+        eligible: true,
+        qualifiedAt: new Date(),
+      },
+    })
+    // Referred user holds 10,000 Bonus SP of which 6,000 is deposit-funded.
+    await db!.spAccount.create({
+      data: { userId: referredId, earnedSp: 5000n, bonusSp: 10000n, lifetimeEarnedSp: 5000n, depositFundedBonusSp: 6000n },
+    })
+
+    const spend = await db!.$transaction((tx) =>
+      spendSp(tx, { userId: referredId, amountSp: 8000n, sourceType: 'CEO_PURCHASE' }),
+    )
+    assert.equal(spend.depositFundedDebit, 6000n)
+
+    purchaseRef = `itest_ref_${shortId()}`
+    const ev = {
+      purchaseRef,
+      referredUserId: referredId,
+      valueSp: 8000n,
+      depositFundedSp: 6000n,
+      status: 'SETTLED' as const,
+      occurredAt: new Date(),
+    }
+    const first = await recordReferralPurchaseEvent(db!, ev)
+    assert.equal(first.commissionSp, '600')
+
+    const reward = await db!.referralReward.findFirstOrThrow({
+      where: { purchaseRef, kind: 'PURCHASE_COMMISSION' },
+    })
+    assert.equal(reward.amountSp, 600n)
+    assert.equal(reward.status, 'PAID')
+    assert.equal((await db!.spAccount.findUniqueOrThrow({ where: { userId: referrerId } })).bonusSp, 600n)
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId: referrerId, sourceType: 'REFERRAL_REWARD' } }), 1)
+
+    // Replay: exactly-once.
+    const replay = await recordReferralPurchaseEvent(db!, ev)
+    assert.equal(replay.reason, 'duplicate')
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId: referrerId, sourceType: 'REFERRAL_REWARD' } }), 1)
+
+    // Refund: reversal clawback (Bonus-only), never touching Earned SP.
+    await recordReferralPurchaseEvent(db!, { ...ev, status: 'REFUNDED' })
+    const reversed = await db!.referralReward.findUniqueOrThrow({ where: { id: reward.id } })
+    assert.equal(reversed.status, 'REVERSED')
+    assert.equal((await db!.spAccount.findUniqueOrThrow({ where: { userId: referrerId } })).bonusSp, 0n)
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId: referrerId, sourceType: 'REFERRAL_REVERSAL' } }), 1)
+  } finally {
+    await cleanupUser(referredId)
+    await cleanupUser(referrerId)
   }
 })

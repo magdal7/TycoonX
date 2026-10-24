@@ -22,6 +22,7 @@ const STATUS: Record<WithdrawalErrorCode, number> = {
   not_found: 404,
   invalid_state: 409,
   cooldown: 409,
+  withdrawals_unavailable: 503,
   payouts_disabled: 503,
   payout_uncertain: 409,
   not_submitted: 409,

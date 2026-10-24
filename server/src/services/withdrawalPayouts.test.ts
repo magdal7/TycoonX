@@ -16,6 +16,10 @@ import {
 import { OxapayError, type OxapayConfig, type OxapayFetch, type OxapayFetchResponse } from './oxapay'
 import { minPayoutUsdt } from '../lib/payments'
 
+// New-request guard defaults to requiring payout operations to be available;
+// individual tests that exercise the disabled path delete this explicitly.
+process.env.PAYOUTS_ENABLED = 'true'
+
 interface WithdrawalRow {
   id: number
   userId: number
@@ -696,6 +700,28 @@ test('processPayoutWebhook re-evaluates a previously IGNORED event and settles o
     assert.equal(f.events[0].status, 'PROCESSED')
   } finally {
     if (saved === undefined) delete process.env.PAYOUTS_ENABLED
+    else process.env.PAYOUTS_ENABLED = saved
+  }
+})
+
+test('createWithdrawalRequest is blocked while payout operations are unavailable', async () => {
+  const saved = process.env.PAYOUTS_ENABLED
+  delete process.env.PAYOUTS_ENABLED
+  try {
+    const f = new FakePrisma()
+    f.accounts.push({ userId: 1, earnedSp: 9000n, bonusSp: 0n, lifetimeEarnedSp: 9000n, version: 0 })
+    f.users.push({ id: 1, withdrawalWallet: null, withdrawalWalletChangedAt: null })
+    await assert.rejects(
+      () => createWithdrawalRequest(asClient(f), 1, { grossSp: 3000n, address: '0x' + 'a'.repeat(40) }),
+      (e: unknown) => e instanceof WithdrawalError && e.code === 'withdrawals_unavailable',
+    )
+    // No request created, no SP locked, wallet untouched.
+    assert.equal(f.withdrawals.length, 0)
+    assert.equal(f.accounts[0].earnedSp, 9000n)
+    assert.equal(f.ledger.length, 0)
+    assert.equal(f.users[0].withdrawalWallet, null)
+  } finally {
+    if (saved === undefined) process.env.PAYOUTS_ENABLED = 'true'
     else process.env.PAYOUTS_ENABLED = saved
   }
 })

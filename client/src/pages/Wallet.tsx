@@ -126,7 +126,8 @@ export default function Wallet() {
       setAddress('')
       reloadAll()
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Request failed')
+      const msg = err instanceof Error ? err.message : 'Request failed'
+      setNotice(msg === 'withdrawals_unavailable' ? "Withdrawals aren't open yet." : msg)
     } finally {
       setBusy(false)
     }

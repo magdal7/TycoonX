@@ -40,6 +40,7 @@ export type WithdrawalErrorCode =
   | 'not_found'
   | 'invalid_state'
   | 'cooldown'
+  | 'withdrawals_unavailable'
   | 'payouts_disabled'
   | 'payout_uncertain'
   | 'not_submitted'
@@ -119,6 +120,10 @@ export async function createWithdrawalRequest(
   userId: number,
   input: { grossSp: bigint; address: string },
 ): Promise<WithdrawalView> {
+  // Server-side availability guard: no NEW requests while payout operations are
+  // unavailable. Existing history, Admin review, cancellation/release, and any
+  // already-submitted payouts remain accessible.
+  if (!isPayoutsEnabled()) throw new WithdrawalError('withdrawals_unavailable')
   if (input.grossSp < MIN_GROSS_SP) throw new WithdrawalError('below_minimum')
   if (!validAddress(input.address)) throw new WithdrawalError('invalid_address')
   // The net amount must clear the provider's live payout minimum (USDT/BSC).

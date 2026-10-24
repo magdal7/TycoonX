@@ -527,7 +527,7 @@ export async function recordReferralPurchaseEvent(
       }
 
       return { ignored: false, eventId: event.id, commissionSp: amount.toString(), qualifiedNow }
-    })
+    }, { maxWait: 15_000, timeout: 30_000 })
   } catch (error) {
     if (isUniqueViolation(error)) {
       const existing = await db.referralPurchaseEvent.findUnique({ where: { purchaseRef: input.purchaseRef } })
