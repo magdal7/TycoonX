@@ -9,6 +9,7 @@ import {
   type ReferralErrorCode,
 } from './referrals'
 import { invalidateSiteSettingsCache } from './siteSettings'
+import { clawbackBonusSp, spendSp } from './spLedger'
 
 type RefStatus = 'PENDING' | 'QUALIFIED' | 'REJECTED' | 'REVOKED'
 type RewardStatus = 'PENDING' | 'PAID' | 'REVERSED'
@@ -38,6 +39,7 @@ interface RewardRow {
   paidAt: Date | null
   reversedAt: Date | null
   reason: string | null
+  heldSp?: bigint
 }
 interface EventRow {
   id: number
@@ -59,8 +61,8 @@ class FakePrisma {
   rewards: RewardRow[] = []
   events: EventRow[] = []
   audits: Array<{ actorId: number; action: string; targetType: string; targetId: string }> = []
-  accounts: Array<{ userId: number; earnedSp: bigint; bonusSp: bigint; lifetimeEarnedSp: bigint; version: number }> = []
-  ledger: Array<{ id: number; userId: number; bucket: string; amountSp: bigint; sourceType: string; sourceId: bigint | null }> = []
+  accounts: Array<{ userId: number; earnedSp: bigint; bonusSp: bigint; lifetimeEarnedSp: bigint; depositFundedBonusSp?: bigint; version: number }> = []
+  ledger: Array<{ id: number; userId: number; bucket: string; amountSp: bigint; sourceType: string; sourceId: bigint | null; depositFundedSp?: bigint }> = []
   private seq = 1
 
   private username(id: number) {
@@ -98,7 +100,7 @@ class FakePrisma {
         if (args?.include?.rewards) {
           rows = rows.map((a) => ({
             ...a,
-            rewards: this.rewards.filter((r) => r.referralId === (a as Attr).id).map((r) => ({ kind: r.kind, status: r.status, amountSp: r.amountSp, currency: r.currency })),
+            rewards: this.rewards.filter((r) => r.referralId === (a as Attr).id).map((r) => ({ kind: r.kind, status: r.status, amountSp: r.amountSp, heldSp: r.heldSp ?? 0n, currency: r.currency, purchaseRef: r.purchaseRef, createdAt: new Date(), reversedAt: r.reversedAt })),
           })) as unknown as Attr[]
         }
       }
@@ -111,6 +113,11 @@ class FakePrisma {
       if (w.status !== undefined && row.status !== w.status) return { count: 0 }
       Object.assign(row, args.data)
       return { count: 1 }
+    },
+    update: async (args: any): Promise<Attr> => {
+      const row = this.attributions.find((a) => a.id === args?.where?.id)!
+      Object.assign(row, args.data)
+      return row
     },
   }
 
@@ -152,6 +159,15 @@ class FakePrisma {
       )
       for (const r of rows) Object.assign(r, args.data)
       return { count: rows.length }
+    },
+    findUnique: async (args: any): Promise<RewardRow | null> => {
+      const k = args?.where?.referralId_kind_purchaseRef
+      if (!k) return null
+      return (
+        this.rewards.find(
+          (r) => r.referralId === k.referralId && r.kind === k.kind && r.purchaseRef === k.purchaseRef,
+        ) ?? null
+      )
     },
     findMany: async (args: any): Promise<any[]> => {
       const refFilter = args?.where?.referral
@@ -195,6 +211,15 @@ class FakePrisma {
       Object.assign(row, args.data)
       return row
     },
+    count: async (args: any): Promise<number> => {
+      const w = args?.where ?? {}
+      return this.events.filter(
+        (e) =>
+          (w.referralId === undefined || e.referralId === w.referralId) &&
+          (w.status === undefined || e.status === w.status) &&
+          (w.purchaseRef?.not === undefined || e.purchaseRef !== w.purchaseRef.not),
+      ).length
+    },
   }
 
   adminAuditLog = {
@@ -206,19 +231,46 @@ class FakePrisma {
   }
 
   spAccount = {
+    findUnique: async (args: any) => this.accounts.find((a) => a.userId === args?.where?.userId) ?? null,
     findUniqueOrThrow: async (args: any) => this.accounts.find((a) => a.userId === args?.where?.userId)!,
     upsert: async (args: any) => {
       const userId = args.where.userId
       let row = this.accounts.find((a) => a.userId === userId)
       if (!row) {
-        row = { userId, earnedSp: args.create.earnedSp ?? 0n, bonusSp: args.create.bonusSp ?? 0n, lifetimeEarnedSp: args.create.lifetimeEarnedSp ?? 0n, version: 0 }
+        row = {
+          userId,
+          earnedSp: args.create.earnedSp ?? 0n,
+          bonusSp: args.create.bonusSp ?? 0n,
+          lifetimeEarnedSp: args.create.lifetimeEarnedSp ?? 0n,
+          depositFundedBonusSp: args.create.depositFundedBonusSp ?? 0n,
+          version: 0,
+        }
         this.accounts.push(row)
       } else {
         if (args.update.bonusSp?.increment) row.bonusSp += BigInt(args.update.bonusSp.increment)
         if (args.update.earnedSp?.increment) row.earnedSp += BigInt(args.update.earnedSp.increment)
         if (args.update.lifetimeEarnedSp?.increment) row.lifetimeEarnedSp += BigInt(args.update.lifetimeEarnedSp.increment)
+        if (args.update.depositFundedBonusSp?.increment) {
+          row.depositFundedBonusSp = (row.depositFundedBonusSp ?? 0n) + BigInt(args.update.depositFundedBonusSp.increment)
+        }
       }
       return row
+    },
+    updateMany: async (args: any): Promise<{ count: number }> => {
+      const row = this.accounts.find((a) => a.userId === args?.where?.userId)
+      if (!row) return { count: 0 }
+      const minBonus = args.where.bonusSp?.gte
+      if (minBonus !== undefined && row.bonusSp < minBonus) return { count: 0 }
+      const minEarned = args.where.earnedSp?.gte
+      if (minEarned !== undefined && row.earnedSp < minEarned) return { count: 0 }
+      const minDeposit = args.where.depositFundedBonusSp?.gte
+      if (minDeposit !== undefined && (row.depositFundedBonusSp ?? 0n) < minDeposit) return { count: 0 }
+      if (args.data.bonusSp?.decrement) row.bonusSp -= BigInt(args.data.bonusSp.decrement)
+      if (args.data.earnedSp?.decrement) row.earnedSp -= BigInt(args.data.earnedSp.decrement)
+      if (args.data.depositFundedBonusSp?.decrement) {
+        row.depositFundedBonusSp = (row.depositFundedBonusSp ?? 0n) - BigInt(args.data.depositFundedBonusSp.decrement)
+      }
+      return { count: 1 }
     },
   }
 
@@ -337,6 +389,7 @@ test('purchase events are ignored for non-referred users', async () => {
     purchaseRef: 'p1',
     referredUserId: 999,
     valueSp: 10000n,
+    depositFundedSp: 10000n,
     status: 'SETTLED',
     occurredAt: new Date(),
   })
@@ -351,6 +404,7 @@ test('a settled purchase records a 10% commission reward (pending, rewards disab
     purchaseRef: 'pay_1',
     referredUserId: 2,
     valueSp: 10000n,
+    depositFundedSp: 10000n,
     status: 'SETTLED',
     occurredAt: new Date('2026-01-05T00:00:00Z'),
   })
@@ -365,7 +419,7 @@ test('a settled purchase records a 10% commission reward (pending, rewards disab
 test('duplicate payment events do not double-record a commission', async () => {
   const f = new FakePrisma()
   seedReferral(f, 'QUALIFIED')
-  const input = { purchaseRef: 'pay_2', referredUserId: 2, valueSp: 5000n, status: 'SETTLED' as const, occurredAt: new Date() }
+  const input = { purchaseRef: 'pay_2', referredUserId: 2, valueSp: 5000n, depositFundedSp: 5000n, status: 'SETTLED' as const, occurredAt: new Date() }
   await recordReferralPurchaseEvent(asClient(f), input)
   const again = await recordReferralPurchaseEvent(asClient(f), input)
   assert.equal(again.ignored, true)
@@ -377,10 +431,10 @@ test('duplicate payment events do not double-record a commission', async () => {
 test('refunds and chargebacks reverse a recorded commission', async () => {
   const f = new FakePrisma()
   seedReferral(f, 'QUALIFIED')
-  await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_3', referredUserId: 2, valueSp: 20000n, status: 'SETTLED', occurredAt: new Date() })
+  await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_3', referredUserId: 2, valueSp: 20000n, depositFundedSp: 20000n, status: 'SETTLED', occurredAt: new Date() })
   assert.equal(f.rewards[0].status, 'PENDING')
 
-  await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_3', referredUserId: 2, valueSp: 20000n, status: 'REFUNDED', occurredAt: new Date() })
+  await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_3', referredUserId: 2, valueSp: 20000n, depositFundedSp: 20000n, status: 'REFUNDED', occurredAt: new Date() })
   assert.equal(f.rewards[0].status, 'REVERSED')
   assert.equal(f.rewards.length, 1)
 })
@@ -392,6 +446,7 @@ test('failed payments never earn a commission', async () => {
     purchaseRef: 'pay_4',
     referredUserId: 2,
     valueSp: 10000n,
+    depositFundedSp: 10000n,
     status: 'FAILED',
     occurredAt: new Date(),
   })
@@ -400,19 +455,97 @@ test('failed payments never earn a commission', async () => {
   assert.equal(f.rewards.length, 0)
 })
 
-test('purchases for non-qualified referrals do not earn commission', async () => {
+test('a rejected referral is never resurrected by a purchase', async () => {
   const f = new FakePrisma()
-  seedReferral(f, 'PENDING')
+  seedReferral(f, 'REJECTED')
   const result = await recordReferralPurchaseEvent(asClient(f), {
     purchaseRef: 'pay_5',
     referredUserId: 2,
     valueSp: 10000n,
+    depositFundedSp: 10000n,
     status: 'SETTLED',
     occurredAt: new Date(),
   })
   assert.equal(result.ignored, true)
   assert.equal(result.reason, 'not_qualified')
+  assert.equal(f.attributions[0].status, 'REJECTED')
   assert.equal(f.rewards.length, 0)
+})
+
+test('commission is computed on the deposit-funded portion only', async () => {
+  const f = new FakePrisma()
+  seedReferral(f, 'QUALIFIED')
+  // 10,000 SP purchase, but only 4,000 SP came from confirmed deposits.
+  const result = await recordReferralPurchaseEvent(asClient(f), {
+    purchaseRef: 'pay_mix',
+    referredUserId: 2,
+    valueSp: 10000n,
+    depositFundedSp: 4000n,
+    status: 'SETTLED',
+    occurredAt: new Date(),
+  })
+  assert.equal(result.commissionSp, '400')
+  assert.equal(f.rewards[0].kind, 'PURCHASE_COMMISSION')
+  assert.equal(f.rewards[0].amountSp, 400n)
+})
+
+test('a fully non-deposit (promotional) purchase earns no commission', async () => {
+  const f = new FakePrisma()
+  seedReferral(f, 'QUALIFIED')
+  const result = await recordReferralPurchaseEvent(asClient(f), {
+    purchaseRef: 'pay_free',
+    referredUserId: 2,
+    valueSp: 10000n,
+    depositFundedSp: 0n,
+    status: 'SETTLED',
+    occurredAt: new Date(),
+  })
+  assert.equal(result.commissionSp, '0')
+  assert.equal(f.rewards.filter((r) => r.kind === 'PURCHASE_COMMISSION').length, 0)
+})
+
+test('the FIRST eligible settled purchase auto-qualifies the referral (once)', async () => {
+  await withRewards(async () => {
+    const f = new FakePrisma()
+    seedReferral(f, 'PENDING')
+    const first = await recordReferralPurchaseEvent(asClient(f), {
+      purchaseRef: 'pay_q1',
+      referredUserId: 2,
+      valueSp: 10000n,
+      depositFundedSp: 10000n,
+      status: 'SETTLED',
+      occurredAt: new Date(),
+    })
+    assert.equal(first.qualifiedNow, true)
+    assert.equal(f.attributions[0].status, 'QUALIFIED')
+    const bonus = f.rewards.find((r) => r.kind === 'REGISTRATION_BONUS')!
+    assert.equal(bonus.status, 'PAID')
+    assert.equal(bonus.amountSp, 10n)
+    assert.equal(f.accounts.find((a) => a.userId === 1)!.bonusSp, 10n + 1000n)
+    assert.equal(f.ledger.filter((l) => l.sourceType === 'REFERRAL_REWARD').length, 2)
+
+    await recordReferralPurchaseEvent(asClient(f), {
+      purchaseRef: 'pay_q2',
+      referredUserId: 2,
+      valueSp: 5000n,
+      depositFundedSp: 5000n,
+      status: 'SETTLED',
+      occurredAt: new Date(),
+    })
+    assert.equal(f.rewards.filter((r) => r.kind === 'REGISTRATION_BONUS').length, 1)
+  })
+})
+
+test('repeated eligible purchases earn recurring commission', async () => {
+  await withRewards(async () => {
+    const f = new FakePrisma()
+    seedReferral(f, 'QUALIFIED')
+    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'r1', referredUserId: 2, valueSp: 10000n, depositFundedSp: 10000n, status: 'SETTLED', occurredAt: new Date() })
+    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'r2', referredUserId: 2, valueSp: 20000n, depositFundedSp: 20000n, status: 'SETTLED', occurredAt: new Date() })
+    const commissions = f.rewards.filter((r) => r.kind === 'PURCHASE_COMMISSION')
+    assert.equal(commissions.length, 2)
+    assert.equal(f.accounts.find((a) => a.userId === 1)!.bonusSp, 3000n)
+  })
 })
 
 test('enabling rewards credits the registration bonus exactly once', async () => {
@@ -438,7 +571,7 @@ test('enabling rewards credits a purchase commission exactly once and is replay-
   await withRewards(async () => {
     const f = new FakePrisma()
     seedReferral(f, 'QUALIFIED')
-    const input = { purchaseRef: 'pay_on', referredUserId: 2, valueSp: 10000n, status: 'SETTLED' as const, occurredAt: new Date() }
+    const input = { purchaseRef: 'pay_on', referredUserId: 2, valueSp: 10000n, depositFundedSp: 10000n, status: 'SETTLED' as const, occurredAt: new Date() }
     const first = await recordReferralPurchaseEvent(asClient(f), input)
     assert.equal(first.commissionSp, '1000')
     assert.equal(f.rewards[0].status, 'PAID')
@@ -452,18 +585,62 @@ test('enabling rewards credits a purchase commission exactly once and is replay-
   })
 })
 
-test('a refund after payout marks the commission reversed (funds frozen for review)', async () => {
+test('a refund after payout reverses the commission and claws back Bonus-only', async () => {
   await withRewards(async () => {
     const f = new FakePrisma()
     seedReferral(f, 'QUALIFIED')
-    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_rf', referredUserId: 2, valueSp: 10000n, status: 'SETTLED', occurredAt: new Date() })
-    assert.equal(f.rewards[0].status, 'PAID')
+    f.accounts.push({ userId: 1, earnedSp: 5000n, bonusSp: 1000n, lifetimeEarnedSp: 5000n, depositFundedBonusSp: 1000n, version: 0 })
+    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_rf', referredUserId: 2, valueSp: 10000n, depositFundedSp: 10000n, status: 'SETTLED', occurredAt: new Date() })
+    const commission = f.rewards.find((r) => r.kind === 'PURCHASE_COMMISSION')!
+    assert.equal(commission.status, 'PAID')
+    assert.equal(f.accounts[0].bonusSp, 2000n)
 
-    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_rf', referredUserId: 2, valueSp: 10000n, status: 'REFUNDED', occurredAt: new Date() })
-    assert.equal(f.rewards[0].status, 'REVERSED')
-    assert.equal(f.rewards[0].reversedAt instanceof Date, true)
-    assert.equal(f.rewards.length, 1)
-    assert.equal(f.ledger.filter((l) => l.sourceType === 'REFERRAL_REWARD').length, 1)
+    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_rf', referredUserId: 2, valueSp: 10000n, depositFundedSp: 10000n, status: 'REFUNDED', occurredAt: new Date() })
+    assert.equal(commission.status, 'REVERSED')
+    assert.equal(commission.heldSp, 0n)
+    assert.equal(f.accounts[0].bonusSp, 1000n)
+    assert.equal(f.accounts[0].earnedSp, 5000n)
+    assert.equal(f.ledger.filter((l) => l.sourceType === 'REFERRAL_REVERSAL').length, 1)
+
+    // Reversing again is idempotent (no second clawback).
+    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_rf', referredUserId: 2, valueSp: 10000n, depositFundedSp: 10000n, status: 'REFUNDED', occurredAt: new Date() })
+    assert.equal(f.ledger.filter((l) => l.sourceType === 'REFERRAL_REVERSAL').length, 1)
+  })
+})
+
+test('spent-bonus reversal holds the shortfall and never deducts Earned SP', async () => {
+  await withRewards(async () => {
+    const f = new FakePrisma()
+    seedReferral(f, 'QUALIFIED')
+    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_h', referredUserId: 2, valueSp: 10000n, depositFundedSp: 10000n, status: 'SETTLED', occurredAt: new Date() })
+    const commission = f.rewards.find((r) => r.kind === 'PURCHASE_COMMISSION')!
+    assert.equal(commission.status, 'PAID')
+    // The referrer already spent the commission; only 400 Bonus SP remains.
+    f.accounts[0].bonusSp = 400n
+    f.accounts[0].depositFundedBonusSp = 0n
+    const earnedBefore = f.accounts[0].earnedSp
+
+    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_h', referredUserId: 2, valueSp: 10000n, depositFundedSp: 10000n, status: 'REFUNDED', occurredAt: new Date() })
+    assert.equal(commission.status, 'REVERSED')
+    assert.equal(commission.heldSp, 600n)
+    assert.equal(f.accounts[0].bonusSp, 0n)
+    assert.equal(f.accounts[0].earnedSp, earnedBefore)
+  })
+})
+
+test('refunding the qualifying purchase invalidates qualification and its reward', async () => {
+  await withRewards(async () => {
+    const f = new FakePrisma()
+    seedReferral(f, 'PENDING')
+    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_q', referredUserId: 2, valueSp: 10000n, depositFundedSp: 10000n, status: 'SETTLED', occurredAt: new Date() })
+    assert.equal(f.attributions[0].status, 'QUALIFIED')
+    const bonus = f.rewards.find((r) => r.kind === 'REGISTRATION_BONUS')!
+    assert.equal(bonus.status, 'PAID')
+
+    await recordReferralPurchaseEvent(asClient(f), { purchaseRef: 'pay_q', referredUserId: 2, valueSp: 10000n, depositFundedSp: 10000n, status: 'REFUNDED', occurredAt: new Date() })
+    assert.equal(bonus.status, 'REVERSED')
+    assert.equal(f.attributions[0].status, 'PENDING')
+    assert.equal(f.attributions[0].qualifiedAt, null)
   })
 })
 
@@ -482,4 +659,37 @@ test('player summary exposes code, link, totals and pending rewards', async () =
   assert.equal(summary.registrationBonusSp, '10')
   assert.equal(summary.commissionPercent, '10')
   assert.equal(summary.history[0].referredUsername, 'bob')
+})
+
+test('spendSp consumes deposit-funded Bonus SP first (deterministic provenance)', async () => {
+  const f = new FakePrisma()
+  f.accounts.push({ userId: 1, earnedSp: 5000n, bonusSp: 10000n, lifetimeEarnedSp: 5000n, depositFundedBonusSp: 6000n, version: 0 })
+  const res = await spendSp(asClient(f), { userId: 1, amountSp: 8000n, sourceType: 'CEO_PURCHASE' })
+  assert.equal(res.bonusDebit, 8000n)
+  assert.equal(res.earnedDebit, 0n)
+  assert.equal(res.depositFundedDebit, 6000n)
+  assert.equal(f.accounts[0].bonusSp, 2000n)
+  assert.equal(f.accounts[0].depositFundedBonusSp, 0n)
+})
+
+test('mixed funding: Earned SP and non-deposit Bonus SP are not commissionable', async () => {
+  const f = new FakePrisma()
+  f.accounts.push({ userId: 1, earnedSp: 5000n, bonusSp: 6000n, lifetimeEarnedSp: 5000n, depositFundedBonusSp: 6000n, version: 0 })
+  const res = await spendSp(asClient(f), { userId: 1, amountSp: 10000n, sourceType: 'CEO_PURCHASE' })
+  assert.equal(res.bonusDebit, 6000n)
+  assert.equal(res.earnedDebit, 4000n)
+  assert.equal(res.depositFundedDebit, 6000n)
+  assert.equal(f.accounts[0].earnedSp, 1000n)
+})
+
+test('clawbackBonusSp never touches Earned SP and recovers deposit-funded last', async () => {
+  const f = new FakePrisma()
+  f.accounts.push({ userId: 1, earnedSp: 7000n, bonusSp: 500n, lifetimeEarnedSp: 7000n, depositFundedBonusSp: 500n, version: 0 })
+  const res = await clawbackBonusSp(asClient(f), { userId: 1, amountSp: 1000n, sourceId: 99n })
+  assert.equal(res.recovered, 500n)
+  assert.equal(res.held, 500n)
+  assert.equal(f.accounts[0].earnedSp, 7000n)
+  assert.equal(f.accounts[0].bonusSp, 0n)
+  assert.equal(f.accounts[0].depositFundedBonusSp, 0n)
+  assert.equal(f.ledger.filter((l) => l.sourceType === 'REFERRAL_REVERSAL').length, 1)
 })

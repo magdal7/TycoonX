@@ -29,6 +29,30 @@ Last updated: 2026-10-24.
   (now a mapped 409/422); production `TRUST_PROXY=1` (Caddy behind Cloudflare) so rate limiting is
   no longer keyed on `127.0.0.1`; Wallet/Market copy reflects live flags.
 
+## Referral rewards implemented (2026-10-25) — activation BLOCKED on migration
+Implemented the approved referral economics on top of the existing system (minimal changes).
+- **Funding provenance:** `SpAccount.depositFundedBonusSp`, `SpLedgerEntry.depositFundedSp`,
+  `CeoPurchase.depositFundedSp`, `ReferralPurchaseEvent.depositFundedSp`, `ReferralReward.heldSp`, and a
+  new `SpSourceType.REFERRAL_REVERSAL`. Only `DEPOSIT_CREDIT` Bonus SP (`depositFunded: true`) counts;
+  legacy/ promotional Bonus SP is NOT reclassified.
+- **Deterministic allocation:** purchases spend deposit-funded Bonus SP first, then other Bonus SP, then
+  Earned SP; the deposit-funded portion is the ONLY commission base.
+- **Qualification:** the first eligible confirmed purchase auto-qualifies the invitee and credits the
+  10 Bonus SP reward exactly once (manual Admin review preserved).
+- **Commission:** recurring 10% Bonus SP on the deposit-funded portion only (exactly-once via the reward
+  unique key).
+- **Reversal:** refunds/chargebacks reverse the commission and, if the qualifying purchase is reversed,
+  invalidate qualification + its reward. Recovery is **Bonus-only** (non-deposit first, then
+  deposit-funded); any shortfall is recorded as `heldSp` — Earned SP is never touched.
+- **UI:** Referrals page (rules, commission + reversal history, held amounts) and Admin reward records.
+- **Migration (prepared, NOT applied):** `20261025000000_v25_referral_provenance` (additive; 5 columns +
+  1 enum value).
+- **BLOCKER:** the new code reads the new columns, so it MUST NOT be deployed before the migration is
+  applied. The guarded Neon migration workflows need GitHub dispatch (`gh`) and `psql`; neither is
+  available here. `REFERRAL_REWARDS_ENABLED` stays **false** until the migration is applied to the
+  production branch, the isolated integration branch is migrated and integration tests pass, and the
+  code is deployed (migration first, deploy second).
+
 ## Withdrawal system hardening (2026-10-24)
 Prepared the existing OxaPay withdrawal system for real production use. `PAYOUTS_ENABLED` remains
 `false` pending provider funding/permissions/compliance confirmation.

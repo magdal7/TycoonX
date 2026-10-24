@@ -9,7 +9,7 @@ import {
   type ReferralPurchaseStatusName,
   type ReferralRewardStatusName,
 } from '../lib/referralRules'
-import { creditSp } from './spLedger'
+import { clawbackBonusSp, creditSp } from './spLedger'
 import { getSiteSettings } from './siteSettings'
 
 export type ReferralErrorCode =
@@ -45,7 +45,18 @@ export async function getPlayerReferralSummary(db: PrismaClient, userId: number)
       take: 200,
       include: {
         referredUser: { select: { username: true, createdAt: true } },
-        rewards: { select: { kind: true, status: true, amountSp: true, currency: true } },
+        rewards: {
+          select: {
+            kind: true,
+            status: true,
+            amountSp: true,
+            heldSp: true,
+            currency: true,
+            purchaseRef: true,
+            createdAt: true,
+            reversedAt: true,
+          },
+        },
       },
     }),
     db.referralReward.findMany({
@@ -84,7 +95,10 @@ export async function getPlayerReferralSummary(db: PrismaClient, userId: number)
         kind: r.kind,
         status: r.status,
         amountSp: r.amountSp.toString(),
+        heldSp: r.heldSp.toString(),
         currency: r.currency,
+        purchaseRef: r.purchaseRef || null,
+        reversedAt: r.reversedAt ? r.reversedAt.toISOString() : null,
       })),
     })),
   }
@@ -265,6 +279,7 @@ export async function listAdminReferralRewards(
     kind: r.kind,
     status: r.status,
     amountSp: r.amountSp.toString(),
+    heldSp: r.heldSp.toString(),
     currency: r.currency,
     purchaseRef: r.purchaseRef || null,
     createdAt: r.createdAt.toISOString(),
@@ -280,7 +295,10 @@ export async function listAdminReferralRewards(
 export interface RecordPurchaseEventInput {
   purchaseRef: string
   referredUserId: number
+  /** Full purchase value in SP (audit only). */
   valueSp: bigint
+  /** Deposit-funded portion of the purchase = the referral commission base (SP). */
+  depositFundedSp: bigint
   status: ReferralPurchaseStatusName
   occurredAt: Date
   metadata?: Prisma.InputJsonValue
@@ -291,6 +309,33 @@ export interface RecordPurchaseEventResult {
   reason?: 'not_referred' | 'not_qualified' | 'non_earning' | 'duplicate'
   eventId?: number
   commissionSp?: string
+  qualifiedNow?: boolean
+}
+
+/**
+ * Idempotent clawback of an already-credited referral reward. Recovers Bonus SP
+ * only (never Earned) and records any shortfall as a hold on the reward. Safe to
+ * call once per reward; the ledger's unique key is the final backstop.
+ */
+async function reverseReferralReward(
+  tx: Prisma.TransactionClient,
+  reward: { id: number; referrerId: number; amountSp: bigint; status: string },
+  reason: string,
+): Promise<void> {
+  let held = 0n
+  if (reward.status === 'PAID') {
+    const result = await clawbackBonusSp(tx, {
+      userId: reward.referrerId,
+      amountSp: reward.amountSp,
+      sourceId: BigInt(reward.id),
+      metadata: { reason, rewardId: reward.id },
+    })
+    held = result.held
+  }
+  await tx.referralReward.update({
+    where: { id: reward.id },
+    data: { status: 'REVERSED', reversedAt: new Date(), reason, heldSp: held },
+  })
 }
 
 /**
@@ -323,6 +368,7 @@ export async function recordReferralPurchaseEvent(
             data: {
               status: input.status,
               valueSp: input.valueSp,
+              depositFundedSp: input.depositFundedSp,
               occurredAt: input.occurredAt,
               metadata: input.metadata,
             },
@@ -333,35 +379,119 @@ export async function recordReferralPurchaseEvent(
               referredUserId: input.referredUserId,
               purchaseRef: input.purchaseRef,
               valueSp: input.valueSp,
+              depositFundedSp: input.depositFundedSp,
               status: input.status,
               occurredAt: input.occurredAt,
               metadata: input.metadata,
             },
           })
 
-      // Refunds/chargebacks reverse any commission recorded for this purchase.
+      // Refunds/chargebacks: reverse the commission and, if this was the
+      // qualifying first purchase, invalidate the qualification + reverse its
+      // reward (Bonus-only recovery; any shortfall is held on the reward).
       if (isReversalPurchaseStatus(input.status)) {
-        await tx.referralReward.updateMany({
+        const commission = await tx.referralReward.findUnique({
           where: {
-            referralId: referral.id,
-            kind: 'PURCHASE_COMMISSION',
-            purchaseRef: input.purchaseRef,
-            status: { not: 'REVERSED' },
+            referralId_kind_purchaseRef: {
+              referralId: referral.id,
+              kind: 'PURCHASE_COMMISSION',
+              purchaseRef: input.purchaseRef,
+            },
           },
-          data: { status: 'REVERSED', reversedAt: new Date(), reason: input.status.toLowerCase() },
         })
+        if (commission && commission.status !== 'REVERSED') {
+          await reverseReferralReward(
+            tx,
+            {
+              id: commission.id,
+              referrerId: referral.referrerId,
+              amountSp: commission.amountSp,
+              status: commission.status,
+            },
+            input.status.toLowerCase(),
+          )
+        }
+
+        const remainingSettled = await tx.referralPurchaseEvent.count({
+          where: { referralId: referral.id, status: 'SETTLED', purchaseRef: { not: input.purchaseRef } },
+        })
+        const fresh = await tx.referralAttribution.findUnique({ where: { id: referral.id } })
+        if (remainingSettled === 0 && fresh?.status === 'QUALIFIED') {
+          const bonus = await tx.referralReward.findUnique({
+            where: {
+              referralId_kind_purchaseRef: { referralId: referral.id, kind: 'REGISTRATION_BONUS', purchaseRef: '' },
+            },
+          })
+          if (bonus && bonus.status !== 'REVERSED') {
+            await reverseReferralReward(
+              tx,
+              { id: bonus.id, referrerId: referral.referrerId, amountSp: bonus.amountSp, status: bonus.status },
+              'qualification_invalidated',
+            )
+          }
+          await tx.referralAttribution.update({
+            where: { id: referral.id },
+            data: { status: 'PENDING', eligible: false, qualifiedAt: null },
+          })
+        }
         return { ignored: false, eventId: event.id }
       }
 
-      if (isNonEarningPurchaseStatus(input.status) || referral.status !== 'QUALIFIED') {
-        return {
-          ignored: true,
-          reason: referral.status !== 'QUALIFIED' ? 'not_qualified' : 'non_earning',
-          eventId: event.id,
+      if (isNonEarningPurchaseStatus(input.status)) {
+        return { ignored: true, reason: 'non_earning', eventId: event.id }
+      }
+
+      // Auto-qualify on the FIRST eligible confirmed purchase (once).
+      let qualifiedNow = false
+      let status: ReferralStatusName = referral.status
+      if (status === 'PENDING' && input.status === 'SETTLED' && input.valueSp > 0n) {
+        const guard = await tx.referralAttribution.updateMany({
+          where: { id: referral.id, status: 'PENDING' },
+          data: { status: 'QUALIFIED', eligible: true, qualifiedAt: new Date() },
+        })
+        if (guard.count === 1) {
+          status = 'QUALIFIED'
+          qualifiedNow = true
+          const amount = BigInt(config.registrationBonusSp)
+          const reward = await tx.referralReward.upsert({
+            where: {
+              referralId_kind_purchaseRef: { referralId: referral.id, kind: 'REGISTRATION_BONUS', purchaseRef: '' },
+            },
+            create: {
+              referralId: referral.id,
+              kind: 'REGISTRATION_BONUS',
+              amountSp: amount,
+              currency: config.commissionCurrency,
+            },
+            update: {},
+          })
+          if (config.rewardsEnabled && reward.status === 'PENDING') {
+            await creditSp(tx, {
+              userId: referral.referrerId,
+              bucket: 'BONUS',
+              amountSp: amount,
+              sourceType: 'REFERRAL_REWARD',
+              sourceId: BigInt(reward.id),
+              metadata: { referralId: referral.id, kind: 'REGISTRATION_BONUS' },
+            })
+            await tx.referralReward.update({ where: { id: reward.id }, data: { status: 'PAID', paidAt: new Date() } })
+          }
+        } else {
+          const refresh = await tx.referralAttribution.findUnique({ where: { id: referral.id } })
+          status = (refresh?.status as ReferralStatusName) ?? status
         }
       }
 
-      const amount = commissionSp(input.valueSp, config.commissionBps)
+      if (status !== 'QUALIFIED') {
+        return { ignored: true, reason: 'not_qualified', eventId: event.id }
+      }
+
+      // Commission is on the DEPOSIT-FUNDED portion only.
+      const amount = commissionSp(input.depositFundedSp, config.commissionBps)
+      if (amount <= 0n) {
+        return { ignored: false, eventId: event.id, commissionSp: '0', qualifiedNow }
+      }
+
       const reward = await tx.referralReward.upsert({
         where: {
           referralId_kind_purchaseRef: {
@@ -380,19 +510,23 @@ export async function recordReferralPurchaseEvent(
         update: {},
       })
 
-      if (config.rewardsEnabled && reward.status === 'PENDING' && amount > 0n) {
+      if (config.rewardsEnabled && reward.status === 'PENDING') {
         await creditSp(tx, {
           userId: referral.referrerId,
           bucket: 'BONUS',
           amountSp: amount,
           sourceType: 'REFERRAL_REWARD',
           sourceId: BigInt(reward.id),
-          metadata: { referralId: referral.id, purchaseRef: input.purchaseRef },
+          metadata: {
+            referralId: referral.id,
+            purchaseRef: input.purchaseRef,
+            depositFundedSp: input.depositFundedSp.toString(),
+          },
         })
         await tx.referralReward.update({ where: { id: reward.id }, data: { status: 'PAID', paidAt: new Date() } })
       }
 
-      return { ignored: false, eventId: event.id, commissionSp: amount.toString() }
+      return { ignored: false, eventId: event.id, commissionSp: amount.toString(), qualifiedNow }
     })
   } catch (error) {
     if (isUniqueViolation(error)) {

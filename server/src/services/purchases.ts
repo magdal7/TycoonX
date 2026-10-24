@@ -71,6 +71,7 @@ export async function createPurchase(
             row: existing,
             ceoName: undefined as string | undefined,
             priceSp: usdtToSp(existing.priceUsdSnap.toString()),
+            depositFundedSp: existing.depositFundedSp,
             already: true,
           }
         }
@@ -90,13 +91,17 @@ export async function createPurchase(
           throw error
         }
 
+        let depositFundedSp = 0n
         try {
-          await spendSp(tx, {
+          // Bonus-first spend; only the deposit-funded Bonus portion is a valid
+          // referral commission base.
+          const spend = await spendSp(tx, {
             userId,
             amountSp: priceSp,
             sourceType: 'CEO_PURCHASE',
             metadata: { ceoId, priceUsd, priceSp: priceSp.toString() },
           })
+          depositFundedSp = spend.depositFundedDebit
         } catch (error) {
           if (error instanceof InsufficientSpError) throw new PurchaseError('insufficient_sp')
           throw error
@@ -112,6 +117,7 @@ export async function createPurchase(
             userId,
             ceoId,
             priceUsdSnap: priceUsd,
+            depositFundedSp,
             status: 'DELIVERED',
             ownedCeoId: owned.id,
             idempotencyKey,
@@ -119,7 +125,7 @@ export async function createPurchase(
             deliveredAt: now,
           },
         })
-        return { row: purchase, ceoName: ceo.name, priceSp, already: false }
+        return { row: purchase, ceoName: ceo.name, priceSp, depositFundedSp, already: false }
       })
     } catch (error) {
       // Concurrent identical request: the loser rolls back and reconciles here.
@@ -130,6 +136,7 @@ export async function createPurchase(
             row: existing,
             ceoName: undefined as string | undefined,
             priceSp: usdtToSp(existing.priceUsdSnap.toString()),
+            depositFundedSp: existing.depositFundedSp,
             already: true,
           }
         }
@@ -144,6 +151,7 @@ export async function createPurchase(
         purchaseRef: `purchase:${result.row.id}`,
         referredUserId: userId,
         valueSp: result.priceSp,
+        depositFundedSp: result.depositFundedSp,
         status: 'SETTLED',
         occurredAt: new Date(),
         metadata: { purchaseId: result.row.id, ceoId },
@@ -217,6 +225,8 @@ export async function deliverPurchase(db: PrismaClient, purchaseId: number): Pro
       purchaseRef: `purchase:${purchaseId}`,
       referredUserId: result.userId,
       valueSp: usdtToSp(result.priceUsd),
+      // A provider-paid purchase is funded entirely by a confirmed real payment.
+      depositFundedSp: usdtToSp(result.priceUsd),
       status: 'SETTLED',
       occurredAt: new Date(),
       metadata: { purchaseId },

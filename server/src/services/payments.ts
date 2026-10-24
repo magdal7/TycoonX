@@ -240,6 +240,8 @@ export async function confirmDepositIntent(db: PrismaClient, paymentIntentId: nu
         sourceType: 'DEPOSIT_CREDIT',
         sourceId: BigInt(paymentIntentId),
         metadata: { externalId: intent.externalId, amountUsdt: intent.amountUsdt.toString() },
+        // Confirmed real deposit: this Bonus SP is the referral commission base.
+        depositFunded: true,
       })
     }
     const updated = await tx.paymentIntent.findUniqueOrThrow({ where: { id: paymentIntentId } })

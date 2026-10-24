@@ -107,6 +107,9 @@ model SpAccount {
   earnedSp         BigInt   @default(0)
   bonusSp          BigInt   @default(0)
   lifetimeEarnedSp BigInt   @default(0)
+  /// Unspent Bonus SP that is backed by confirmed real deposits (referral
+  /// commission base). Invariant: 0 <= depositFundedBonusSp <= bonusSp.
+  depositFundedBonusSp BigInt @default(0)
   version          Int      @default(0)
   updatedAt        DateTime @updatedAt
 
@@ -120,6 +123,9 @@ model SpLedgerEntry {
   amountSp             BigInt
   balanceAfterEarnedSp BigInt
   balanceAfterBonusSp  BigInt
+  /// Deposit-funded portion of this movement (credits: amount that is
+  /// deposit-backed; debits: deposit-backed portion consumed). 0 for Earned.
+  depositFundedSp      BigInt    @default(0)
   sourceType           SpSourceType
   sourceId             BigInt?
   metadata             Json?
@@ -345,6 +351,9 @@ model ReferralReward {
   kind           ReferralRewardKind
   status         ReferralRewardStatus  @default(PENDING)
   amountSp       BigInt
+  /// On reversal, the part of the already-credited reward that could NOT be
+  /// recovered from current Bonus SP (Bonus-only hold; never deducted from Earned).
+  heldSp         BigInt                @default(0)
   currency       String                @default("BONUS_SP")
   purchaseRef    String                @default("")
   ledgerSourceId BigInt?
@@ -366,7 +375,10 @@ model ReferralPurchaseEvent {
   referralId     Int
   referredUserId Int
   purchaseRef    String                 @unique
+  /// Full purchase value in SP (audit).
   valueSp        BigInt
+  /// Deposit-funded portion of the purchase = the commission base (SP).
+  depositFundedSp BigInt                @default(0)
   status         ReferralPurchaseStatus @default(PENDING)
   occurredAt     DateTime
   metadata       Json?
@@ -423,6 +435,8 @@ model CeoPurchase {
   userId          Int
   ceoId           Int
   priceUsdSnap    Decimal         @db.Decimal(12, 2)
+  /// Deposit-funded portion of this purchase (referral commission base, SP).
+  depositFundedSp BigInt          @default(0)
   status          PurchaseStatus  @default(PENDING)
   paymentIntentId Int?
   ownedCeoId      Int?            @unique
@@ -502,6 +516,7 @@ enum SpSourceType {
   WITHDRAWAL_RELEASE
   DEPOSIT_CREDIT
   CEO_PURCHASE
+  REFERRAL_REVERSAL
 }
 
 enum TaskEventType {

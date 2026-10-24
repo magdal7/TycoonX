@@ -276,7 +276,15 @@ export interface ReferralHistoryItem {
   status: ReferralState
   createdAt: string
   qualifiedAt: string | null
-  rewards: Array<{ kind: string; status: string; amountSp: string; currency: string }>
+  rewards: Array<{
+    kind: string
+    status: string
+    amountSp: string
+    heldSp?: string
+    currency: string
+    purchaseRef?: string | null
+    reversedAt?: string | null
+  }>
 }
 
 export interface ReferralStatus {

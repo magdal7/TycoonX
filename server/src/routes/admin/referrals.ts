@@ -1,5 +1,6 @@
 import { Router, Response } from 'express'
 import type { PrismaClient } from '@prisma/client'
+import { isReferralRewardsEnabled } from '../../lib/referralRules'
 import { AuthRequest, requireAdmin, requireAuth } from '../../middleware/auth'
 import {
   ReferralError,
@@ -40,7 +41,7 @@ export function createAdminReferralRouter(db: PrismaClient): Router {
         ...(statusParsed.success ? { status: statusParsed.data } : {}),
         ...(q ? { q } : {}),
       }),
-      rewardsEnabled: false,
+      rewardsEnabled: isReferralRewardsEnabled(),
     })
   })
 

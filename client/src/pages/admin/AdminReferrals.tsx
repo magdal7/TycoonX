@@ -51,7 +51,7 @@ export default function AdminReferrals() {
 
   async function review(r: AdminReferral, decision: 'QUALIFY' | 'REJECT' | 'REVOKE') {
     const verb = decision === 'QUALIFY' ? 'Qualify' : decision === 'REJECT' ? 'Reject' : 'Revoke'
-    if (!window.confirm(`${verb} referral of ${r.referredUsername} by ${r.referrerUsername}? Rewards stay disabled.`)) return
+    if (!window.confirm(`${verb} referral of ${r.referredUsername} by ${r.referrerUsername}?`)) return
     setBusyId(r.id)
     setNotice('')
     try {
@@ -72,7 +72,7 @@ export default function AdminReferrals() {
       <SectionHeading
         eyebrow="Admin"
         title="Referrals"
-        description="Qualification review, commission records and abuse flags. Rewards remain disabled."
+        description={referrals.data?.rewardsEnabled ? 'Qualification review, commission records and abuse flags. Rewards are ACTIVE.' : 'Qualification review, commission records and abuse flags. Rewards remain disabled.'}
         right={<Button size="sm" variant="ghost" onClick={referrals.reload} iconLeft={<RefreshCw className="h-4 w-4" />}>Refresh</Button>}
       />
 
@@ -151,7 +151,11 @@ export default function AdminReferrals() {
                   <span>{rw.kind === 'REGISTRATION_BONUS' ? 'Referral bonus' : 'Purchase commission'}</span>
                   <span className="text-muted">{rw.referrerUsername}</span>
                 </span>
-                <span className="text-muted">{rw.amountSp} {rw.currency}{rw.purchaseRef ? ` · ${rw.purchaseRef}` : ''}</span>
+                <span className="text-muted">
+                  {rw.amountSp} {rw.currency}
+                  {Number(rw.heldSp) > 0 ? ` · ${rw.heldSp} held` : ''}
+                  {rw.purchaseRef ? ` · ${rw.purchaseRef}` : ''}
+                </span>
               </div>
             </Card>
           ))

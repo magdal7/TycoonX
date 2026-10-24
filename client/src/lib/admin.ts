@@ -393,6 +393,7 @@ export interface AdminReferralReward {
   kind: 'REGISTRATION_BONUS' | 'PURCHASE_COMMISSION'
   status: 'PENDING' | 'PAID' | 'REVERSED'
   amountSp: string
+  heldSp: string
   currency: string
   purchaseRef: string | null
   createdAt: string

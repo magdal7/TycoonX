@@ -15,6 +15,7 @@ export type SpSource =
   | 'WITHDRAWAL_RELEASE'
   | 'DEPOSIT_CREDIT'
   | 'CEO_PURCHASE'
+  | 'REFERRAL_REVERSAL'
 
 export class InsufficientSpError extends Error {
   constructor() {
@@ -52,6 +53,12 @@ export interface CreditSpInput {
   sourceType: SpSource
   sourceId?: bigint | null
   metadata?: Prisma.InputJsonValue
+  /**
+   * Marks this Bonus SP credit as backed by confirmed real deposits. Only
+   * VERIFIED deposit credits may set this; free/promotional/referral bonuses must
+   * leave it false. Earned SP is never deposit-funded.
+   */
+  depositFunded?: boolean
 }
 
 /**
@@ -62,6 +69,7 @@ export interface CreditSpInput {
 export async function creditSp(tx: Tx, input: CreditSpInput): Promise<SpBalances> {
   if (input.amountSp <= ZERO) throw new Error('credit amount must be positive')
   const sourceId = input.sourceId ?? null
+  const depositFunded = input.bucket === 'BONUS' && input.depositFunded ? input.amountSp : ZERO
 
   const account = await tx.spAccount.upsert({
     where: { userId: input.userId },
@@ -70,11 +78,13 @@ export async function creditSp(tx: Tx, input: CreditSpInput): Promise<SpBalances
       earnedSp: input.bucket === 'EARNED' ? input.amountSp : ZERO,
       bonusSp: input.bucket === 'BONUS' ? input.amountSp : ZERO,
       lifetimeEarnedSp: input.bucket === 'EARNED' ? input.amountSp : ZERO,
+      depositFundedBonusSp: depositFunded,
     },
     update: {
       earnedSp: input.bucket === 'EARNED' ? { increment: input.amountSp } : undefined,
       bonusSp: input.bucket === 'BONUS' ? { increment: input.amountSp } : undefined,
       lifetimeEarnedSp: input.bucket === 'EARNED' ? { increment: input.amountSp } : undefined,
+      depositFundedBonusSp: depositFunded > ZERO ? { increment: depositFunded } : undefined,
       version: { increment: 1 },
     },
   })
@@ -86,6 +96,7 @@ export async function creditSp(tx: Tx, input: CreditSpInput): Promise<SpBalances
       amountSp: input.amountSp,
       balanceAfterEarnedSp: account.earnedSp,
       balanceAfterBonusSp: account.bonusSp,
+      depositFundedSp: depositFunded,
       sourceType: input.sourceType,
       sourceId,
       metadata: input.metadata,
@@ -139,6 +150,12 @@ export async function debitEarnedSp(
 export interface SpendSpResult extends SpBalances {
   bonusDebit: bigint
   earnedDebit: bigint
+  /**
+   * Deposit-funded portion of the Bonus SP spent. Deterministic allocation:
+   * deposit-funded Bonus SP is consumed first, then other Bonus SP, then Earned
+   * SP. This is the only amount eligible for referral commissions.
+   */
+  depositFundedDebit: bigint
 }
 
 /**
@@ -161,19 +178,28 @@ export async function spendSp(
   const account = await readAccount(tx, input.userId)
   const bonusSp = account?.bonusSp ?? ZERO
   const earnedSp = account?.earnedSp ?? ZERO
+  const depositFundedAvailable = account?.depositFundedBonusSp ?? ZERO
 
   if (bonusSp + earnedSp < input.amountSp) throw new InsufficientSpError()
 
   // Bonus SP is spent first, then Earned SP (Master Spec §2). BigInt math.
   const bonusDebit = bonusSp >= input.amountSp ? input.amountSp : bonusSp
   const earnedDebit = input.amountSp - bonusDebit
+  // Within Bonus SP, deposit-funded Bonus SP is consumed first (deterministic).
+  const depositFundedDebit = bonusDebit < depositFundedAvailable ? bonusDebit : depositFundedAvailable
   const sourceId = input.sourceId ?? null
 
   const guard = await tx.spAccount.updateMany({
-    where: { userId: input.userId, bonusSp: { gte: bonusDebit }, earnedSp: { gte: earnedDebit } },
+    where: {
+      userId: input.userId,
+      bonusSp: { gte: bonusDebit },
+      earnedSp: { gte: earnedDebit },
+      depositFundedBonusSp: { gte: depositFundedDebit },
+    },
     data: {
       bonusSp: { decrement: bonusDebit },
       earnedSp: { decrement: earnedDebit },
+      depositFundedBonusSp: { decrement: depositFundedDebit },
       version: { increment: 1 },
     },
   })
@@ -189,7 +215,9 @@ export async function spendSp(
     metadata: input.metadata,
   }
   if (bonusDebit > ZERO) {
-    await tx.spLedgerEntry.create({ data: { ...base, bucket: 'BONUS', amountSp: -bonusDebit } })
+    await tx.spLedgerEntry.create({
+      data: { ...base, bucket: 'BONUS', amountSp: -bonusDebit, depositFundedSp: depositFundedDebit },
+    })
   }
   if (earnedDebit > ZERO) {
     await tx.spLedgerEntry.create({ data: { ...base, bucket: 'EARNED', amountSp: -earnedDebit } })
@@ -201,5 +229,62 @@ export async function spendSp(
     lifetimeEarnedSp: after.lifetimeEarnedSp,
     bonusDebit,
     earnedDebit,
+    depositFundedDebit,
   }
+}
+
+export interface ClawbackResult {
+  recovered: bigint
+  held: bigint
+  depositFundedRecovered: bigint
+}
+
+/**
+ * Bonus-only referral clawback. Recovers up to `amount` of SP from the user's
+ * Bonus SP — non-deposit-funded first, then deposit-funded — and NEVER touches
+ * Earned SP. Any shortfall is returned as `held` so the caller can record a safe
+ * Bonus-only hold instead of corrupting balances or creating withdrawable funds.
+ * Writes a `REFERRAL_REVERSAL` ledger entry when anything is recovered.
+ */
+export async function clawbackBonusSp(
+  tx: Tx,
+  input: { userId: number; amountSp: bigint; sourceId?: bigint | null; metadata?: Prisma.InputJsonValue },
+): Promise<ClawbackResult> {
+  if (input.amountSp <= ZERO) return { recovered: ZERO, held: ZERO, depositFundedRecovered: ZERO }
+  const account = await readAccount(tx, input.userId)
+  const bonusSp = account?.bonusSp ?? ZERO
+  const depositFunded = account?.depositFundedBonusSp ?? ZERO
+  const recovered = bonusSp >= input.amountSp ? input.amountSp : bonusSp
+  const held = input.amountSp - recovered
+  if (recovered <= ZERO) return { recovered: ZERO, held, depositFundedRecovered: ZERO }
+
+  const nonDeposit = bonusSp > depositFunded ? bonusSp - depositFunded : ZERO
+  const fromNonDeposit = nonDeposit >= recovered ? recovered : nonDeposit
+  const fromDeposit = recovered - fromNonDeposit
+
+  const guard = await tx.spAccount.updateMany({
+    where: { userId: input.userId, bonusSp: { gte: recovered }, depositFundedBonusSp: { gte: fromDeposit } },
+    data: {
+      bonusSp: { decrement: recovered },
+      depositFundedBonusSp: { decrement: fromDeposit },
+      version: { increment: 1 },
+    },
+  })
+  if (guard.count !== 1) throw new InsufficientSpError()
+
+  const after = await tx.spAccount.findUniqueOrThrow({ where: { userId: input.userId } })
+  await tx.spLedgerEntry.create({
+    data: {
+      userId: input.userId,
+      bucket: 'BONUS',
+      amountSp: -recovered,
+      balanceAfterEarnedSp: after.earnedSp,
+      balanceAfterBonusSp: after.bonusSp,
+      depositFundedSp: fromDeposit,
+      sourceType: 'REFERRAL_REVERSAL',
+      sourceId: input.sourceId ?? null,
+      metadata: input.metadata,
+    },
+  })
+  return { recovered, held, depositFundedRecovered: fromDeposit }
 }
