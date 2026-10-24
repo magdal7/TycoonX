@@ -21,6 +21,30 @@ export const RARITY_GLOW: Record<string, string> = {
   Mythic: 'shadow-[0_0_30px_-6px_rgba(16,185,129,0.70)]'
 }
 
+/** Gradient ring per rarity (drawn as a 1.5px gradient border). */
+const RARITY_RING: Record<string, string> = {
+  Common: 'from-slate-400/40 via-slate-500/20 to-slate-700/20',
+  Rare: 'from-primary/70 via-primary/25 to-primary/5',
+  Epic: 'from-accent/80 via-accent/30 to-primary/10',
+  Legendary: 'from-gold/90 via-amber-300/40 to-gold/10',
+  Mythic: 'from-rose-400/90 via-gold/50 to-rose-500/20'
+}
+
+/** Cosmetic executive titles (presentation only — no economy effect). */
+export const CEO_ROLE: Record<string, string> = {
+  Common: 'Founder',
+  Rare: 'CTO',
+  Epic: 'Chief Architect',
+  Legendary: 'Visionary',
+  Mythic: 'Tech Titan'
+}
+
+export function ceoRole(rarity: string): string {
+  return CEO_ROLE[rarity] ?? 'Executive'
+}
+
+export type CeoPortraitState = 'idle' | 'producing' | 'ready' | 'exhausted' | 'locked'
+
 function hashSlug(str: string): number {
   let h = 0
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0
@@ -32,20 +56,24 @@ export function CeoAvatar({
   slug,
   rarity,
   size = 64,
-  className = ''
+  className = '',
+  state
 }: {
   name: string
   slug: string
   rarity: string
   size?: number
   className?: string
+  state?: CeoPortraitState
 }) {
   const style = rarityStyle(rarity)
   const h = hashSlug(slug || name)
   const skin = SKINS[h % SKINS.length]
   const hair = HAIR[(h >> 3) % HAIR.length]
   const suit = SUITS[(h >> 5) % SUITS.length]
-  const frame = RARITY_FRAME[rarity] ?? RARITY_FRAME.Common
+  const ring = RARITY_RING[rarity] ?? RARITY_RING.Common
+  const premium = rarity === 'Legendary' || rarity === 'Mythic'
+  const dim = state === 'exhausted' || state === 'locked'
 
   let accessory: ReactNode = null
   if (rarity === 'Common') {
@@ -78,27 +106,51 @@ export function CeoAvatar({
   }
 
   return (
-    <div
-      className={`relative shrink-0 overflow-hidden rounded-xl border ${frame} bg-surface-2 ${className}`}
-      style={{ width: size, height: size }}
-    >
-      <div className={`absolute inset-0 bg-gradient-to-br ${style.glow} to-transparent`} />
-      <svg viewBox="0 0 120 120" className="relative z-10 h-full w-full" role="img" aria-label={`${name} portrait`}>
-        <ellipse cx="60" cy="58" rx="30" ry="30" fill="currentColor" className={style.accent} opacity="0.12" />
-        <path d="M18,120 C18,92 42,84 60,84 C78,84 102,92 102,120 Z" fill={suit} />
-        <path d="M60,84 L52,112 L68,112 Z" fill="#e5e7eb" opacity="0.85" />
-        <path d="M60,86 L44,120 L58,120 Z" fill="currentColor" className={style.accent} opacity="0.45" />
-        <path d="M60,86 L76,120 L62,120 Z" fill="currentColor" className={style.accent} opacity="0.45" />
-        <rect x="52" y="72" width="16" height="16" rx="5" fill={skin} />
-        <circle cx="38" cy="60" r="4.5" fill={skin} />
-        <circle cx="82" cy="60" r="4.5" fill={skin} />
-        <circle cx="60" cy="56" r="22" fill={skin} />
-        <path d="M37,52 C37,30 83,30 83,52 C79,40 72,37 60,37 C48,37 41,40 37,52 Z" fill={hair} />
-        <circle cx="51" cy="57" r="2.4" fill="#06201a" />
-        <circle cx="69" cy="57" r="2.4" fill="#06201a" />
-        <path d="M53,66 Q60,70 67,66" fill="none" stroke="#06201a" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
-        {accessory}
-      </svg>
+    <div className={`group/av relative shrink-0 ${className}`} style={{ width: size, height: size }}>
+      {/* gradient rarity ring */}
+      <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${ring} p-[1.5px]`}>
+        <div className="h-full w-full rounded-[14.5px] bg-surface-2" />
+      </div>
+
+      {/* portrait */}
+      <div className={`absolute inset-[2px] overflow-hidden rounded-[14px] ${dim ? 'grayscale' : ''}`}>
+        <div className={`absolute inset-0 bg-gradient-to-br ${style.glow} to-transparent`} />
+        <svg viewBox="0 0 120 120" className="relative z-10 h-full w-full" role="img" aria-label={`${name} portrait`}>
+          <ellipse cx="60" cy="58" rx="32" ry="32" fill="currentColor" className={style.accent} opacity="0.14" />
+          <path d="M18,120 C18,92 42,84 60,84 C78,84 102,92 102,120 Z" fill={suit} />
+          <path d="M60,84 L52,112 L68,112 Z" fill="#e5e7eb" opacity="0.85" />
+          <path d="M60,86 L44,120 L58,120 Z" fill="currentColor" className={style.accent} opacity="0.45" />
+          <path d="M60,86 L76,120 L62,120 Z" fill="currentColor" className={style.accent} opacity="0.45" />
+          <rect x="52" y="72" width="16" height="16" rx="5" fill={skin} />
+          <circle cx="38" cy="60" r="4.5" fill={skin} />
+          <circle cx="82" cy="60" r="4.5" fill={skin} />
+          <circle cx="60" cy="56" r="22" fill={skin} />
+          <path d="M37,52 C37,30 83,30 83,52 C79,40 72,37 60,37 C48,37 41,40 37,52 Z" fill={hair} />
+          <circle cx="51" cy="57" r="2.4" fill="#06201a" />
+          <circle cx="69" cy="57" r="2.4" fill="#06201a" />
+          <path d="M53,66 Q60,70 67,66" fill="none" stroke="#06201a" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
+          {accessory}
+        </svg>
+        {premium && (
+          <div className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/15 to-transparent motion-safe:animate-sheen" />
+        )}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/35 to-transparent" />
+      </div>
+
+      {/* state indicator */}
+      {state === 'ready' && (
+        <span className="absolute -right-1 -top-1 z-20 h-3 w-3 rounded-full border-2 border-surface bg-gold shadow-gold motion-safe:animate-pulse-soft" aria-label="Ready to collect" />
+      )}
+      {state === 'producing' && (
+        <span className="absolute -right-1 -top-1 z-20 grid h-4 w-4 place-items-center rounded-full border-2 border-surface bg-primary text-[8px] text-white" aria-label="Producing">
+          <span className="h-1.5 w-1.5 rounded-full bg-white/90 motion-safe:animate-pulse-soft" />
+        </span>
+      )}
+      {state === 'exhausted' && (
+        <span className="absolute -right-1 -top-1 z-20 grid h-4 w-4 place-items-center rounded-full border-2 border-surface bg-warning text-[8px] text-black" aria-label="Exhausted">
+          ▮
+        </span>
+      )}
     </div>
   )
 }

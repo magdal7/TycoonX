@@ -3,7 +3,7 @@ import { Card } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Progress, SectionHeading, EmptyState, CardSkeleton } from '../components/ui/kit'
-import { CeoAvatar, RARITY_FRAME, RARITY_GLOW } from '../components/CeoAvatar'
+import { CeoAvatar, RARITY_FRAME, RARITY_GLOW, ceoRole } from '../components/CeoAvatar'
 import { rarityStyle } from '../lib/ceos'
 import { useApi } from '../lib/useApi'
 import { fetchOwnedCeos } from '../lib/game'
@@ -49,10 +49,11 @@ export default function Collection() {
             return (
               <Card key={ceo.id} padding="md" className={`border ${RARITY_FRAME[ceo.rarity] ?? 'border-line'} ${RARITY_GLOW[ceo.rarity] ?? ''}`}>
                 <div className="flex items-center gap-3">
-                  <CeoAvatar name={ceo.templateName} slug={ceo.templateSlug} rarity={ceo.rarity} size={52} />
+                  <CeoAvatar name={ceo.templateName} slug={ceo.templateSlug} rarity={ceo.rarity} size={64} state={archivedCeo ? 'exhausted' : ceo.canCollect ? 'ready' : ceo.cycleEndsAt ? 'producing' : 'idle'} />
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate font-bold text-white">{ceo.templateName}</h3>
-                    <p className={`text-[11px] font-semibold ${style.accent}`}>{ceo.rarity} · {EQUIP_LABEL[ceo.equipment] ?? ceo.equipment}</p>
+                    <p className={`text-[11px] font-semibold ${style.accent}`}>{ceoRole(ceo.rarity)} · {ceo.rarity}</p>
+                    <p className="text-[10px] text-muted">{EQUIP_LABEL[ceo.equipment] ?? ceo.equipment}</p>
                     <p className="text-[10px] text-muted">Acquired {new Date(ceo.acquiredAt).toLocaleDateString()}</p>
                   </div>
                   {archivedCeo ? <Badge variant="warning">Archived</Badge> : <Badge variant="success">Active</Badge>}

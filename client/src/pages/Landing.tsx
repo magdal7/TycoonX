@@ -13,7 +13,9 @@ import {
   Users,
   Building2,
   Zap,
-  Lock
+  Lock,
+  Cpu,
+  Send
 } from 'lucide-react'
 import { Badge } from '../components/ui/badge'
 import { Logo } from '../components/Logo'
@@ -37,6 +39,26 @@ const STEPS = [
   { Icon: Download, title: 'Collect SP', text: 'Return to collect Earned SP before the cycle’s lifetime cap runs out.' },
   { Icon: Trophy, title: 'Level up', text: 'Earn XP from missions and achievements, climb the global leaderboard.' }
 ]
+
+const EARNING_PATHS = [
+  {
+    Icon: Cpu,
+    title: 'CEO Production',
+    text: 'Recruit or purchase CEOs, manually start production cycles (4h · 6h · 8h), then collect Earned SP. Every copy has a finite lifetime production cap.'
+  },
+  {
+    Icon: Zap,
+    title: 'Missions & Tasks',
+    text: 'Complete eligible daily and weekly missions plus special campaigns. Rewards are the configured XP and Bonus SP; special submissions may require Admin approval.'
+  },
+  {
+    Icon: Users,
+    title: 'Referrals',
+    text: 'Invite friends: earn 10 Bonus SP when a referral qualifies through their first eligible CEO purchase, plus 10% Bonus SP commission on qualifying deposit-funded purchases (when referral rewards are enabled).'
+  }
+]
+
+const COMMUNITY_URL = 'https://t.me/tycoonX_official'
 
 const FAQS = [
   { q: 'Is TycoonX free to play?', a: 'Yes. You start with a free Intern CEO and can complete daily and weekly missions without purchasing anything.' },
@@ -63,6 +85,7 @@ export default function Landing({ navigate, authed }: Props) {
             <a href="#how" className="transition-colors hover:text-white">How it works</a>
             <a href="#ceos" className="transition-colors hover:text-white">CEOs</a>
             <a href="#progress" className="transition-colors hover:text-white">Progression</a>
+            <a href="#community" className="transition-colors hover:text-white">Community</a>
             <a href="#faq" className="transition-colors hover:text-white">FAQ</a>
           </nav>
           <div className="ml-auto flex items-center gap-2">
@@ -96,8 +119,8 @@ export default function Landing({ navigate, authed }: Props) {
               <button onClick={() => navigate(startHref)} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-primary to-accent px-5 py-3 text-sm font-bold shadow-glow transition-transform hover:scale-[1.02]">
                 <Rocket className="h-4 w-4" /> Start Your Empire — Free
               </button>
-              <a href="#how" className="inline-flex items-center gap-2 rounded-xl border border-line px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-white/5">
-                See how it works <ChevronRight className="h-4 w-4" />
+              <a href="#ceos" className="inline-flex items-center gap-2 rounded-xl border border-line px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-white/5">
+                Explore CEOs <ChevronRight className="h-4 w-4" />
               </a>
             </div>
             <div className="mt-6 flex flex-wrap gap-4 text-xs text-muted">
@@ -149,6 +172,28 @@ export default function Landing({ navigate, authed }: Props) {
                 <div className="mt-3 text-[10px] font-bold uppercase tracking-widest text-muted">Step {i + 1}</div>
                 <h3 className="mt-1 font-bold text-white">{s.title}</h3>
                 <p className="mt-1 text-xs text-muted">{s.text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Earning paths */}
+      <section id="paths" className="border-t border-line">
+        <div className="mx-auto max-w-6xl px-4 py-16 md:px-6">
+          <h2 className="text-center text-2xl font-black tracking-tight sm:text-3xl">Three ways to earn SP</h2>
+          <p className="mx-auto mt-2 max-w-lg text-center text-sm text-muted">
+            Earned SP comes from CEO production; Bonus SP comes from missions and referrals. Bonus SP is spendable
+            but never withdrawable.
+          </p>
+          <div className="mt-10 grid gap-4 md:grid-cols-3">
+            {EARNING_PATHS.map((p) => (
+              <div key={p.title} className="rounded-2xl border border-line bg-surface/60 p-6">
+                <div className="grid h-11 w-11 place-items-center rounded-xl bg-primary/15 text-primary">
+                  <p.Icon className="h-5 w-5" />
+                </div>
+                <h3 className="mt-3 text-lg font-bold text-white">{p.title}</h3>
+                <p className="mt-1 text-sm text-muted">{p.text}</p>
               </div>
             ))}
           </div>
@@ -220,6 +265,23 @@ export default function Landing({ navigate, authed }: Props) {
         </div>
       </section>
 
+      {/* Community */}
+      <section id="community" className="border-t border-line bg-surface-2/30">
+        <div className="mx-auto max-w-3xl px-4 py-16 text-center md:px-6">
+          <Users className="mx-auto h-8 w-8 text-primary" />
+          <h2 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl">Join the community</h2>
+          <p className="mt-3 text-sm text-muted">Announcements, events and support in our official Telegram channel.</p>
+          <a
+            href={COMMUNITY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#229ED9] px-5 py-3 text-sm font-bold text-white transition-transform hover:scale-[1.02]"
+          >
+            <Send className="h-4 w-4" /> Telegram · @tycoonX_official
+          </a>
+        </div>
+      </section>
+
       {/* FAQ */}
       <section id="faq" className="border-t border-line bg-surface-2/30">
         <div className="mx-auto max-w-3xl px-4 py-16 md:px-6">
@@ -257,6 +319,9 @@ export default function Landing({ navigate, authed }: Props) {
             <a href="#how" className="hover:text-white">How it works</a>
             <a href="/terms" onClick={(e) => { e.preventDefault(); navigate('/terms') }} className="hover:text-white">Terms</a>
             <a href="/privacy" onClick={(e) => { e.preventDefault(); navigate('/privacy') }} className="hover:text-white">Privacy</a>
+            <a href={COMMUNITY_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-white">
+              <Send className="h-3 w-3" /> Telegram
+            </a>
           </span>
         </div>
       </footer>

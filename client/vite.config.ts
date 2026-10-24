@@ -15,17 +15,18 @@ export default defineConfig({
         name: 'TycoonX — Build Your Tech Empire',
         short_name: 'TycoonX',
         description:
-          'A premium, mobile-first tech-tycoon PWA. Recruit elite CEOs, run production cycles and climb the ranks. Simulation only; no real earnings.',
-        theme_color: '#0B1020',
-        background_color: '#0B1020',
+          'A premium, mobile-first tech-tycoon PWA. Recruit collectible CEOs, run production cycles and climb the ranks.',
+        theme_color: '#091916',
+        background_color: '#091916',
         display: 'standalone',
         start_url: '/',
         orientation: 'portrait',
         categories: ['games', 'entertainment'],
         icons: [
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
-          { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }
+          { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' }
         ]
       }
     })

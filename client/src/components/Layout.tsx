@@ -234,7 +234,16 @@ export function Layout({ children }: LayoutProps) {
                 </Link>
               )}
             </nav>
-            <p className="mt-6 px-3 text-[10px] leading-relaxed text-muted">
+            <a
+              href="https://t.me/tycoonX_official"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 flex items-center gap-2 rounded-xl border border-line px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-white/5 hover:text-ink"
+            >
+              <Sparkles className="h-4 w-4 text-primary" />
+              Community · Telegram
+            </a>
+            <p className="mt-4 px-3 text-[10px] leading-relaxed text-muted">
               CEO production is a game mechanic. Real-money withdrawals are disabled.
             </p>
           </div>

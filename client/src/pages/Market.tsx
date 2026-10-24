@@ -4,7 +4,7 @@ import { Card } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { SectionHeading, EmptyState, CardSkeleton } from '../components/ui/kit'
-import { CeoAvatar, RARITY_FRAME, RARITY_GLOW } from '../components/CeoAvatar'
+import { CeoAvatar, RARITY_FRAME, RARITY_GLOW, ceoRole } from '../components/CeoAvatar'
 import { rarityStyle, RARITY_ORDER, type Ceo } from '../lib/ceos'
 import { useApi } from '../lib/useApi'
 import { fetchCeos } from '../lib/ceos'
@@ -48,6 +48,7 @@ function MarketCard({ ceo }: { ceo: Ceo }) {
           <CeoAvatar name={ceo.name} slug={ceo.slug} rarity={ceo.rarity} size={60} />
           <div className="min-w-0 flex-1">
             <h3 className="truncate font-bold leading-tight text-white">{ceo.name}</h3>
+            <p className="text-[11px] text-muted">{ceoRole(ceo.rarity)}</p>
             <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[10px] font-semibold ${style.badge}`}>{ceo.rarity}</span>
           </div>
         </div>

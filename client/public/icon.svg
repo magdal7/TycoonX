@@ -1,22 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="TycoonX">
   <defs>
-    <linearGradient id="txg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3B82F6"/>
-      <stop offset="1" stop-color="#8B5CF6"/>
+    <linearGradient id="tx-em" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#10B981"/>
+      <stop offset="1" stop-color="#0E7C6B"/>
     </linearGradient>
-    <linearGradient id="txs" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+    <linearGradient id="tx-gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F2D79B"/>
+      <stop offset="1" stop-color="#D4AF65"/>
+    </linearGradient>
+    <linearGradient id="tx-gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
       <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="112" fill="#0B1020"/>
-  <rect x="56" y="56" width="400" height="400" rx="92" fill="url(#txg)"/>
-  <rect x="56" y="56" width="400" height="400" rx="92" fill="url(#txs)"/>
-  <g stroke="#0B1020" stroke-opacity="0.18" stroke-width="6">
-    <path d="M56 200 H456"/>
-    <path d="M56 312 H456"/>
-    <path d="M200 56 V456"/>
-    <path d="M312 56 V456"/>
+  <rect width="512" height="512" rx="116" fill="#091916"/>
+  <rect x="46" y="46" width="420" height="420" rx="100" fill="url(#tx-em)"/>
+  <rect x="46" y="46" width="420" height="420" rx="100" fill="url(#tx-gloss)"/>
+  <rect x="62" y="62" width="388" height="388" rx="84" fill="none" stroke="url(#tx-gold)" stroke-width="3" opacity="0.75"/>
+  <g stroke="#F7F1E3" stroke-width="42" stroke-linecap="round" fill="none">
+    <path d="M118 182 H228"/>
+    <path d="M173 182 V346"/>
+    <path d="M272 182 L398 346"/>
+    <path d="M398 182 L272 346"/>
   </g>
-  <text x="256" y="330" text-anchor="middle" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="190" font-weight="800" letter-spacing="-6" fill="#ffffff">TX</text>
+  <rect x="118" y="392" width="280" height="16" rx="8" fill="url(#tx-gold)"/>
 </svg>

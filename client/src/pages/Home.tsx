@@ -18,7 +18,7 @@ import { Card } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Progress, Stat, SectionHeading, EmptyState, CardSkeleton } from '../components/ui/kit'
-import { CeoAvatar, RARITY_FRAME } from '../components/CeoAvatar'
+import { CeoAvatar, RARITY_FRAME, ceoRole, type CeoPortraitState } from '../components/CeoAvatar'
 import { rarityStyle } from '../lib/ceos'
 import { useApi } from '../lib/useApi'
 import { useResources } from '../lib/resources'
@@ -56,6 +56,21 @@ function statusBadge(ceo: OwnedCeo) {
   return <Badge>Idle</Badge>
 }
 
+function portraitState(ceo: OwnedCeo): CeoPortraitState {
+  if (ceo.archivedAt || ceo.status === 'EXHAUSTED') return 'exhausted'
+  if (ceo.canCollect) return 'ready'
+  if (ceo.cycleEndsAt) return 'producing'
+  return 'idle'
+}
+
+/** Elapsed fraction of the current production cycle (0–100). */
+function cyclePct(ceo: OwnedCeo, now: number): number {
+  if (!ceo.cycleEndsAt) return 0
+  const total = Math.max(1, ceo.cycleHours * 3600 * 1000)
+  const remaining = new Date(ceo.cycleEndsAt).getTime() - now
+  return Math.max(0, Math.min(100, (1 - remaining / total) * 100))
+}
+
 export default function Home() {
   const resources = useResources()
   const fleet = useApi(() => fetchOwnedCeos(), [])
@@ -63,6 +78,28 @@ export default function Home() {
   const [now, setNow] = useState(() => Date.now())
   const [notice, setNotice] = useState('')
   const [flash, setFlash] = useState('')
+  const [reward, setReward] = useState<{ amount: number; label: string } | null>(null)
+
+  function showReward(amount: number, label: string) {
+    if (amount <= 0) return
+    setReward({ amount, label })
+    window.setTimeout(() => setReward(null), 1700)
+  }
+
+  async function collectOne(ceo: OwnedCeo) {
+    setBusy((b) => ({ ...b, [ceo.id]: true }))
+    setNotice('')
+    try {
+      const r = await collectCycle(ceo.id)
+      if (!r.alreadyCollected) showReward(r.rewardSp, `${ceo.templateName} collected`)
+      resources.reload()
+      fleet.reload()
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Collect failed')
+    } finally {
+      setBusy((b) => ({ ...b, [ceo.id]: false }))
+    }
+  }
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000)
@@ -94,14 +131,22 @@ export default function Home() {
   }
 
   async function runBulk(kind: 'start' | 'collect') {
-    const ids = owned.filter((c) => (kind === 'start' ? c.canStart : c.canCollect)).map((c) => c.id)
+    const ready = owned.filter((c) => (kind === 'start' ? c.canStart : c.canCollect))
+    const ids = ready.map((c) => c.id)
     if (ids.length === 0) return
     setNotice('')
     setFlash('')
     try {
-      if (kind === 'start') await bulkStart(ids)
-      else await bulkCollect(ids)
-      setFlash(kind === 'start' ? `Started ${ids.length} cycle${ids.length === 1 ? '' : 's'}` : `Collected ${ids.length} cycle${ids.length === 1 ? '' : 's'}`)
+      if (kind === 'start') {
+        await bulkStart(ids)
+        setFlash(`Started ${ids.length} cycle${ids.length === 1 ? '' : 's'}`)
+      } else {
+        // Expected total from the server-provided per-copy reward (real data).
+        const expected = ready.reduce((sum, c) => sum + (c.cycleRewardSp ?? 0), 0)
+        const r = await bulkCollect(ids)
+        setFlash(`Collected ${r.summary.succeeded} cycle${r.summary.succeeded === 1 ? '' : 's'}`)
+        if (r.summary.succeeded > 0) showReward(expected, `${r.summary.succeeded} cycle${r.summary.succeeded === 1 ? '' : 's'} collected`)
+      }
       window.setTimeout(() => setFlash(''), 4000)
       resources.reload()
       fleet.reload()
@@ -171,6 +216,15 @@ export default function Home() {
         </div>
       )}
 
+      {reward && (
+        <div className="pointer-events-none fixed inset-x-0 top-20 z-50 flex justify-center px-4">
+          <div className="motion-safe:animate-reward rounded-2xl border border-gold/40 bg-surface/95 px-5 py-3 text-center shadow-gold backdrop-blur">
+            <div className="text-2xl font-black text-gold">+{formatNumber(reward.amount)} SP</div>
+            <div className="text-[11px] text-muted">{reward.label}</div>
+          </div>
+        </div>
+      )}
+
       {/* Bulk actions */}
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => runBulk('start')} disabled={startable === 0} iconLeft={<Play className="h-4 w-4" />}>
@@ -206,7 +260,7 @@ export default function Home() {
               now={now}
               busy={!!busy[ceo.id]}
               onStart={() => run(ceo.id, () => startCycle(ceo.id), (r) => `Cycle started · ${r.cycleHours}h`)}
-              onCollect={() => run(ceo.id, () => collectCycle(ceo.id), (r) => `Collected +${formatNumber(r.rewardSp)} SP`)}
+              onCollect={() => collectOne(ceo)}
               onUpgrade={(target) => run(ceo.id, () => upgradeEquipment(ceo.id, target), () => `Equipment upgraded to ${target}`)}
             />
           ))}
@@ -253,18 +307,25 @@ function FleetCard({
   return (
     <Card padding="md" className={`border ${RARITY_FRAME[ceo.rarity] ?? 'border-line'} flex flex-col`}>
       <div className="flex items-start gap-3">
-        <CeoAvatar name={ceo.templateName} slug={ceo.templateSlug} rarity={ceo.rarity} size={56} />
+        <CeoAvatar name={ceo.templateName} slug={ceo.templateSlug} rarity={ceo.rarity} size={72} state={portraitState(ceo)} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate font-bold text-white">{ceo.templateName}</h3>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="truncate text-base font-bold text-white">{ceo.templateName}</h3>
+              <p className={`text-[11px] font-semibold ${style.accent}`}>{ceoRole(ceo.rarity)} · {ceo.rarity}</p>
+            </div>
             {statusBadge(ceo)}
           </div>
-          <p className={`mt-0.5 text-[11px] font-semibold ${style.accent}`}>
-            {ceo.rarity} · {EQUIP_LABEL[ceo.equipment] ?? ceo.equipment}
-          </p>
-          <p className="mt-0.5 text-[11px] text-muted">
-            {ceo.nominalSpPer24h != null ? `${formatNumber(ceo.nominalSpPer24h)} SP / 24h` : 'Rate pending'}
-          </p>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+            <div className="rounded-lg border border-line bg-surface-2/60 px-2 py-1.5">
+              <div className="text-muted">Yield</div>
+              <div className="font-bold text-white">{ceo.nominalSpPer24h != null ? formatNumber(ceo.nominalSpPer24h) : '—'}<span className="font-normal text-muted"> /24h</span></div>
+            </div>
+            <div className="rounded-lg border border-line bg-surface-2/60 px-2 py-1.5">
+              <div className="text-muted">Equipment</div>
+              <div className="truncate font-bold text-white">{EQUIP_LABEL[ceo.equipment] ?? ceo.equipment}</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -277,16 +338,23 @@ function FleetCard({
         />
       </div>
 
-      <div className="mt-3 flex items-center gap-2 rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-xs">
-        <Clock className="h-3.5 w-3.5 text-muted" />
-        {archived ? (
-          <span className="inline-flex items-center gap-1.5 text-muted"><Archive className="h-3.5 w-3.5" /> Archived — cap reached, ownership retained</span>
-        ) : ceo.canCollect ? (
-          <span className="inline-flex items-center gap-1.5 font-semibold text-success motion-safe:animate-pulse"><Download className="h-3.5 w-3.5" /> Ready · {formatNumber(ceo.cycleRewardSp ?? 0)} SP</span>
-        ) : ceo.cycleEndsAt ? (
-          <span className="text-muted">Producing · ready in {countdown(ceo.cycleEndsAt, now)}</span>
-        ) : (
-          <span className="text-muted">Idle — start a cycle to produce</span>
+      <div className="mt-3 rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-xs">
+        <div className="flex items-center gap-2">
+          <Clock className="h-3.5 w-3.5 text-muted" />
+          {archived ? (
+            <span className="inline-flex items-center gap-1.5 text-muted"><Archive className="h-3.5 w-3.5" /> Archived — cap reached, ownership retained</span>
+          ) : ceo.canCollect ? (
+            <span className="inline-flex items-center gap-1.5 font-semibold text-success motion-safe:animate-pulse-soft"><Download className="h-3.5 w-3.5" /> Ready · {formatNumber(ceo.cycleRewardSp ?? 0)} SP</span>
+          ) : ceo.cycleEndsAt ? (
+            <span className="text-muted">Producing · ready in {countdown(ceo.cycleEndsAt, now)}</span>
+          ) : (
+            <span className="text-muted">Idle — start a cycle to produce</span>
+          )}
+        </div>
+        {!archived && ceo.cycleEndsAt && !ceo.canCollect && (
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/5" role="progressbar" aria-label="Cycle progress">
+            <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-[width] duration-1000 ease-linear" style={{ width: `${cyclePct(ceo, now)}%` }} />
+          </div>
         )}
       </div>
 

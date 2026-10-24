@@ -34,12 +34,23 @@ export default {
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
         'slide-up': { from: { opacity: '0', transform: 'translateY(10px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
         'pulse-soft': { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.55' } },
-        shimmer: { '100%': { transform: 'translateX(100%)' } }
+        shimmer: { '100%': { transform: 'translateX(100%)' } },
+        sheen: { '0%': { transform: 'translateX(-100%)' }, '55%,100%': { transform: 'translateX(100%)' } },
+        'reward-rise': {
+          '0%': { opacity: '0', transform: 'translateY(10px) scale(0.92)' },
+          '16%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+          '72%': { opacity: '1', transform: 'translateY(-4px) scale(1)' },
+          '100%': { opacity: '0', transform: 'translateY(-14px) scale(1.02)' }
+        },
+        'pop': { '0%': { transform: 'scale(0.96)' }, '60%': { transform: 'scale(1.02)' }, '100%': { transform: 'scale(1)' } }
       },
       animation: {
         'fade-in': 'fade-in 0.35s ease-out both',
         'slide-up': 'slide-up 0.4s ease-out both',
-        'pulse-soft': 'pulse-soft 2s ease-in-out infinite'
+        'pulse-soft': 'pulse-soft 2s ease-in-out infinite',
+        sheen: 'sheen 3.5s ease-in-out infinite',
+        reward: 'reward-rise 1.6s ease-out both',
+        pop: 'pop 0.22s ease-out both'
       }
     }
   },
