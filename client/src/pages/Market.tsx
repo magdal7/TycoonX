@@ -125,7 +125,7 @@ export default function Market() {
         eyebrow="Marketplace"
         title="CEO Market"
         description="Recruit executives with defined production mechanics and finite lifetime caps."
-        right={<Badge variant="demo">SIMULATION</Badge>}
+        right={<Badge variant="default">SP MARKET</Badge>}
       />
 
       <Card padding="sm" className="border border-success/25 bg-success/5">
@@ -133,7 +133,7 @@ export default function Market() {
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-success" />
           <p className="text-xs text-success/90">
             Buy CEOs with SP (Bonus SP first, then Earned SP) at 1 USDT = 1,000 SP. Deposits credit Bonus SP;
-            only Earned SP is potentially withdrawable and withdrawals remain disabled.
+            only Earned SP is potentially withdrawable, and payouts require admin approval.
           </p>
         </div>
       </Card>

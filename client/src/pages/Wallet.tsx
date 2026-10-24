@@ -228,6 +228,7 @@ export default function Wallet() {
                 placeholder="e.g. 10"
                 className="mt-1 w-full rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-sm text-white outline-none focus:border-primary"
               />
+              <span className="mt-1 block text-[10px] text-muted">Minimum 0.01 USDT · 1 USDT = 1,000 Bonus SP</span>
             </label>
             <label className="block text-xs text-muted">
               Asset / network

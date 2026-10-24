@@ -1,7 +1,33 @@
 # TycoonX — Implementation Status (PROGRESS)
 
 Canonical status file. Product rules live in `docs/TYCOONX_V2_MASTER_SPEC.md` (do not duplicate rules here).
-Last updated: 2026-10-23.
+Last updated: 2026-10-24.
+
+## Production OxaPay deposits activated (2026-10-24)
+- **First real deposit verified and settled.** OxaPay Track ID `169128788` (ADMIN user 7, order
+  `dep_d98f4231-…`, **1 USDT on Binance Smart Chain**) was confirmed final by the provider (15
+  confirmations). TycoonX recorded it `CONFIRMED` and credited **exactly one** ledger entry
+  (`DEPOSIT_CREDIT`, BONUS, **+1,000 Bonus SP**); total `DEPOSIT_CREDIT` rows = 1 (no duplicate).
+  Wallet summary and admin payment history both show it.
+- **Incident (fixed, commit `a695e75`):** the paid callback was initially recorded `IGNORED`
+  (`unsupported_pair`) and no SP was credited. Root cause: OxaPay invoice callbacks carry the
+  invoice/fiat currency in top-level `currency` (`"USD"`); the paid crypto asset lives in
+  `txs[].currency`. The webhook route preferred the top-level value. Fixed by `resolveCallbackAsset`
+  (prefer transaction asset; tested) and by letting `processWebhook` safely re-evaluate a prior
+  `IGNORED` event that was matched to an intent — exactly-once is still guaranteed by the SP-ledger
+  unique source key. The stuck invoice was recovered through the idempotent `reconcileDepositIntent`
+  path (no manual balance edits).
+- **Global deposits enabled:** `PAYMENTS_ENABLED="true"`, `DEPOSIT_ACCESS_MODE="all"`,
+  `OXAPAY_SANDBOX="false"` (production, `/opt/tycoonx/server/.env`, perms `600`). Unauthenticated
+  invoice creation returns 401; webhook without a valid HMAC returns 401. Supported asset/network
+  allowlist and provider-verified minimum (0.01 USDT) unchanged; payer-covers-fees
+  (`fee_paid_by_payer=1`) preserved.
+- **Still disabled:** `PAYOUTS_ENABLED="false"` (payout go-live gates not met) and
+  `REFERRAL_REWARDS_ENABLED="false"` (commission currency, qualification criteria and refund
+  handling remain unresolved per Master Spec §8).
+- **Also fixed in `a695e75`:** unhandled `InsufficientSpError` on `POST /api/game/withdrawals`
+  (now a mapped 409/422); production `TRUST_PROXY=1` (Caddy behind Cloudflare) so rate limiting is
+  no longer keyed on `127.0.0.1`; Wallet/Market copy reflects live flags.
 
 ## Release-candidate hardening (2026-10-23)
 - **Three independent, env-gated financial switches, all default disabled** (exact value `"true"` only):
