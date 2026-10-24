@@ -59,6 +59,16 @@ export function minDepositUsdt(env: Record<string, string | undefined> = process
 }
 
 /**
+ * Provider-verified minimum payout amount in USDT (`OXAPAY_MIN_PAYOUT_USDT`).
+ * Defaults to "0.01" — the live OxaPay USDT/BSC `withdraw_min`. A withdrawal's
+ * net amount must be at least this value for the provider to accept the payout.
+ */
+export function minPayoutUsdt(env: Record<string, string | undefined> = process.env): string {
+  const raw = (env.OXAPAY_MIN_PAYOUT_USDT ?? '').trim()
+  return USDT_RE.test(raw) ? raw : '0.01'
+}
+
+/**
  * Converts a USDT decimal string to integer SP exactly (no floating point).
  * 1 USDT = 1,000 SP, so 0.001 USDT = 1 SP; extra decimals beyond 3 are truncated.
  */

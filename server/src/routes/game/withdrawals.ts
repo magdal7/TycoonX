@@ -15,12 +15,15 @@ import { idParamSchema, withdrawalCreateSchema, withdrawalWalletSchema } from '.
 
 const STATUS: Record<WithdrawalErrorCode, number> = {
   below_minimum: 422,
+  below_payout_minimum: 422,
   invalid_address: 422,
+  invalid_input: 400,
   pending_exists: 409,
   not_found: 404,
   invalid_state: 409,
   cooldown: 409,
   payouts_disabled: 503,
+  payout_uncertain: 409,
   not_submitted: 409,
   wallet_hold: 409,
   wallet_pending: 409,

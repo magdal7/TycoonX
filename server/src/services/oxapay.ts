@@ -402,6 +402,10 @@ export interface ProviderCurrencyNetwork {
   /** Human-readable network name (e.g. "Ethereum Network"). */
   name: string
   depositMin?: string
+  /** Provider payout minimum for this asset/network. */
+  withdrawMin?: string
+  /** Provider payout fee for this asset/network. */
+  withdrawFee?: string
 }
 
 export interface ProviderCurrency {
@@ -437,6 +441,8 @@ export async function getSupportedCurrencies(config: OxapayConfig): Promise<Prov
         network: asString(net.network) ?? key,
         name: asString(net.name) ?? '',
         ...(asString(net.deposit_min) ? { depositMin: asString(net.deposit_min) } : {}),
+        ...(asString(net.withdraw_min) ? { withdrawMin: asString(net.withdraw_min) } : {}),
+        ...(asString(net.withdraw_fee) ? { withdrawFee: asString(net.withdraw_fee) } : {}),
       }
     })
     result.push({ symbol, name: asString(row.name), status: row.status === true, networks })

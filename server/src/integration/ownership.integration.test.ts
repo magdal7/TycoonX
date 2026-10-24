@@ -9,9 +9,17 @@ import { grantStarterCeo } from '../services/starterCeo'
 import { OwnershipLimitError } from '../services/ownership'
 import { startProduction, collectProduction, ProductionError } from '../services/production'
 import { buildReconciliationInput, confirmDepositIntent, createDepositInvoice, processWebhook } from '../services/payments'
+import {
+  createWithdrawalRequest,
+  executeWithdrawalPayout,
+  processPayoutWebhook,
+  reviewWithdrawal,
+  WithdrawalError,
+} from '../services/withdrawals'
 import type { OxapayConfig, OxapayFetch, OxapayFetchResponse } from '../services/oxapay'
 
 process.env.PAYMENTS_ENABLED = 'true'
+process.env.PAYOUTS_ENABLED = 'true'
 
 /**
  * PostgreSQL integration tests for starter provisioning.
@@ -177,6 +185,7 @@ async function cleanupUser(userId: number): Promise<void> {
   await db!.idempotencyKey.deleteMany({ where: { userId } })
   await db!.referralAttribution.deleteMany({ where: { referrerId: userId } })
   await db!.referralAttribution.deleteMany({ where: { referredUserId: userId } })
+  await db!.withdrawalRequest.deleteMany({ where: { userId } })
   await db!.paymentIntent.deleteMany({ where: { userId } })
   await db!.ownedCeo.deleteMany({ where: { userId } })
   await db!.user.deleteMany({ where: { id: userId } })
@@ -205,6 +214,7 @@ async function sweepLeftoverTestUsers(): Promise<void> {
   await db!.idempotencyKey.deleteMany({ where: { userId: { in: ids } } })
   await db!.referralAttribution.deleteMany({ where: { referrerId: { in: ids } } })
   await db!.referralAttribution.deleteMany({ where: { referredUserId: { in: ids } } })
+  await db!.withdrawalRequest.deleteMany({ where: { userId: { in: ids } } })
   await db!.paymentIntent.deleteMany({ where: { userId: { in: ids } } })
   await db!.ownedCeo.deleteMany({ where: { userId: { in: ids } } })
   await db!.user.deleteMany({ where: { id: { in: ids } } })
@@ -634,6 +644,163 @@ test('reconciliation input settles exactly once and is replay-guarded', { skip }
     assert.equal(again.reason, 'duplicate')
   } finally {
     if (eventId) await db!.paymentWebhookEvent.deleteMany({ where: { eventId } })
+    await cleanupUser(userId)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Withdrawals (OxaPay) — same guarded disposable branch. The provider is mocked;
+// no live transfer occurs. Requires the withdrawal payout columns on the branch.
+// ---------------------------------------------------------------------------
+
+/** True when the isolated branch carries the payout-fields migration. */
+async function hasPayoutColumns(): Promise<boolean> {
+  const rows = await db!.$queryRaw<Array<{ column_name: string }>>`
+    SELECT column_name::text AS column_name
+    FROM information_schema.columns
+    WHERE table_name = 'WithdrawalRequest' AND column_name IN ('payoutTrackId', 'paidAt')
+  `
+  return rows.length === 2
+}
+
+function withdrawalPayoutConfig(trackId: string): { config: OxapayConfig; calls: string[] } {
+  const calls: string[] = []
+  const fetch: OxapayFetch = async (url, init) => {
+    calls.push(`${init.method} ${url}`)
+    return { ok: true, status: 200, text: async () => JSON.stringify({ status: 200, data: { track_id: trackId, status: 'pending' } }) }
+  }
+  return {
+    config: {
+      merchantApiKey: 'itest-merchant-key',
+      payoutApiKey: 'itest-payout-key',
+      baseUrl: 'https://api.oxapay.com/v1',
+      sandbox: true,
+      timeoutMs: 1000,
+      fetch,
+    },
+    calls,
+  }
+}
+
+const payoutAddr = (c: string) => '0x' + c.repeat(40)
+
+test('withdrawal: request locks Earned SP and a confirmed payout settles exactly once', { skip }, async (t) => {
+  if (!(await hasPayoutColumns())) return t.skip('payout columns not present on the test branch')
+  const userId = await createUser()
+  try {
+    await db!.spAccount.create({ data: { userId, earnedSp: 9000n, bonusSp: 5000n, lifetimeEarnedSp: 9000n } })
+    const addr = payoutAddr('a')
+    const view = await createWithdrawalRequest(db!, userId, { grossSp: 3000n, address: addr })
+    assert.equal(view.status, 'REQUESTED')
+    assert.equal(view.netUsdt, '2.70')
+    assert.equal(view.feeUsdt, '0.30')
+
+    // Earned SP locked; Bonus SP untouched.
+    let acct = await db!.spAccount.findUniqueOrThrow({ where: { userId } })
+    assert.equal(acct.earnedSp, 6000n)
+    assert.equal(acct.bonusSp, 5000n)
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'WITHDRAWAL_LOCK' } }), 1)
+
+    // One pending request per user.
+    await assert.rejects(
+      () => createWithdrawalRequest(db!, userId, { grossSp: 3000n, address: addr }),
+      (e: unknown) => e instanceof WithdrawalError && e.code === 'pending_exists',
+    )
+
+    // Admin approval never transfers.
+    const approved = await reviewWithdrawal(db!, 1, view.id, 'APPROVED')
+    assert.equal(approved.status, 'APPROVED')
+
+    // Simulated provider payout anchor + confirmed callback.
+    const trackId = `itest_pay_${shortId()}`
+    await db!.paymentIntent.create({
+      data: {
+        userId,
+        provider: 'OXAPAY',
+        externalId: trackId,
+        amountUsdt: view.netUsdt,
+        status: 'PENDING',
+        purpose: 'withdrawal',
+        payAddress: addr,
+        metadata: { withdrawalRequestId: view.id },
+      },
+    })
+    const settled = await processPayoutWebhook(db!, { eventId: `itest_evt_${shortId()}`, trackId, status: 'Confirmed' })
+    assert.equal(settled.reason, 'settled')
+
+    const row = await db!.withdrawalRequest.findUniqueOrThrow({ where: { id: view.id } })
+    assert.equal(row.status, 'PAID')
+    assert.ok(row.paidAt)
+    assert.equal(row.payoutTrackId, trackId)
+
+    // Exactly once: locked SP is consumed (no release/settle entries), no double credit.
+    acct = await db!.spAccount.findUniqueOrThrow({ where: { userId } })
+    assert.equal(acct.earnedSp, 6000n)
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'WITHDRAWAL_LOCK' } }), 1)
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'WITHDRAWAL_RELEASE' } }), 0)
+  } finally {
+    await db!.paymentWebhookEvent.deleteMany({ where: { eventId: { startsWith: 'itest_evt_' } } })
+    await cleanupUser(userId)
+  }
+})
+
+test('withdrawal: a failed payout releases Earned SP exactly once', { skip }, async (t) => {
+  if (!(await hasPayoutColumns())) return t.skip('payout columns not present on the test branch')
+  const userId = await createUser()
+  try {
+    await db!.spAccount.create({ data: { userId, earnedSp: 9000n, bonusSp: 0n, lifetimeEarnedSp: 9000n } })
+    const addr = payoutAddr('b')
+    const view = await createWithdrawalRequest(db!, userId, { grossSp: 3000n, address: addr })
+    await reviewWithdrawal(db!, 1, view.id, 'APPROVED')
+
+    const trackId = `itest_pay_${shortId()}`
+    await db!.paymentIntent.create({
+      data: {
+        userId,
+        provider: 'OXAPAY',
+        externalId: trackId,
+        amountUsdt: view.netUsdt,
+        status: 'PENDING',
+        purpose: 'withdrawal',
+        payAddress: addr,
+        metadata: { withdrawalRequestId: view.id },
+      },
+    })
+
+    const failed = await processPayoutWebhook(db!, { eventId: `itest_evt_${shortId()}`, trackId, status: 'Failed' })
+    assert.equal(failed.reason, 'reversed')
+    assert.equal((await db!.withdrawalRequest.findUniqueOrThrow({ where: { id: view.id } })).status, 'REJECTED')
+    assert.equal((await db!.spAccount.findUniqueOrThrow({ where: { userId } })).earnedSp, 9000n)
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'WITHDRAWAL_RELEASE' } }), 1)
+
+    // A replay with a different event id cannot release twice.
+    const replay = await processPayoutWebhook(db!, { eventId: `itest_evt_${shortId()}`, trackId, status: 'Failed' })
+    assert.equal(replay.reason, 'already_paid')
+    assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'WITHDRAWAL_RELEASE' } }), 1)
+  } finally {
+    await db!.paymentWebhookEvent.deleteMany({ where: { eventId: { startsWith: 'itest_evt_' } } })
+    await cleanupUser(userId)
+  }
+})
+
+test('withdrawal: payout submission is idempotent (single provider call)', { skip }, async (t) => {
+  if (!(await hasPayoutColumns())) return t.skip('payout columns not present on the test branch')
+  const userId = await createUser()
+  try {
+    await db!.spAccount.create({ data: { userId, earnedSp: 9000n, bonusSp: 0n, lifetimeEarnedSp: 9000n } })
+    const addr = payoutAddr('c')
+    const view = await createWithdrawalRequest(db!, userId, { grossSp: 3000n, address: addr })
+    await reviewWithdrawal(db!, 1, view.id, 'APPROVED')
+
+    const { config, calls } = withdrawalPayoutConfig(`itest_pay_${shortId()}`)
+    const first = await executeWithdrawalPayout(db!, view.id, config)
+    assert.equal(first.alreadySubmitted, false)
+    assert.match(first.trackId, /^itest_pay_/)
+
+    const second = await executeWithdrawalPayout(db!, view.id, config)
+    assert.equal(second.alreadySubmitted, true)
+    assert.equal(calls.length, 1)
+  } finally {
     await cleanupUser(userId)
   }
 })

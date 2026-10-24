@@ -29,6 +29,32 @@ Last updated: 2026-10-24.
   (now a mapped 409/422); production `TRUST_PROXY=1` (Caddy behind Cloudflare) so rate limiting is
   no longer keyed on `127.0.0.1`; Wallet/Market copy reflects live flags.
 
+## Withdrawal system hardening (2026-10-24)
+Prepared the existing OxaPay withdrawal system for real production use. `PAYOUTS_ENABLED` remains
+`false` pending provider funding/permissions/compliance confirmation.
+- **Provider params verified (v1 live):** USDT/BSC `withdraw_min=0.01`, `withdraw_fee=0.25`,
+  network `keys=[BSC,BEP20,...]`. Added `getSupportedCurrencies` withdraw fields, a configurable
+  `OXAPAY_MIN_PAYOUT_USDT` (default `0.01`) enforced on the **net** amount at request time, and a
+  configurable `OXAPAY_PAYOUT_NETWORK` (default `BEP20`). User fee stays `0.30 USDT` (covers the
+  0.25 provider fee with margin); gross/fee/net are shown before submit.
+- **Uncertain payout results are reconciled, not retried blindly:** a submission that ends in a
+  timeout/network/5xx (or malformed response) keeps the deterministic `wd_<id>` anchor and throws
+  `payout_uncertain`; a definite 4xx rejection removes the anchor for a corrected retry. New admin
+  resolution `POST /api/admin/withdrawals/:id/payout/resolve` (`not_submitted` | `attach_track_id`)
+  clears/attaches the anchor after an operator checks OxaPay — audited, never moves funds.
+- **Reject is blocked once a payout has been submitted** (prevents releasing locked Earned SP while
+  funds are in flight). **Webhook IGNORED recovery** mirrors deposits: a transition recorded
+  `IGNORED` and matched to a payout intent can be safely re-evaluated; settlement stays exactly-once
+  via guarded status transitions + the SP-ledger unique key.
+- **Earned-only accounting preserved:** Bonus SP is never withdrawable; atomic reserve/release via
+  `debitEarnedSp`/`creditSp`; one pending request; 24h post-payout cooldown; wallet-change hold.
+- **UI:** admin queue shows gross/fee/net, track id, paid time, and Submit/Reconcile/Resolve
+  controls; Wallet shows a gross/fee/net breakdown and paid details.
+- **Tests:** 8 new unit tests (uncertain classification, anchor retention, definite-rejection
+  cleanup, operator resolution, reject-after-submit block, IGNORED recovery, payout minimum, net
+  accounting); 3 added isolated integration tests (pending on the disposable Neon branch).
+  Unit **260/260**, `tsc` clean, client PWA build clean, `prisma validate` clean.
+
 ## Release-candidate hardening (2026-10-23)
 - **Three independent, env-gated financial switches, all default disabled** (exact value `"true"` only):
   `PAYMENTS_ENABLED` (external OxaPay deposits + settlement/reconciliation), `PAYOUTS_ENABLED` (payout

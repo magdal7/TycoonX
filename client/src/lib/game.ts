@@ -324,6 +324,8 @@ export interface WithdrawalView {
   address: string
   network: string
   status: string
+  payoutTrackId: string | null
+  paidAt: string | null
   createdAt: string
 }
 
@@ -335,6 +337,8 @@ interface RawWithdrawal {
   address: string
   network: string
   status: string
+  payoutTrackId?: string | null
+  paidAt?: string | null
   createdAt: string
 }
 
@@ -343,6 +347,8 @@ const mapWithdrawal = (w: RawWithdrawal): WithdrawalView => ({
   grossSp: toNumber(w.grossSp),
   feeUsdt: toNumber(w.feeUsdt),
   netUsdt: toNumber(w.netUsdt),
+  payoutTrackId: w.payoutTrackId ?? null,
+  paidAt: w.paidAt ?? null,
 })
 
 export interface WithdrawalWallet {

@@ -1,14 +1,24 @@
 import type { Prisma, PrismaClient, WithdrawalStatus } from '@prisma/client'
 import { isUniqueViolation } from '../lib/idempotency'
-import { isPayoutConfirmed, isPayoutFailed, synthesizeWebhookEventId } from '../lib/oxapay'
-import { isPayoutsEnabled } from '../lib/payments'
-import { createPayout, getPayoutInfo, loadOxapayConfig, type OxapayConfig } from './oxapay'
+import { compareDecimal, isPayoutConfirmed, isPayoutFailed, synthesizeWebhookEventId } from '../lib/oxapay'
+import { isPayoutsEnabled, minPayoutUsdt } from '../lib/payments'
+import { createPayout, getPayoutInfo, loadOxapayConfig, OxapayError, type OxapayConfig } from './oxapay'
 import { creditSp, debitEarnedSp, InsufficientSpError } from './spLedger'
 
 /** Owner-approved withdrawal rules (Master Spec §9): USDT BEP20 only. */
 export const MIN_GROSS_SP = 3000n // 3 USDT
 export const FLAT_FEE_SP = 300n // 0.30 USDT == 300 SP at 1,000 SP/USDT
+/** Stored/displayed network (approved rule: USDT BEP20 only). */
 export const NETWORK = 'BEP20'
+/**
+ * Network identifier sent to the OxaPay payout API. BEP20 is an accepted key for
+ * BNB Smart Chain (its canonical v1 code is "BSC"); configurable so it can be
+ * pinned to the value confirmed at activation.
+ */
+export function payoutNetwork(env: Record<string, string | undefined> = process.env): string {
+  const raw = (env.OXAPAY_PAYOUT_NETWORK ?? '').trim()
+  return raw || NETWORK
+}
 /** A new request is blocked for 24h after a successful payout (Master Spec §9). */
 export const PAYOUT_COOLDOWN_MS = 24 * 60 * 60 * 1000
 
@@ -23,12 +33,15 @@ export function walletHoldMs(env: Record<string, string | undefined> = process.e
 
 export type WithdrawalErrorCode =
   | 'below_minimum'
+  | 'below_payout_minimum'
   | 'invalid_address'
+  | 'invalid_input'
   | 'pending_exists'
   | 'not_found'
   | 'invalid_state'
   | 'cooldown'
   | 'payouts_disabled'
+  | 'payout_uncertain'
   | 'not_submitted'
   | 'wallet_hold'
   | 'wallet_pending'
@@ -108,6 +121,9 @@ export async function createWithdrawalRequest(
 ): Promise<WithdrawalView> {
   if (input.grossSp < MIN_GROSS_SP) throw new WithdrawalError('below_minimum')
   if (!validAddress(input.address)) throw new WithdrawalError('invalid_address')
+  // The net amount must clear the provider's live payout minimum (USDT/BSC).
+  const netUsdt = netUsdtString(input.grossSp)
+  if (compareDecimal(netUsdt, minPayoutUsdt()) < 0) throw new WithdrawalError('below_payout_minimum')
 
   return db.$transaction(async (tx) => {
     const user = await tx.user.findUnique({ where: { id: userId } })
@@ -150,7 +166,7 @@ export async function createWithdrawalRequest(
         userId,
         grossSp: input.grossSp,
         feeUsdt: feeUsdtString(),
-        netUsdt: netUsdtString(input.grossSp),
+        netUsdt,
         address,
         network: NETWORK,
         status: 'REQUESTED',
@@ -216,6 +232,10 @@ export async function reviewWithdrawal(
     }
 
     if (decision === 'REJECTED') {
+      // Rejecting releases the locked Earned SP. Never do that once a payout has
+      // been submitted: the SP could be released while funds are still in flight.
+      const payout = await tx.paymentIntent.findFirst({ where: payoutIntentWhere(id), select: { id: true } })
+      if (payout) throw new WithdrawalError('invalid_state')
       await creditSp(tx, {
         userId: row.userId,
         bucket: 'EARNED',
@@ -336,6 +356,18 @@ export interface PayoutSubmission {
 }
 
 /**
+ * True when a provider submission error leaves the outcome unknown (the payout
+ * may or may not have been accepted): timeouts, network failures, malformed
+ * responses, and provider 5xx. Definite 4xx / invalid-input rejections are false.
+ */
+export function isUncertainPayoutError(error: unknown): boolean {
+  if (!(error instanceof OxapayError)) return true
+  if (error.code === 'network_error' || error.code === 'timeout' || error.code === 'invalid_response') return true
+  if (error.code === 'provider_error' && (error.status ?? 0) >= 500) return true
+  return false
+}
+
+/**
  * Submits an APPROVED withdrawal to the provider. Idempotent: the deterministic
  * anchor row (`externalId = wd_<id>`) is created before the provider call, so a
  * second call can never submit a duplicate payout. The anchor is removed only if
@@ -377,11 +409,19 @@ export async function executeWithdrawalPayout(
       address: row.address,
       currency: 'USDT',
       amount: row.netUsdt.toString(),
-      network: NETWORK,
+      network: payoutNetwork(),
       description: `Withdrawal #${withdrawalId}`,
       ...(config.callbackUrl ? { callbackUrl: config.callbackUrl } : {}),
     })
   } catch (error) {
+    if (isUncertainPayoutError(error)) {
+      // The provider may or may not have received the request. Keep the anchor
+      // (`wd_<id>`) so a blind retry cannot double-submit; the operator must
+      // reconcile or resolve the submission before retrying.
+      throw new WithdrawalError('payout_uncertain')
+    }
+    // Definite rejection: nothing was created, so drop the anchor to allow a
+    // corrected retry.
     try {
       await db.paymentIntent.delete({ where: { id: intent.id } })
     } catch {
@@ -446,8 +486,28 @@ export async function processPayoutWebhook(
     })
     eventId = event.id
   } catch (error) {
-    if (isUniqueViolation(error)) return { ignored: true, reason: 'duplicate' }
-    throw error
+    if (!isUniqueViolation(error)) throw error
+    // Replayed deliveries of a known transition are ignored. A transition that
+    // was recorded IGNORED *and* matched to a real payout intent (payouts were
+    // disabled, or a transient failure) may be safely re-evaluated: the guarded
+    // status transitions + SP-ledger unique key keep settlement exactly-once.
+    const existing = await db.paymentWebhookEvent.findUnique({
+      where: { provider_eventId: { provider: 'OXAPAY', eventId: input.eventId } },
+      select: { id: true, status: true, paymentIntentId: true },
+    })
+    const recoverable = existing?.status === 'IGNORED' && existing.paymentIntentId != null
+    if (!recoverable) return { ignored: true, reason: 'duplicate' }
+    const reopened = await db.paymentWebhookEvent.update({
+      where: { id: existing.id },
+      data: {
+        status: 'RECEIVED',
+        processedAt: null,
+        paymentIntentId: null,
+        payload: (input.metadata ?? {}) as Prisma.InputJsonValue,
+      },
+      select: { id: true },
+    })
+    eventId = reopened.id
   }
 
   const intent = await db.paymentIntent.findUnique({ where: { externalId: input.trackId } })
@@ -561,4 +621,94 @@ export async function reconcileWithdrawalPayout(
     status: info.rawStatus,
     metadata: { source: 'reconcile', status: info.rawStatus } as Prisma.InputJsonValue,
   })
+}
+
+export type PayoutResolution = 'not_submitted' | 'attach_track_id'
+
+export interface PayoutResolutionResult {
+  withdrawalId: number
+  resolution: PayoutResolution
+  trackId: string | null
+}
+
+/**
+ * Resolves an uncertain payout submission (anchor `wd_<id>` with no track id).
+ * Used only after an operator has checked the provider dashboard:
+ *  - `not_submitted`   : no payout exists at the provider -> drop the anchor so a
+ *                        corrected retry becomes possible.
+ *  - `attach_track_id` : a payout does exist -> attach its track id so the normal
+ *                        reconcile path can settle it.
+ * Never moves funds; every resolution is audited.
+ */
+export async function resolveUncertainPayoutSubmission(
+  db: PrismaClient,
+  adminId: number,
+  withdrawalId: number,
+  resolution: PayoutResolution,
+  trackId?: string,
+): Promise<PayoutResolutionResult> {
+  return db.$transaction(async (tx) => {
+    const row = await tx.withdrawalRequest.findUnique({ where: { id: withdrawalId } })
+    if (!row) throw new WithdrawalError('not_found')
+
+    const intent = await tx.paymentIntent.findFirst({ where: payoutIntentWhere(withdrawalId) })
+    if (!intent) throw new WithdrawalError('not_submitted')
+    if (!intent.externalId.startsWith('wd_')) throw new WithdrawalError('invalid_state')
+
+    let attached: string | null = null
+    if (resolution === 'not_submitted') {
+      await tx.paymentIntent.delete({ where: { id: intent.id } })
+    } else {
+      const id = typeof trackId === 'string' ? trackId.trim() : ''
+      if (!id) throw new WithdrawalError('invalid_input')
+      await tx.paymentIntent.update({
+        where: { id: intent.id },
+        data: { externalId: id, status: 'PENDING', metadata: { withdrawalRequestId: withdrawalId, trackId: id } },
+      })
+      attached = id
+    }
+    await tx.adminAuditLog.create({
+      data: {
+        actorId: adminId,
+        action: `withdrawal.payout_resolve.${resolution}`,
+        targetType: 'WithdrawalRequest',
+        targetId: String(withdrawalId),
+        metadata: { trackId: attached },
+      },
+    })
+    return { withdrawalId, resolution, trackId: attached }
+  })
+}
+
+/** Payout-submission summary for the admin queue (no provider calls). */
+export interface PayoutSubmissionView {
+  submitted: boolean
+  uncertain: boolean
+  trackId: string | null
+  intentStatus: string | null
+}
+
+export async function getWithdrawalPayoutSubmissions(
+  db: PrismaClient,
+  withdrawalIds: number[],
+): Promise<Map<number, PayoutSubmissionView>> {
+  const result = new Map<number, PayoutSubmissionView>()
+  if (withdrawalIds.length === 0) return result
+  const intents = await db.paymentIntent.findMany({
+    where: { purpose: PAYOUT_PURPOSE },
+    select: { externalId: true, status: true, metadata: true },
+  })
+  const wanted = new Set(withdrawalIds)
+  for (const it of intents) {
+    const wid = Number((it.metadata as Record<string, unknown> | null)?.withdrawalRequestId ?? Number.NaN)
+    if (!Number.isInteger(wid) || !wanted.has(wid)) continue
+    const anchor = it.externalId.startsWith('wd_')
+    result.set(wid, {
+      submitted: !anchor,
+      uncertain: anchor,
+      trackId: anchor ? null : it.externalId,
+      intentStatus: it.status,
+    })
+  }
+  return result
 }

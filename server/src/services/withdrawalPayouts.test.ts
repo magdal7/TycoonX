@@ -5,12 +5,16 @@ import {
   WithdrawalError,
   createWithdrawalRequest,
   executeWithdrawalPayout,
+  isUncertainPayoutError,
   processPayoutWebhook,
   reconcileWithdrawalPayout,
+  resolveUncertainPayoutSubmission,
+  reviewWithdrawal,
   setWithdrawalWallet,
   walletHoldMs,
 } from './withdrawals'
-import type { OxapayConfig, OxapayFetch, OxapayFetchResponse } from './oxapay'
+import { OxapayError, type OxapayConfig, type OxapayFetch, type OxapayFetchResponse } from './oxapay'
+import { minPayoutUsdt } from '../lib/payments'
 
 interface WithdrawalRow {
   id: number
@@ -190,6 +194,10 @@ class FakePrisma {
       }
       this.events.push(row)
       return { id: row.id }
+    },
+    findUnique: async (args: any): Promise<EventRow | null> => {
+      const w = args?.where?.provider_eventId ?? {}
+      return this.events.find((e) => e.provider === w.provider && e.eventId === w.eventId) ?? null
     },
     update: async (args: any): Promise<EventRow> => {
       const row = this.events.find((e) => e.id === args?.where?.id)!
@@ -574,4 +582,145 @@ test('createWithdrawalRequest is blocked during the wallet-change hold', async (
     if (envelopeHold === undefined) delete process.env.WITHDRAWAL_WALLET_HOLD_HOURS
     else process.env.WITHDRAWAL_WALLET_HOLD_HOURS = envelopeHold
   }
+})
+
+test('isUncertainPayoutError flags ambiguous outcomes and not definite rejections', () => {
+  assert.equal(isUncertainPayoutError(new OxapayError('timeout')), true)
+  assert.equal(isUncertainPayoutError(new OxapayError('network_error')), true)
+  assert.equal(isUncertainPayoutError(new OxapayError('invalid_response', 'x', 502)), true)
+  assert.equal(isUncertainPayoutError(new OxapayError('provider_error', 'x', 500)), true)
+  // Definite rejections are safe to unwind and retry.
+  assert.equal(isUncertainPayoutError(new OxapayError('provider_error', 'x', 400)), false)
+  assert.equal(isUncertainPayoutError(new OxapayError('invalid_input')), false)
+  // Anything unexpected is treated as uncertain (fail-safe: never blind-retry).
+  assert.equal(isUncertainPayoutError(new Error('boom')), true)
+})
+
+function throwingConfig(): OxapayConfig {
+  return {
+    merchantApiKey: 'm',
+    payoutApiKey: 'p',
+    baseUrl: 'https://api.oxapay.com/v1',
+    sandbox: true,
+    timeoutMs: 1000,
+    fetch: async () => {
+      throw new Error('connection reset')
+    },
+  }
+}
+
+test('executeWithdrawalPayout keeps the anchor and reports payout_uncertain on an ambiguous error', async () => {
+  await withPayouts(async () => {
+    const f = new FakePrisma()
+    seedWithdrawal(f)
+    const config = throwingConfig()
+
+    await assert.rejects(
+      () => executeWithdrawalPayout(asClient(f), 1, config),
+      (e: unknown) => e instanceof WithdrawalError && e.code === 'payout_uncertain',
+    )
+    // Anchor retained -> a blind retry cannot double-submit.
+    assert.equal(f.intents.length, 1)
+    assert.match(f.intents[0].externalId, /^wd_/)
+
+    await assert.rejects(
+      () => executeWithdrawalPayout(asClient(f), 1, config),
+      (e: unknown) => e instanceof WithdrawalError && e.code === 'invalid_state',
+    )
+  })
+})
+
+test('executeWithdrawalPayout removes the anchor on a definite provider rejection', async () => {
+  await withPayouts(async () => {
+    const f = new FakePrisma()
+    seedWithdrawal(f)
+    const { config } = payoutConfig(() => json({ status: 400, error: { type: 'invalid', key: 'address' } }, 400))
+    await assert.rejects(
+      () => executeWithdrawalPayout(asClient(f), 1, config),
+      (e: unknown) => e instanceof OxapayError && e.code === 'provider_error',
+    )
+    assert.equal(f.intents.length, 0)
+  })
+})
+
+test('resolveUncertainPayoutSubmission clears or attaches the anchor after operator verification', async () => {
+  await withPayouts(async () => {
+    const f = new FakePrisma()
+    seedWithdrawal(f, { status: 'APPROVED' })
+    const config = throwingConfig()
+
+    // Case 1: operator confirms no payout exists -> drop the anchor (retry allowed).
+    await assert.rejects(() => executeWithdrawalPayout(asClient(f), 1, config))
+    const cleared = await resolveUncertainPayoutSubmission(asClient(f), 7, 1, 'not_submitted')
+    assert.equal(cleared.resolution, 'not_submitted')
+    assert.equal(f.intents.length, 0)
+    assert.equal(f.audits.filter((a) => (a.action as string).startsWith('withdrawal.payout_resolve')).length, 1)
+
+    // Case 2: a payout does exist -> attach its track id for reconciliation.
+    await assert.rejects(() => executeWithdrawalPayout(asClient(f), 1, config))
+    const attached = await resolveUncertainPayoutSubmission(asClient(f), 7, 1, 'attach_track_id', 'pay_9')
+    assert.equal(attached.trackId, 'pay_9')
+    assert.equal(f.intents[0].externalId, 'pay_9')
+    assert.equal(f.intents[0].status, 'PENDING')
+  })
+})
+
+test('reviewWithdrawal refuses to reject once a payout has been submitted', async () => {
+  const f = new FakePrisma()
+  seedWithdrawal(f, { status: 'APPROVED' })
+  seedPayoutIntent(f, 1, 'pay_1')
+  await assert.rejects(
+    () => reviewWithdrawal(asClient(f), 7, 1, 'REJECTED'),
+    (e: unknown) => e instanceof WithdrawalError && e.code === 'invalid_state',
+  )
+  assert.equal(f.ledger.length, 0)
+})
+
+test('processPayoutWebhook re-evaluates a previously IGNORED event and settles once', async () => {
+  const f = new FakePrisma()
+  seedWithdrawal(f, { status: 'APPROVED' })
+  seedPayoutIntent(f, 1, 'pay_1')
+
+  const saved = process.env.PAYOUTS_ENABLED
+  delete process.env.PAYOUTS_ENABLED
+  try {
+    const ignored = await processPayoutWebhook(asClient(f), { eventId: 'evt_recover', trackId: 'pay_1', status: 'Confirmed' })
+    assert.equal(ignored.reason, 'payouts_disabled')
+    assert.equal(f.events[0].status, 'IGNORED')
+
+    process.env.PAYOUTS_ENABLED = 'true'
+    const settled = await processPayoutWebhook(asClient(f), { eventId: 'evt_recover', trackId: 'pay_1', status: 'Confirmed' })
+    assert.equal(settled.reason, 'settled')
+    assert.equal(f.withdrawals[0].status, 'PAID')
+    assert.equal(f.events.length, 1)
+    assert.equal(f.events[0].status, 'PROCESSED')
+  } finally {
+    if (saved === undefined) delete process.env.PAYOUTS_ENABLED
+    else process.env.PAYOUTS_ENABLED = saved
+  }
+})
+
+test('createWithdrawalRequest enforces the provider payout minimum on the net amount', async () => {
+  const saved = process.env.OXAPAY_MIN_PAYOUT_USDT
+  process.env.OXAPAY_MIN_PAYOUT_USDT = '5'
+  try {
+    const f = new FakePrisma()
+    f.accounts.push({ userId: 1, earnedSp: 9000n, bonusSp: 0n, lifetimeEarnedSp: 9000n, version: 0 })
+    f.users.push({ id: 1, withdrawalWallet: null, withdrawalWalletChangedAt: null })
+    await assert.rejects(
+      () => createWithdrawalRequest(asClient(f), 1, { grossSp: 3000n, address: '0x' + 'a'.repeat(40) }),
+      (e: unknown) => e instanceof WithdrawalError && e.code === 'below_payout_minimum',
+    )
+    assert.equal(f.accounts[0].earnedSp, 9000n)
+  } finally {
+    if (saved === undefined) delete process.env.OXAPAY_MIN_PAYOUT_USDT
+    else process.env.OXAPAY_MIN_PAYOUT_USDT = saved
+  }
+})
+
+test('minPayoutUsdt defaults to the verified 0.01 and rejects invalid values', () => {
+  assert.equal(minPayoutUsdt({}), '0.01')
+  assert.equal(minPayoutUsdt({ OXAPAY_MIN_PAYOUT_USDT: '' }), '0.01')
+  assert.equal(minPayoutUsdt({ OXAPAY_MIN_PAYOUT_USDT: 'nope' }), '0.01')
+  assert.equal(minPayoutUsdt({ OXAPAY_MIN_PAYOUT_USDT: '2.50' }), '2.50')
 })

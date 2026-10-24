@@ -351,7 +351,20 @@ export default function Wallet() {
               </label>
             </div>
             {gross && Number(gross) >= MIN_SP && (
-              <p className="text-[11px] text-muted">Net after 0.30 USDT fee: <b className="text-white">{(Number(gross) / 1000 - 0.3).toFixed(2)} USDT</b></p>
+              <div className="grid grid-cols-3 gap-2 rounded-xl border border-line bg-surface-2/40 p-2 text-center text-[11px]">
+                <div>
+                  <div className="text-muted">Gross</div>
+                  <div className="font-semibold text-white">{(Number(gross) / 1000).toFixed(2)} USDT</div>
+                </div>
+                <div>
+                  <div className="text-muted">Fee</div>
+                  <div className="font-semibold text-white">0.30 USDT</div>
+                </div>
+                <div>
+                  <div className="text-muted">You receive</div>
+                  <div className="font-semibold text-success">{(Number(gross) / 1000 - 0.3).toFixed(2)} USDT</div>
+                </div>
+              </div>
             )}
             <Button type="submit" disabled={busy || Number(gross) < MIN_SP || earned < Number(gross) || !address} isLoading={busy}>
               Submit request
@@ -372,6 +385,11 @@ export default function Wallet() {
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-white">{formatNumber(r.grossSp)} SP → {r.netUsdt} USDT</p>
                   <p className="text-[10px] text-muted">{r.network} · {r.address.slice(0, 10)}…{r.address.slice(-6)}</p>
+                  {r.paidAt && (
+                    <p className="text-[10px] text-success">
+                      Paid {new Date(r.paidAt).toLocaleString()}{r.payoutTrackId ? ` · ${r.payoutTrackId}` : ''}
+                    </p>
+                  )}
                 </div>
                 <Badge variant={STATUS_TONE[r.status] ?? 'default'}>{r.status}</Badge>
               </div>

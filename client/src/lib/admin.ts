@@ -323,18 +323,44 @@ export interface AdminWithdrawal {
   note: string | null
   reviewedBy: number | null
   reviewedAt: string | null
+  payoutTrackId: string | null
+  paidAt: string | null
+  payoutSubmitted: boolean
+  payoutUncertain: boolean
+  payoutIntentTrackId: string | null
   createdAt: string
 }
 
 export const fetchAdminWithdrawals = (status?: string) =>
   request<{ withdrawals: AdminWithdrawal[]; payoutsEnabled: boolean }>(
     `/api/admin/withdrawals${status ? `?status=${encodeURIComponent(status)}` : ''}`,
-  ).then((d) => d.withdrawals)
+  )
 
 export const reviewAdminWithdrawal = (id: number, decision: 'APPROVED' | 'REJECTED' | 'ON_HOLD', note?: string) =>
   request<{ withdrawal: AdminWithdrawal }>(`/api/admin/withdrawals/${id}/review`, json({ decision, note })).then(
     (d) => d.withdrawal,
   )
+
+export const submitAdminWithdrawalPayout = (id: number) =>
+  request<{ submission: { withdrawalId: number; trackId: string; alreadySubmitted: boolean } }>(
+    `/api/admin/withdrawals/${id}/payout`,
+    { method: 'POST' },
+  ).then((d) => d.submission)
+
+export const reconcileAdminWithdrawalPayout = (id: number) =>
+  request<{ result: { ignored: boolean; reason?: string } }>(`/api/admin/withdrawals/${id}/reconcile`, {
+    method: 'POST',
+  }).then((d) => d.result)
+
+export const resolveAdminWithdrawalPayout = (
+  id: number,
+  resolution: 'not_submitted' | 'attach_track_id',
+  trackId?: string,
+) =>
+  request<{ result: { withdrawalId: number; resolution: string; trackId: string | null } }>(
+    `/api/admin/withdrawals/${id}/payout/resolve`,
+    json({ resolution, trackId }),
+  ).then((d) => d.result)
 
 // ---------------------------------------------------------------------------
 // Referral management

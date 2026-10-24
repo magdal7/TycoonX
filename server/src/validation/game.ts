@@ -75,6 +75,11 @@ export const withdrawalWalletSchema = z.object({
   address: z.string().trim().min(10).max(100),
 })
 
+export const payoutResolveSchema = z.object({
+  resolution: z.enum(['not_submitted', 'attach_track_id']),
+  trackId: z.string().trim().min(1).max(100).optional(),
+})
+
 export const depositCreateSchema = z.object({
   amountUsdt: z
     .string()
