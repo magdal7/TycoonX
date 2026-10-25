@@ -1,9 +1,15 @@
-# SPA fallback for the custom history router (client/src/components/router.tsx).
-# Static assets are matched and served first; only unmatched paths fall through
-# to index.html.
+# Cloudflare Pages SPA fallback.
+#
+# No redirect/proxy rule is needed here. Cloudflare Pages serves the root
+# (`/index.html`) for any incoming path that does not match a static asset
+# whenever the project has NO top-level `404.html` — which is the case for this
+# Vite build. That built-in behavior is the supported SPA fallback and avoids the
+# `/* /index.html 200` proxy rule, which Cloudflare rejects as an infinite loop
+# (the `*` also matches `/index.html`, so the proxy would recurse onto itself).
+# Direct navigation/refresh on `/login`, `/dashboard`, etc. is therefore handled
+# client-side by the history router (`client/src/components/router.tsx`).
 #
 # IMPORTANT: browser API calls use relative /api/* paths. Route /api/* to the
 # VPS Express backend at the edge (a Cloudflare Worker route or Cloudflare
-# Tunnel) BEFORE Pages. Worker routes take precedence over this catch-all, so
-# /api/* must never reach here.
-/*    /index.html   200
+# Tunnel) BEFORE Pages. Worker routes take precedence over Pages entirely, so
+# /api/* must never be served by the static SPA fallback.

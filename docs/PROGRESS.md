@@ -1,7 +1,27 @@
 # TycoonX — Implementation Status (PROGRESS)
 
 Canonical status file. Product rules live in `docs/TYCOONX_V2_MASTER_SPEC.md` (do not duplicate rules here).
-Last updated: 2026-10-24.
+Last updated: 2026-10-25.
+
+## Final release preparation (2026-10-25)
+- **Production-cycle integration fix:** the Prisma interactive-transaction default 5s timeout was
+  exceeded on Neon under load; `startProduction`, `collectProduction`, and `upgradeEquipment` now open
+  their transactions with `{ maxWait: 15_000, timeout: 30_000 }` (matching `services/referrals.ts`).
+- **Isolated test branch reconciled:** `br-floral-resonance-b4ruvusw` already carried the
+  referral-provenance DDL but had no history row; `20261025000000_v25_referral_provenance` was recorded
+  through a guarded, idempotent metadata write (**no DDL repeated; production untouched**). Branch
+  history is now 15 rows.
+- **Referral production migration prepared:** `neon-migration-referral-provenance.yml` (guarded: typed
+  confirmation token, branch/project identity, frozen baseline checksums, transaction-safety scan,
+  fail-closed financial gates, single-transaction apply, effect + 15-row history verification). **Not
+  dispatched.** Do not deploy the referral-provenance build before it succeeds; referral rewards stay
+  `REFERRAL_REWARDS_ENABLED=false` until then.
+- **Cloudflare Pages SPA fix:** removed the invalid `/* /index.html 200` proxy rule from
+  `client/public/_redirects` (Cloudflare rejects it as an infinite loop). Pages' native SPA fallback
+  (no top-level `404.html`) serves `index.html` for client routes; `/api/*` remains edge-routed before
+  Pages. CSP, security headers, and PWA caching are unchanged.
+- **Verified:** unit **270/270**, integration **15/15** (isolated branch; no skips), server `tsc`,
+  `prisma validate`, and client PWA build all pass.
 
 ## Production OxaPay deposits activated (2026-10-24)
 - **First real deposit verified and settled.** OxaPay Track ID `169128788` (ADMIN user 7, order

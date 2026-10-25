@@ -27,9 +27,28 @@ origin via one of:
 - A reverse proxy on the same host (e.g. Caddy/nginx `handle /api/*` → Express), or
 - An edge route (Cloudflare Worker route / Tunnel) that forwards `/api/*` to the backend.
 
-`client/public/_redirects` provides the SPA fallback (`/* /index.html 200`). The `/api/*` route must
-be intercepted **before** Pages so API calls never reach that catch-all. `client/public/_headers`
-sets static security headers and keeps `sw.js`/manifest uncached for PWA updates.
+The SPA fallback is provided **natively by Cloudflare Pages**: because the build has no top-level
+`404.html`, Pages serves the root (`/index.html`) for any incoming path that does not match a static
+asset. `client/public/_redirects` therefore contains no rules — the old `/* /index.html 200` proxy
+rule was removed because Cloudflare rejects it as an infinite loop (the `*` also matches
+`/index.html`). The `/api/*` route must be intercepted **before** Pages (Worker route / Tunnel) so
+API calls never reach the static fallback. `client/public/_headers` sets static security headers and
+keeps `sw.js`/manifest uncached for PWA updates.
+
+## Cloudflare Pages (frontend hosting — verified)
+| Setting | Value |
+|---|---|
+| Project | `tycoonx` |
+| Repository | `magdal7/TycoonX` |
+| Build command | `npm run build --workspace=client` |
+| Output directory | `client/dist` |
+| Last observed deployed commit | `bc0ef50` |
+| Build + asset publishing | SUCCESS |
+
+Cloudflare Pages serves the public frontend; the VPS serves the backend API. The production branch and
+automatic-deployment trigger are confirmed at the Cloudflare project settings (not stored in the repo).
+Direct navigation/refresh on `/login`, `/dashboard`, and other routes works via the native SPA
+fallback above (no `404.html` is emitted by the Vite build).
 
 ## Runtime options
 
@@ -67,6 +86,10 @@ Migrating to Workers is an HTTP-layer rewrite, not a configuration change.
 client build, `prisma validate`. It never deploys and never enables a financial flag.
 
 ### Guarded production migrations (manual)
+- `neon-migration-referral-provenance.yml` — applies the single additive migration
+  `20261025000000_v25_referral_provenance` (production is on 14 rows; 15 after). **Run and verify
+  this BEFORE deploying the referral-provenance build**, which reads the new columns.
+- `neon-migration-withdrawal-payout-fields.yml` — `20261024000000_v25_withdrawal_payout_fields`.
 - `neon-migration-withdrawal-wallet.yml` — applies the single additive migration
   `20261023000000_v25_withdrawal_wallet` (production is on 12 rows; 13 after).
 - `neon-migration-execute-steps.yml`, `neon-migration-ceo-purchase-source.yml` — earlier V2.5 migrations.
@@ -91,11 +114,17 @@ Environment `production` with required reviewers.
 ### Deploy sequence
 1. Confirm CI is green on the intended `master` commit.
 2. If migrations are pending: create/verify a Neon recovery checkpoint, then dispatch the matching guarded
-   migration workflow with its exact confirmation token; verify the new columns and the 13-row history.
+   migration workflow with its exact confirmation token; verify the new columns and the final row count
+   (the referral-provenance workflow records 15 rows). **Migration first, deploy second** for any code
+   that reads new columns.
 3. Dispatch **Deploy Production** with `DEPLOY-TYCOONX-PRODUCTION` (optionally `expected_sha`) after
    environment approval.
 4. Run smoke tests (below). Confirm `PAYMENTS_ENABLED`/`PAYOUTS_ENABLED`/`REFERRAL_REWARDS_ENABLED` are
-   unset or `false`.
+   unset or `false`; `PAYOUTS_ENABLED` stays `false` until separate payout readiness checks pass.
+5. Frontend: Cloudflare Pages publishes `client/dist` from the configured production branch; verify
+   `/login` and `/dashboard` direct navigation/refresh after publish.
+6. Referral rewards (`REFERRAL_REWARDS_ENABLED`) are enabled only after the migration, deploy, and
+   integration/accounting checks all pass.
 
 ### Smoke tests
 - `GET https://api.tycoonx.top/api/health` → `{"status":"ok"}` (DB connected).
@@ -111,9 +140,14 @@ Environment `production` with required reviewers.
   recovery branch / point-in-time workflows (`neon-recovery-*.yml`) with operator approval. Do not drop
   columns without explicit owner review.
 
-### Current status (this task)
-- GitHub `master` pushed through `d778cf7`.
-- Production DB: 12 migrations; `20261023000000_v25_withdrawal_wallet` pending (workflow prepared).
-- Migration dispatch and VPS deploy were **not executed from this environment** (no `gh` CLI; no VPS SSH
-  credentials). Operator action required.
+### Current status (release preparation)
+- Cloudflare Pages config verified (above); the invalid `_redirects` SPA loop rule is removed and the
+  native Pages SPA fallback is used.
+- `20261025000000_v25_referral_provenance` is **prepared and NOT applied**; the workflow expects a
+  verified 14-row production baseline (fail-closed) and records 15 rows. Do not deploy the
+  referral-provenance build before it succeeds.
+- The isolated test branch `br-floral-resonance-b4ruvusw` migration history was reconciled to 15 rows
+  (the referral-provenance DDL already existed; only the history row was missing — recorded without
+  re-running DDL).
+- Migration dispatch and VPS deploy were **not executed from this environment**. Operator action required.
 

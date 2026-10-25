@@ -148,7 +148,7 @@ export async function startProduction(
       await tx.ownedCeo.update({ where: { id: ownedCeoId }, data: { status: 'PRODUCING' } })
       await recordTaskEvent(tx, userId, 'CYCLE_START')
       return { cycle: toCycleView(cycle), replayed: false }
-    })
+    }, { maxWait: 15_000, timeout: 30_000 })
   } catch (error) {
     if (error instanceof ProductionError) throw error
     if (isUniqueViolation(error)) {
@@ -247,7 +247,7 @@ export async function collectProduction(
         balanceSp: (balances.earnedSp + balances.bonusSp).toString(),
         status: exhausted ? 'EXHAUSTED' : 'IDLE',
       }
-    })
+    }, { maxWait: 15_000, timeout: 30_000 })
   } catch (error) {
     if (error instanceof ProductionError) throw error
     if (isUniqueViolation(error)) {
@@ -301,5 +301,5 @@ export async function upgradeEquipment(
     })
     await tx.ownedCeo.update({ where: { id: ownedCeoId }, data: { equipment: target } })
     return { equipment: target, earnedSp: spent.earnedSp.toString(), bonusSp: spent.bonusSp.toString() }
-  })
+  }, { maxWait: 15_000, timeout: 30_000 })
 }
