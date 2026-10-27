@@ -128,7 +128,13 @@ export default function Register({ navigate }: Props) {
                 onChange={(e) => setRef(e.target.value)}
                 className="mt-1"
               />
-              <p className="text-[10px] text-muted mt-1">Referral rewards stay disabled until qualification is approved.</p>
+              <p className="text-[10px] text-muted mt-1">
+                {settings.data?.capabilities?.referralRewards === true
+                  ? 'Referral rewards are active for qualified referrals.'
+                  : settings.data?.capabilities?.referralRewards === false
+                    ? 'Referral rewards are not active yet; qualified activity may be recorded without credit.'
+                    : 'Referral reward availability is shown in the app.'}
+              </p>
             </div>
 
             <label className="flex items-start gap-3 cursor-pointer">

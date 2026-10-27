@@ -11,6 +11,7 @@ export interface Ceo {
   lifetimeCapSp: number | null
   cycleHours: number
   energyCost: number
+  imageUrl: string | null
   isActive: boolean
 }
 
@@ -25,6 +26,7 @@ interface RawCeo {
   lifetimeCapSp: string | number | null
   cycleHours: number
   energyCost: number
+  imageUrl?: string | null
   isActive: boolean
 }
 
@@ -47,6 +49,7 @@ export interface PublicCeo {
   nominalSpPer24h: number | null
   lifetimeCapSp: number | null
   cycleHours: number
+  imageUrl: string | null
   isForSale: boolean
 }
 
@@ -64,6 +67,7 @@ export async function fetchPublicCeos(): Promise<PublicCeo[]> {
       nominalSpPer24h: number | null
       lifetimeCapSp: string | number | null
       cycleHours: number
+      imageUrl?: string | null
       isForSale: boolean
     }>
   }
@@ -76,6 +80,7 @@ export async function fetchPublicCeos(): Promise<PublicCeo[]> {
     nominalSpPer24h: c.nominalSpPer24h ?? null,
     lifetimeCapSp: c.lifetimeCapSp == null ? null : toNumber(c.lifetimeCapSp),
     cycleHours: c.cycleHours,
+    imageUrl: c.imageUrl ?? null,
     isForSale: c.isForSale,
   }))
 }
@@ -98,6 +103,7 @@ export async function fetchCeos(): Promise<Ceo[]> {
     lifetimeCapSp: c.lifetimeCapSp === null || c.lifetimeCapSp === undefined ? null : toNumber(c.lifetimeCapSp),
     cycleHours: c.cycleHours,
     energyCost: c.energyCost,
+    imageUrl: c.imageUrl ?? null,
     isActive: c.isActive,
   }))
 }

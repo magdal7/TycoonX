@@ -1,8 +1,10 @@
 # TycoonX — Production Deployment Notes
 
 Operational reference only. Product rules live in `docs/TYCOONX_V2_MASTER_SPEC.md`; status in
-`docs/PROGRESS.md`. Real payments/payouts remain **disabled** (`PAYMENTS_ENABLED=false`,
-`REFERRAL_REWARDS_ENABLED=false`); do not enable them here.
+`docs/PROGRESS.md`. As of 2026-10-27 production runs with the financial features **activated**
+(`PAYMENTS_ENABLED=true`, `PAYOUTS_ENABLED=true`, `REFERRAL_REWARDS_ENABLED=true`,
+`DEPOSIT_ACCESS_MODE=all`, `OXAPAY_SANDBOX=false`). This document describes deployment mechanics; it does
+not authorize changing production flags, and local development sandbox defaults stay fail-closed.
 
 ## Environment variables (server)
 | Variable | Required | Purpose |
@@ -86,9 +88,8 @@ Migrating to Workers is an HTTP-layer rewrite, not a configuration change.
 client build, `prisma validate`. It never deploys and never enables a financial flag.
 
 ### Guarded production migrations (manual)
-- `neon-migration-referral-provenance.yml` — applies the single additive migration
-  `20261025000000_v25_referral_provenance` (production is on 14 rows; 15 after). **Run and verify
-  this BEFORE deploying the referral-provenance build**, which reads the new columns.
+- `neon-migration-referral-provenance.yml` — `20261025000000_v25_referral_provenance` (additive).
+  **Already applied in production** (verified 2026-10-27; production history = 15 rows). Do not re-run it.
 - `neon-migration-withdrawal-payout-fields.yml` — `20261024000000_v25_withdrawal_payout_fields`.
 - `neon-migration-withdrawal-wallet.yml` — applies the single additive migration
   `20261023000000_v25_withdrawal_wallet` (production is on 12 rows; 13 after).
@@ -119,8 +120,10 @@ Environment `production` with required reviewers.
    that reads new columns.
 3. Dispatch **Deploy Production** with `DEPLOY-TYCOONX-PRODUCTION` (optionally `expected_sha`) after
    environment approval.
-4. Run smoke tests (below). Confirm `PAYMENTS_ENABLED`/`PAYOUTS_ENABLED`/`REFERRAL_REWARDS_ENABLED` are
-   unset or `false`; `PAYOUTS_ENABLED` stays `false` until separate payout readiness checks pass.
+4. Run smoke tests (below). Preserve the production `server/.env` on the VPS: the deploy workflow fast-forwards
+   the working tree only and never overwrites it, so the activated flags
+   (`PAYMENTS_ENABLED`/`PAYOUTS_ENABLED`/`REFERRAL_REWARDS_ENABLED=true`) remain in effect. Never copy a local
+   `.env` to production.
 5. Frontend: Cloudflare Pages publishes `client/dist` from the configured production branch; verify
    `/login` and `/dashboard` direct navigation/refresh after publish.
 6. Referral rewards (`REFERRAL_REWARDS_ENABLED`) are enabled only after the migration, deploy, and
@@ -140,14 +143,22 @@ Environment `production` with required reviewers.
   recovery branch / point-in-time workflows (`neon-recovery-*.yml`) with operator approval. Do not drop
   columns without explicit owner review.
 
-### Current status (release preparation)
-- Cloudflare Pages config verified (above); the invalid `_redirects` SPA loop rule is removed and the
-  native Pages SPA fallback is used.
-- `20261025000000_v25_referral_provenance` is **prepared and NOT applied**; the workflow expects a
-  verified 14-row production baseline (fail-closed) and records 15 rows. Do not deploy the
-  referral-provenance build before it succeeds.
-- The isolated test branch `br-floral-resonance-b4ruvusw` migration history was reconciled to 15 rows
-  (the referral-provenance DDL already existed; only the history row was missing — recorded without
-  re-running DDL).
-- Migration dispatch and VPS deploy were **not executed from this environment**. Operator action required.
+### Current status (2026-10-27)
+- **Production is live.** VPS `/opt/tycoonx` ran commit `a64ada2` (equal to committed local HEAD at
+  reconciliation time) from TypeScript source via `tsx` (`tycoonx.service`), cwd `/opt/tycoonx/server`.
+  The production `server/.env` is preserved and must never be overwritten by a deploy.
+- **Financial features activated in production:** `PAYMENTS_ENABLED=true`, `PAYOUTS_ENABLED=true`,
+  `REFERRAL_REWARDS_ENABLED=true`, `DEPOSIT_ACCESS_MODE=all`, `OXAPAY_SANDBOX=false`. Local development
+  sandbox defaults remain fail-closed and must not be changed to match production.
+- **Migrations:** production history = 15 rows, matching the repo, including
+  `20261025000000_v25_referral_provenance` (already applied). No pending migration.
+- **CEO economy is database-configured** in production and differs from the applied
+  `20261018000000_v25_economy_sp_production` seed; see Master Spec §3 and `DECISIONS.md`. Do not edit or re-run
+  that migration.
+- **Payout fee semantics (deploy-safe).** Production does not set `OXAPAY_PAYOUT_FEE_SEMANTICS`. The code
+  resolves a missing/blank value to the owner-verified `merchant` default, so **deploying this code does not
+  disable payouts**. Optionally set the non-secret value `OXAPAY_PAYOUT_FEE_SEMANTICS="merchant"` in
+  `server/.env` (before or after the deploy — there is no required ordering). Only an unrecognized explicit
+  value fails closed. Local sandbox defaults stay fail-closed.
+- Cloudflare Pages serves the frontend (native SPA fallback; no top-level `404.html`).
 

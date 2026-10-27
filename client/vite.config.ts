@@ -8,8 +8,24 @@ export default defineConfig({
     VitePWA({
       registerType: 'auto',
       workbox: {
+        // Precache the app shell (code, icons, branding). Large optional artwork
+        // under /assets/game/** (CEO portraits, illustrations) is NOT precached;
+        // it is cached at runtime, bounded, so install stays small and updates
+        // stay reliable.
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024
+        globIgnores: ['**/assets/game/**'],
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+        runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.destination === 'image',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'tycoonx-images',
+              expiration: { maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          }
+        ]
       },
       manifest: {
         name: 'TycoonX — Build Your Tech Empire',

@@ -110,8 +110,8 @@ export default function AdminSettingsPage() {
         <div className="border-t border-line pt-4">
           <h2 className="text-sm font-bold">Referral configuration</h2>
           <p className="mt-1 text-[10px] text-muted">
-            Rewards remain disabled until the owner approves the unresolved economics (commission currency,
-            qualification, refunds). These values are recorded for review only and do not activate rewards.
+            Referral economics (commission currency, qualification, refunds) are owner-configurable. Rewards are
+            credited only when the runtime reward flag is enabled; these values are recorded for review.
           </p>
           <div className="mt-2 grid gap-3 sm:grid-cols-3">
             <div>

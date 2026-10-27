@@ -8,6 +8,14 @@ const ORIGIN: Origin = { x: 380, y: 168 }
 const VIEW_BOX = '0 0 760 560'
 const SPRITE_K = 1 / SPRITE_SCALE
 
+/** Owned-unit state colors (My Empire); scenery units have no state. */
+const STATE_COLOR: Record<string, string> = {
+  idle: '#94a3b8',
+  producing: '#10B981',
+  ready: '#D4AF65',
+  exhausted: '#E0A93B',
+}
+
 const DECOR_SPRITE: Record<DecorDef['kind'], string> = {
   pine: 'env_tree_pine',
   round: 'env_tree_broad',
@@ -174,7 +182,7 @@ function IsoBuilding({
     <g
       role="button"
       tabIndex={0}
-      aria-label={`${b.name}, level ${b.level} preview`}
+      aria-label={`${b.name}${b.state ? `, ${b.state}` : ''}${b.ownedCeoId ? ', owned CEO' : ', decoration'}`}
       aria-pressed={selected}
       className="cursor-pointer outline-none"
       onClick={(e) => {
@@ -191,6 +199,16 @@ function IsoBuilding({
       onBlur={onBlur}
     >
       <ellipse cx={ctr.x} cy={ctr.y + 6} rx={shadowRx} ry={shadowRy} fill="#04060d" opacity="0.5" />
+      {b.state && (
+        <ellipse
+          cx={ctr.x}
+          cy={ctr.y + 6}
+          rx={shadowRx * 1.05}
+          ry={shadowRy * 1.05}
+          fill={STATE_COLOR[b.state] ?? '#94a3b8'}
+          opacity="0.22"
+        />
+      )}
       {ring && (
         <>
           <polygon points={foot} fill={b.accent} opacity="0.12" />
@@ -475,6 +493,8 @@ export default function GameCanvas({
 
   items.sort((a, b) => a.depth - b.depth)
 
+  const hasOwned = world.buildings.some((b) => b.ownedCeoId !== undefined)
+
   return (
     <div className="overflow-hidden rounded-2xl border border-line bg-gradient-to-b from-[#0a201b] to-bg">
       <svg
@@ -502,12 +522,20 @@ export default function GameCanvas({
         {items.map((it) => it.node)}
       </svg>
       <div className="flex flex-wrap items-center gap-3 px-3 pb-3 text-[10px] text-muted">
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#10B981]" /> HQ</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#16A879]" /> Data</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#14B8A6]" /> Labs</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#D4AF65]" /> Tower</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#E0A93B]" /> Locked plot</span>
-        <span className="ml-auto">PREVIEW — tap a building to inspect. No purchases or production logic.</span>
+        {hasOwned ? (
+          <>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#94a3b8]" /> Idle</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#10B981]" /> Producing</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#D4AF65]" /> Ready</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#E0A93B]" /> Exhausted</span>
+            <span className="ml-auto">Each unit is a CEO copy you own. Tap one to manage it.</span>
+          </>
+        ) : (
+          <>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#D4AF65]" /> Headquarters</span>
+            <span className="ml-auto">Scenery only — you don&apos;t own any CEO copies yet.</span>
+          </>
+        )}
       </div>
     </div>
   )

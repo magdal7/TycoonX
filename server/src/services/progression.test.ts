@@ -203,7 +203,7 @@ test('referral commission is 10% and the registration bonus is 10 Bonus SP', () 
 })
 
 test('withdrawal net matches the approved minimum and flat fee', () => {
-  assert.equal(MIN_GROSS_SP, 3000n)
-  assert.equal(netUsdtString(3000n), '2.70')
-  assert.equal(netUsdtString(5000n), '4.70')
+  assert.equal(MIN_GROSS_SP, 1000n)
+  assert.equal(netUsdtString(1000n), '0.75')
+  assert.equal(netUsdtString(5000n), '4.75')
 })

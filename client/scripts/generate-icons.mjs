@@ -26,12 +26,17 @@ const capsule = (ax, ay, bx, by, half) => (x, y) => {
 }
 
 const STROKES = [
-  capsule(118, 182, 228, 182, 21), // T bar
-  capsule(173, 182, 173, 346, 21), // T stem
-  capsule(272, 182, 398, 346, 21), // X
-  capsule(398, 182, 272, 346, 21) // X
+  capsule(120, 216, 208, 216, 21), // T bar
+  capsule(164, 216, 164, 352, 21), // T stem
+  capsule(304, 216, 384, 352, 21), // X
+  capsule(384, 216, 304, 352, 21) // X
 ]
-const GOLD_BAR = rr(258, 400, 280, 16, 8)
+// Rising chevron (upward architectural movement)
+const CHEVRON = [
+  capsule(256, 86, 196, 152, 24),
+  capsule(256, 86, 316, 152, 24)
+]
+const GOLD_BAR = rr(256, 405, 272, 19, 9.5)
 
 function layers(variant) {
   const base =
@@ -42,6 +47,7 @@ function layers(variant) {
     ...base,
     [rr(256, 256, 388, 388, 84), GOLD],
     [rr(256, 256, 382, 382, 80), EMERALD],
+    ...CHEVRON.map((c) => [c, GOLD]),
     ...STROKES.map((s) => [s, CREAM]),
     [GOLD_BAR, GOLD]
   ]

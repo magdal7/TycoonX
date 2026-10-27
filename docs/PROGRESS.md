@@ -1,7 +1,68 @@
 # TycoonX — Implementation Status (PROGRESS)
 
 Canonical status file. Product rules live in `docs/TYCOONX_V2_MASTER_SPEC.md` (do not duplicate rules here).
-Last updated: 2026-10-25.
+Last updated: 2026-10-26.
+
+## Production alignment & withdrawal compatibility (2026-10-27)
+- **Production reconciled (read-only).** VPS `/opt/tycoonx` ran commit `a64ada2` (equal to committed local HEAD
+  at reconciliation time) from TypeScript source via `tsx` (`tycoonx.service`). Production env:
+  `PAYMENTS_ENABLED=true`, `PAYOUTS_ENABLED=true`, `REFERRAL_REWARDS_ENABLED=true`, `DEPOSIT_ACCESS_MODE=all`,
+  `OXAPAY_SANDBOX=false`. Migration history = **15** rows (matches the repo); `20261025000000_v25_referral_provenance`
+  already applied. No secrets printed or copied.
+- **CEO economy (production DB, authoritative).** Nominal SP/24h changed (Intern 120, Junior 600, PM 2,166,
+  Marketing 9,333, Startup 18,750, AI 40,000, Cloud 90,000, Tech Billionaire 400,000) and Intern lifetime cap
+  40 → 500. Prices and premium caps unchanged; `CEO.cycleHours` unchanged (4). Synced into Master Spec §3 and
+  `DECISIONS.md`; the applied economy migration was **not** edited and no seed was run.
+- **Withdrawal fee/minimum (owner-approved).** Flat player fee **0.25 USDT**, minimum **1,000 Earned SP
+  (1 USDT)**; a 1.00 USDT request nets **0.75 USDT** (no platform margin).
+- **Payout compatibility fix.** Added `DEFAULT_PAYOUT_FEE_SEMANTICS="merchant"` so a missing/blank
+  `OXAPAY_PAYOUT_FEE_SEMANTICS` resolves to the owner-verified behavior instead of blocking payouts; the
+  fail-closed guard is preserved (unrecognized explicit values still block). Under explicit "payer" the provider
+  fee is added once before submission so the recipient still nets exactly the player net. No double deduction.
+
+## Release candidate — financial hardening + artwork integration (2026-10-26)
+All three financial gates remain fail-closed (`PAYMENTS_ENABLED=false`, `PAYOUTS_ENABLED=false`,
+`REFERRAL_REWARDS_ENABLED=false`); no production flags, credentials, or DB were touched.
+- **Deposits — resume/dedupe + expiry:** `createDepositIntent` now retires expired open invoices
+  (`expireStaleDepositIntents`) and **resumes an existing matching open invoice** for the same user,
+  amount and canonical asset/network instead of creating duplicates (repeated clicks/refreshes/retries).
+  Verified callbacks now record `lastProviderStatus` on the intent; an `expired` provider status marks an
+  open intent `EXPIRED` (guarded). Underpayment/overpayment/`manual_accept`/`underpaid` are recorded
+  explicitly and **never credit**; only an exact-amount `paid` with a verified allowlisted pair settles.
+- **Deposits — client:** single **Continue to Payment** action; invoice expiry, provider status, minimum
+  (`minDepositUsdt`), access mode and the verified asset/network allowlist are **server-provided**
+  (`GET /api/game/deposits`), so the client no longer hardcodes them.
+- **Withdrawals — server-sourced policy + fee safety:** `GET /api/game/withdrawals` now returns a
+  `policy` (min gross, flat fee, min net, network, provider fee, semantics). The client reads it instead
+  of hardcoding `1000 SP` / `0.25 USDT`. The confirmed **0.25 USDT** OxaPay BEP20 provider fee is surfaced
+  separately. Real payout execution is **fail-closed** with a new guard: it stays blocked
+  (`payout_fee_semantics_unverified`) until `OXAPAY_PAYOUT_FEE_SEMANTICS` confirms whether the provider
+  deducts its fee from the payout amount or the merchant balance (Master Spec §9, unresolved).
+- **Withdrawals — owner-approved values (2026-10-27):** player flat fee lowered to **0.25 USDT**
+  (250 SP; the previous 0.05 USDT margin removed) and minimum lowered to **1,000 Earned SP = 1 USDT**.
+  A minimum request is gross **1.00** / fee **0.25** / net **0.75** USDT. Server-authoritative policy,
+  client displays and tests updated; provider fee semantics remain fail-closed.
+- **Referrals:** the player page now uses the server runtime flag `rewardsEnabled` for its badge/copy
+  instead of a hardcoded "pending approval" message; single-level rules unchanged.
+- **Gameplay clarity:** Market shows the player's SP balance, per-card affordability and shortfall, and
+  Bonus-first spending; Home shows remaining lifetime capacity per copy and equipment-upgrade
+  explanations (longer cycles yield proportionally more per collection; hourly rate unchanged; applies to
+  future cycles). No prices, rates, caps, or rewards changed.
+- **CEO artwork:** the eight bundled portraits (`client/public/assets/game/ceos/*.jpg`, verified present)
+  are wired through `imageUrl` exposed by `GET /api/ceos`, `GET /api/ceos/:id`, `GET /api/public/ceos` and
+  the owned fleet (`templateImageUrl`). `CeoAvatar` prefers catalog art, then the bundled portrait, then
+  the generated SVG fallback (lazy/responsive, CSP/PWA safe). Manifest + generation prompts in
+  `docs/CEO_ARTWORK.md`. Bundled art requires no DB migration or economy change.
+- **Verification:** unit **277/277**; isolated integration **16/16** (added resume/expiry coverage;
+  `br-floral-resonance-b4ruvusw`, PAYOUTS fee-semantics configured for the payout tests); HTTP smoke
+  **71/71** (now deterministic: the run pins the spawned server's financial gates and asserts consistently);
+  server `tsc`, client PWA build, and `prisma validate` all pass. Integration/smoke are latency-sensitive
+  against the cold Neon branch (occasionally need a retry); a prior smoke inconsistency (contradictory
+  `paymentsEnabled` expectations) is fixed.
+- **Activation (separate owner approval required, not done here):** deposits via `PAYMENTS_ENABLED` +
+  `DEPOSIT_ACCESS_MODE=all`; payouts via `PAYOUTS_ENABLED` **and** a confirmed
+  `OXAPAY_PAYOUT_FEE_SEMANTICS`; referral rewards via `REFERRAL_REWARDS_ENABLED` after the economics are
+  approved and the referral-provenance migration is applied.
 
 ## Final release preparation (2026-10-25)
 - **Production-cycle integration fix:** the Prisma interactive-transaction default 5s timeout was
@@ -79,8 +140,8 @@ Prepared the existing OxaPay withdrawal system for real production use. `PAYOUTS
 - **Provider params verified (v1 live):** USDT/BSC `withdraw_min=0.01`, `withdraw_fee=0.25`,
   network `keys=[BSC,BEP20,...]`. Added `getSupportedCurrencies` withdraw fields, a configurable
   `OXAPAY_MIN_PAYOUT_USDT` (default `0.01`) enforced on the **net** amount at request time, and a
-  configurable `OXAPAY_PAYOUT_NETWORK` (default `BEP20`). User fee stays `0.30 USDT` (covers the
-  0.25 provider fee with margin); gross/fee/net are shown before submit.
+  configurable `OXAPAY_PAYOUT_NETWORK` (default `BEP20`). User fee is `0.25 USDT` (equal to the
+  0.25 provider fee; no platform margin); gross/fee/net are shown before submit.
 - **Uncertain payout results are reconciled, not retried blindly:** a submission that ends in a
   timeout/network/5xx (or malformed response) keeps the deterministic `wd_<id>` anchor and throws
   `payout_uncertain`; a definite 4xx rejection removes the anchor for a corrected retry. New admin
@@ -173,7 +234,7 @@ Prepared the existing OxaPay withdrawal system for real production use. `PAYOUTS
     private data) + featured badges/avatar (`UserProfile`).
   - **Referral rewards**: rules/amounts present (10 Bonus SP, 10% commission) but **disabled**
     (`REFERRAL_REWARDS_ENABLED=false`) pending approved qualification.
-  - **Withdrawal request/review states** (gross Earned-SP lock, min 3,000 SP, 0.30 USDT fee) with
+  - **Withdrawal request/review states** (gross Earned-SP lock, min 1,000 SP, 0.25 USDT fee) with
     **payouts disabled**; admin review queue never transfers crypto.
 - **Admin foundation + special tasks (V2.5 Step 3, implemented):**
   - **Admin authz**: `/api/admin/*` is server-guarded by `requireAuth` + `requireAdmin`; there is **no

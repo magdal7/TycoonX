@@ -49,7 +49,7 @@ export default function Collection() {
             return (
               <Card key={ceo.id} padding="md" className={`border ${RARITY_FRAME[ceo.rarity] ?? 'border-line'} ${RARITY_GLOW[ceo.rarity] ?? ''}`}>
                 <div className="flex items-center gap-3">
-                  <CeoAvatar name={ceo.templateName} slug={ceo.templateSlug} rarity={ceo.rarity} size={64} state={archivedCeo ? 'exhausted' : ceo.canCollect ? 'ready' : ceo.cycleEndsAt ? 'producing' : 'idle'} />
+                  <CeoAvatar name={ceo.templateName} slug={ceo.templateSlug} rarity={ceo.rarity} size={64} state={archivedCeo ? 'exhausted' : ceo.canCollect ? 'ready' : ceo.cycleEndsAt ? 'producing' : 'idle'} imageUrl={ceo.templateImageUrl} />
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate font-bold text-white">{ceo.templateName}</h3>
                     <p className={`text-[11px] font-semibold ${style.accent}`}>{ceoRole(ceo.rarity)} · {ceo.rarity}</p>

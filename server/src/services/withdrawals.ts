@@ -1,13 +1,21 @@
 import type { Prisma, PrismaClient, WithdrawalStatus } from '@prisma/client'
 import { isUniqueViolation } from '../lib/idempotency'
 import { compareDecimal, isPayoutConfirmed, isPayoutFailed, synthesizeWebhookEventId } from '../lib/oxapay'
-import { isPayoutsEnabled, minPayoutUsdt } from '../lib/payments'
+import {
+  isPayoutFeeSemanticsConfirmed,
+  isPayoutsEnabled,
+  minPayoutUsdt,
+  payoutFeeSemantics,
+  payoutProviderFeeUsdt,
+  payoutSubmitAmountUsdt,
+  type PayoutFeeSemantics,
+} from '../lib/payments'
 import { createPayout, getPayoutInfo, loadOxapayConfig, OxapayError, type OxapayConfig } from './oxapay'
 import { creditSp, debitEarnedSp, InsufficientSpError } from './spLedger'
 
 /** Owner-approved withdrawal rules (Master Spec §9): USDT BEP20 only. */
-export const MIN_GROSS_SP = 3000n // 3 USDT
-export const FLAT_FEE_SP = 300n // 0.30 USDT == 300 SP at 1,000 SP/USDT
+export const MIN_GROSS_SP = 1000n // 1 USDT
+export const FLAT_FEE_SP = 250n // 0.25 USDT == 250 SP at 1,000 SP/USDT
 /** Stored/displayed network (approved rule: USDT BEP20 only). */
 export const NETWORK = 'BEP20'
 /**
@@ -48,6 +56,7 @@ export type WithdrawalErrorCode =
   | 'wallet_pending'
   | 'wallet_mismatch'
   | 'insufficient_sp'
+  | 'payout_fee_semantics_unverified'
 
 export class WithdrawalError extends Error {
   readonly code: WithdrawalErrorCode
@@ -66,6 +75,36 @@ export function netUsdtString(grossSp: bigint): string {
 
 function feeUsdtString(): string {
   return (Number(FLAT_FEE_SP) / 1000).toFixed(2)
+}
+
+/**
+ * Server-authoritative withdrawal policy, exposed to the client so fee/minimum
+ * values are never duplicated (or drifted) in the client. `providerFeeUsdt` is
+ * the confirmed OxaPay BEP20 payout fee, tracked separately from the flat
+ * player-facing fee; `payoutFeeSemantics` reports the resolved provider fee
+ * deduction side (defaults to the owner-verified `merchant`; only an invalid
+ * explicit override resolves to `unknown`, which keeps payouts blocked).
+ */
+export interface WithdrawalPolicy {
+  minGrossSp: string
+  feeUsdt: string
+  minNetUsdt: string
+  network: string
+  providerFeeUsdt: string
+  payoutFeeSemantics: PayoutFeeSemantics
+  payoutsEnabled: boolean
+}
+
+export function getWithdrawalPolicy(env: Record<string, string | undefined> = process.env): WithdrawalPolicy {
+  return {
+    minGrossSp: MIN_GROSS_SP.toString(),
+    feeUsdt: feeUsdtString(),
+    minNetUsdt: minPayoutUsdt(env),
+    network: NETWORK,
+    providerFeeUsdt: payoutProviderFeeUsdt(env),
+    payoutFeeSemantics: payoutFeeSemantics(env),
+    payoutsEnabled: isPayoutsEnabled(env),
+  }
 }
 
 function validAddress(address: string): boolean {
@@ -384,6 +423,13 @@ export async function executeWithdrawalPayout(
   config: OxapayConfig = loadOxapayConfig(),
 ): Promise<PayoutSubmission> {
   if (!isPayoutsEnabled()) throw new WithdrawalError('payouts_disabled')
+  // Provider-fee guard. The fee-deduction side is now owner-verified (see
+  // DEFAULT_PAYOUT_FEE_SEMANTICS): OxaPay bills its fee from the merchant balance
+  // and pays the requested amount in full, so a missing/blank
+  // OXAPAY_PAYOUT_FEE_SEMANTICS resolves to the verified "merchant" behavior and
+  // payouts keep working. A genuinely unrecognized explicit value still resolves
+  // to "unknown" and fails closed here, so this guard is preserved.
+  if (!isPayoutFeeSemanticsConfirmed()) throw new WithdrawalError('payout_fee_semantics_unverified')
 
   const existing = await findWithdrawalPayoutIntent(db, withdrawalId)
   if (existing) {
@@ -395,12 +441,16 @@ export async function executeWithdrawalPayout(
   if (!row) throw new WithdrawalError('not_found')
   if (row.status !== 'APPROVED') throw new WithdrawalError('invalid_state')
 
+  // The amount actually submitted so the recipient nets `row.netUsdt` exactly
+  // (merchant: unchanged; payer: net + provider fee, deducted once).
+  const submitAmount = payoutSubmitAmountUsdt(row.netUsdt.toString())
+
   const intent = await db.paymentIntent.create({
     data: {
       userId: row.userId,
       provider: 'OXAPAY',
       externalId: `wd_${withdrawalId}`,
-      amountUsdt: row.netUsdt,
+      amountUsdt: submitAmount,
       status: 'CREATED',
       purpose: PAYOUT_PURPOSE,
       payAddress: row.address,
@@ -413,7 +463,7 @@ export async function executeWithdrawalPayout(
     payout = await createPayout(config, {
       address: row.address,
       currency: 'USDT',
-      amount: row.netUsdt.toString(),
+      amount: submitAmount,
       network: payoutNetwork(),
       description: `Withdrawal #${withdrawalId}`,
       ...(config.callbackUrl ? { callbackUrl: config.callbackUrl } : {}),

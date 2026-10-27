@@ -1,4 +1,5 @@
 import { ArrowLeft, ShieldCheck } from 'lucide-react'
+import { usePublicSettings, type Capabilities } from '../lib/siteSettings'
 
 export type PolicyKind = 'terms' | 'privacy'
 
@@ -14,6 +15,45 @@ export const POLICY_META: Record<PolicyKind, PolicyMeta> = {
 }
 
 type Section = { heading: string; paragraphs: string[] }
+
+/** Runtime-aware financial paragraphs so the policy never asserts a stale state. */
+function paymentsText(caps?: Capabilities): string {
+  const dep =
+    caps?.deposits === true
+      ? 'Deposits are currently available.'
+      : caps?.deposits === false
+        ? 'Deposits are not currently available.'
+        : 'Deposit availability is shown in the app.'
+  const pay =
+    caps?.payouts === true
+      ? 'Eligible Earned SP withdrawals are currently available, subject to admin approval.'
+      : caps?.payouts === false
+        ? 'Withdrawals are not currently available.'
+        : 'Withdrawal availability is shown in the app.'
+  return `Real-money deposits and crypto payouts are provided only when enabled for your account and region. ${dep} ${pay} Materials describing unavailable features are planning information and do not represent an active service.`
+}
+
+function referralText(caps?: Capabilities): string {
+  const state =
+    caps?.referralRewards === true
+      ? 'Referral rewards are currently active for qualified referrals.'
+      : caps?.referralRewards === false
+        ? 'Referral rewards are not currently active; qualified activity may be recorded but is not credited until rewards are active.'
+        : 'Referral reward availability is shown in the app.'
+  return `Referral codes identify the account that invited you. ${state} Self-referrals, duplicate or recycled accounts, and other manipulation are prohibited and may void attribution or rewards.`
+}
+
+function applyCapabilities(sections: Section[], caps?: Capabilities): Section[] {
+  return sections.map((s) => {
+    if (s.heading === '4. Purchases and withdrawals') {
+      return { ...s, paragraphs: [paymentsText(caps), ...s.paragraphs.slice(1)] }
+    }
+    if (s.heading === '5. Referrals and fair play') {
+      return { ...s, paragraphs: [referralText(caps), ...s.paragraphs.slice(1)] }
+    }
+    return s
+  })
+}
 
 const TERMS: Section[] = [
   {
@@ -40,14 +80,14 @@ const TERMS: Section[] = [
   {
     heading: '4. Purchases and withdrawals',
     paragraphs: [
-      'Real-money deposits, withdrawals, and crypto payouts are currently disabled. The materials describing future payment features are planning information only and do not represent an active service.',
+      'Real-money deposits and crypto payouts are provided only when enabled for your account and region; availability is shown in the app. Materials describing unavailable features are planning information only and do not represent an active service.',
       'If payments are enabled in future, they will be subject to additional terms, eligibility checks, and applicable law. No purchase in the game should be made with the expectation of profit.',
     ],
   },
   {
     heading: '5. Referrals and fair play',
     paragraphs: [
-      'Referral codes identify the account that invited you. Referral bonuses are disabled pending approval of qualification and anti-abuse rules. Self-referrals, duplicate or recycled accounts, and other manipulation are prohibited and may void attribution or rewards.',
+      'Referral codes identify the account that invited you. Referral rewards are subject to the approved qualification and anti-abuse rules; availability is shown in the app. Self-referrals, duplicate or recycled accounts, and other manipulation are prohibited and may void attribution or rewards.',
       'Do not cheat, exploit bugs, automate gameplay in ways that damage the service, or interfere with other players. We may suspend or remove accounts that violate these terms.',
     ],
   },
@@ -116,7 +156,9 @@ const PRIVACY: Section[] = [
 
 export default function Policy({ kind, navigate }: { kind: PolicyKind; navigate: (p: string) => void }) {
   const meta = POLICY_META[kind]
-  const sections = kind === 'terms' ? TERMS : PRIVACY
+  const caps = usePublicSettings().data?.capabilities
+  const base = kind === 'terms' ? TERMS : PRIVACY
+  const sections = kind === 'terms' ? applyCapabilities(base, caps) : base
 
   return (
     <div className="min-h-screen bg-bg text-ink font-sans">

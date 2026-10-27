@@ -32,19 +32,25 @@ export default function AdminPayments() {
       <SectionHeading
         eyebrow="Admin"
         title="Payments & Purchases"
-        description="Deposit invoices and CEO purchases. Payments and payouts remain disabled."
+        description={
+          payments.data?.paymentsEnabled
+            ? 'Deposit invoices and CEO purchases. Payments are ACTIVE — deposit credit and ownership delivery are automated.'
+            : 'Deposit invoices and CEO purchases. Payments are not currently active; no deposits are credited and no ownership is delivered.'
+        }
         right={<Button size="sm" variant="ghost" onClick={reload} iconLeft={<RefreshCw className="h-4 w-4" />}>Refresh</Button>}
       />
 
-      <Card padding="sm" className="border border-warning/30 bg-warning/5">
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
-          <p className="text-xs text-amber-200/90">
-            OxaPay is not connected. No deposits are credited, no purchases are paid, and no CEO ownership is
-            delivered until payments are activated and verified.
-          </p>
-        </div>
-      </Card>
+      {payments.data?.paymentsEnabled !== true && (
+        <Card padding="sm" className="border border-warning/30 bg-warning/5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+            <p className="text-xs text-amber-200/90">
+              Payments are not active. No deposits are credited, no purchases are paid, and no CEO ownership is
+              delivered until payments are activated and verified.
+            </p>
+          </div>
+        </Card>
+      )}
 
       <section className="space-y-2">
         <h2 className="text-sm font-bold">Payments (deposit invoices)</h2>

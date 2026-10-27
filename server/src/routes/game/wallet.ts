@@ -8,8 +8,9 @@ import {
   listUserPurchases,
 } from '../../services/purchases'
 import { getWalletSummary, getWalletTransactions } from '../../services/wallet'
-import { isPaymentsEnabled } from '../../lib/payments'
-import { canCreateDeposit } from '../../lib/paymentAccess'
+import { isPaymentsEnabled, minDepositUsdt } from '../../lib/payments'
+import { canCreateDeposit, depositAccessMode } from '../../lib/paymentAccess'
+import { SUPPORTED_DEPOSIT_PAIRS } from '../../lib/oxapayAssets'
 import { depositCreateSchema, purchaseCreateSchema } from '../../validation/game'
 
 function sendError(res: Response, error: unknown) {
@@ -45,7 +46,19 @@ export function createGameWalletRouter(db: PrismaClient): Router {
   })
 
   router.get('/deposits', async (req: AuthRequest, res: Response) => {
-    res.json({ deposits: await listUserPaymentIntents(db, req.user!.id), paymentsEnabled: isPaymentsEnabled() })
+    res.json({
+      deposits: await listUserPaymentIntents(db, req.user!.id),
+      paymentsEnabled: isPaymentsEnabled(),
+      // Server-authoritative deposit policy so the client never hardcodes the
+      // access mode, minimum amount, or the verified asset/network allowlist.
+      depositAccess: depositAccessMode(),
+      minDepositUsdt: minDepositUsdt(),
+      assets: SUPPORTED_DEPOSIT_PAIRS.map((p) => ({
+        asset: p.asset,
+        network: p.network,
+        networkName: p.networkName,
+      })),
+    })
   })
 
   router.post('/deposits', async (req: AuthRequest, res: Response) => {

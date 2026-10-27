@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { ceoPortraitUrl } from '../lib/ceoArt'
 import { rarityStyle } from '../lib/ceos'
 
 const SKINS = ['#f1c9a5', '#e0ac82', '#c68642', '#8d5524', '#ffd9b3', '#a9744f']
@@ -57,7 +58,8 @@ export function CeoAvatar({
   rarity,
   size = 64,
   className = '',
-  state
+  state,
+  imageUrl
 }: {
   name: string
   slug: string
@@ -65,8 +67,15 @@ export function CeoAvatar({
   size?: number
   className?: string
   state?: CeoPortraitState
+  /** Explicit catalog artwork. Falls back to the locally bundled portrait, then the SVG avatar. */
+  imageUrl?: string | null
 }) {
   const style = rarityStyle(rarity)
+  const [imgFailed, setImgFailed] = useState(false)
+  // Prefer explicitly provided catalog artwork, then the locally bundled
+  // portrait for this slug/name; unknown slugs fall back to the generated SVG.
+  const portrait = imageUrl || ceoPortraitUrl(slug) || ceoPortraitUrl(name)
+  const usePortrait = Boolean(portrait) && !imgFailed
   const h = hashSlug(slug || name)
   const skin = SKINS[h % SKINS.length]
   const hair = HAIR[(h >> 3) % HAIR.length]
@@ -115,22 +124,36 @@ export function CeoAvatar({
       {/* portrait */}
       <div className={`absolute inset-[2px] overflow-hidden rounded-[14px] ${dim ? 'grayscale' : ''}`}>
         <div className={`absolute inset-0 bg-gradient-to-br ${style.glow} to-transparent`} />
-        <svg viewBox="0 0 120 120" className="relative z-10 h-full w-full" role="img" aria-label={`${name} portrait`}>
-          <ellipse cx="60" cy="58" rx="32" ry="32" fill="currentColor" className={style.accent} opacity="0.14" />
-          <path d="M18,120 C18,92 42,84 60,84 C78,84 102,92 102,120 Z" fill={suit} />
-          <path d="M60,84 L52,112 L68,112 Z" fill="#e5e7eb" opacity="0.85" />
-          <path d="M60,86 L44,120 L58,120 Z" fill="currentColor" className={style.accent} opacity="0.45" />
-          <path d="M60,86 L76,120 L62,120 Z" fill="currentColor" className={style.accent} opacity="0.45" />
-          <rect x="52" y="72" width="16" height="16" rx="5" fill={skin} />
-          <circle cx="38" cy="60" r="4.5" fill={skin} />
-          <circle cx="82" cy="60" r="4.5" fill={skin} />
-          <circle cx="60" cy="56" r="22" fill={skin} />
-          <path d="M37,52 C37,30 83,30 83,52 C79,40 72,37 60,37 C48,37 41,40 37,52 Z" fill={hair} />
-          <circle cx="51" cy="57" r="2.4" fill="#06201a" />
-          <circle cx="69" cy="57" r="2.4" fill="#06201a" />
-          <path d="M53,66 Q60,70 67,66" fill="none" stroke="#06201a" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
-          {accessory}
-        </svg>
+        {usePortrait ? (
+          <img
+            src={portrait}
+            alt=""
+            aria-hidden="true"
+            width={size}
+            height={size}
+            loading="lazy"
+            decoding="async"
+            onError={() => setImgFailed(true)}
+            className="relative z-10 h-full w-full object-cover"
+          />
+        ) : (
+          <svg viewBox="0 0 120 120" className="relative z-10 h-full w-full" role="img" aria-label={`${name} portrait`}>
+            <ellipse cx="60" cy="58" rx="32" ry="32" fill="currentColor" className={style.accent} opacity="0.14" />
+            <path d="M18,120 C18,92 42,84 60,84 C78,84 102,92 102,120 Z" fill={suit} />
+            <path d="M60,84 L52,112 L68,112 Z" fill="#e5e7eb" opacity="0.85" />
+            <path d="M60,86 L44,120 L58,120 Z" fill="currentColor" className={style.accent} opacity="0.45" />
+            <path d="M60,86 L76,120 L62,120 Z" fill="currentColor" className={style.accent} opacity="0.45" />
+            <rect x="52" y="72" width="16" height="16" rx="5" fill={skin} />
+            <circle cx="38" cy="60" r="4.5" fill={skin} />
+            <circle cx="82" cy="60" r="4.5" fill={skin} />
+            <circle cx="60" cy="56" r="22" fill={skin} />
+            <path d="M37,52 C37,30 83,30 83,52 C79,40 72,37 60,37 C48,37 41,40 37,52 Z" fill={hair} />
+            <circle cx="51" cy="57" r="2.4" fill="#06201a" />
+            <circle cx="69" cy="57" r="2.4" fill="#06201a" />
+            <path d="M53,66 Q60,70 67,66" fill="none" stroke="#06201a" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
+            {accessory}
+          </svg>
+        )}
         {premium && (
           <div className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/15 to-transparent motion-safe:animate-sheen" />
         )}

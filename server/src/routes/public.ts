@@ -3,6 +3,7 @@ import type { PrismaClient } from '@prisma/client'
 import { getLeaderboard, getPublicProfile } from '../services/leaderboard'
 import { getSiteSettings } from '../services/siteSettings'
 import { toPublicSettings } from '../lib/siteSettings'
+import { runtimeCapabilities } from '../lib/paymentAccess'
 import { usernameParamSchema } from '../validation/game'
 
 /** Public, read-only endpoints. No private data (no email, balances, referrals). */
@@ -10,7 +11,7 @@ export function createPublicRouter(db: PrismaClient): Router {
   const router = Router()
 
   router.get('/settings', async (_req, res: Response) => {
-    res.json(toPublicSettings(await getSiteSettings(db)))
+    res.json({ ...toPublicSettings(await getSiteSettings(db)), capabilities: runtimeCapabilities() })
   })
 
   router.get('/leaderboard', async (_req, res: Response) => {
@@ -33,6 +34,7 @@ export function createPublicRouter(db: PrismaClient): Router {
         lifetimeCapSp: true,
         cycleHours: true,
         isForSale: true,
+        imageUrl: true,
       },
     })
     res.json({
@@ -46,6 +48,7 @@ export function createPublicRouter(db: PrismaClient): Router {
         lifetimeCapSp: c.lifetimeCapSp?.toString() ?? null,
         cycleHours: c.cycleHours,
         isForSale: c.isForSale,
+        imageUrl: c.imageUrl ?? null,
       })),
     })
   })

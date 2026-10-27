@@ -15,6 +15,7 @@ import Leaderboard from './pages/Leaderboard'
 import Wallet from './pages/Wallet'
 import Profile from './pages/Profile'
 import Referrals from './pages/Referrals'
+import Help from './pages/Help'
 import { AdminLayout } from './components/AdminLayout'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminSpecialTasks from './pages/admin/AdminSpecialTasks'
@@ -128,6 +129,7 @@ export default function App() {
             { path: '/dashboard/wallet', element: wrap(<Wallet />) },
             { path: '/dashboard/profile', element: wrap(<Profile />) },
             { path: '/dashboard/referrals', element: wrap(<Referrals />) },
+            { path: '/dashboard/help', element: wrap(<Help />) },
             { path: '/dashboard/world', element: wrap(<GameHome navigate={navigate} />) },
             { path: '/admin', element: <AdminLayout><AdminDashboard /></AdminLayout> },
             { path: '/admin/users', element: <AdminLayout><AdminUsers /></AdminLayout> },

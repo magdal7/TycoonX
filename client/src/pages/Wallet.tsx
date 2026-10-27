@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Coins, Gem, DollarSign, ArrowDownToLine, AlertTriangle, ShieldCheck, RefreshCw, Wallet as WalletIcon, History, X, ShoppingCart, Save } from 'lucide-react'
 import { Card } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
@@ -18,10 +18,12 @@ import {
 } from '../lib/game'
 import { formatNumber } from '../lib/format'
 
-const MIN_SP = 3000
-
-/** Verified OxaPay asset/network pairs (mirrors the server allowlist). */
-const PAIRS: { asset: string; network: string; label: string }[] = [
+/**
+ * Fallback asset/network list. The server sends the authoritative verified
+ * allowlist (`deposits.assets`); this is only used while it loads or if the
+ * request fails, so the UI never assumes a route the provider may not support.
+ */
+const FALLBACK_PAIRS: { asset: string; network: string; label: string }[] = [
   { asset: 'USDT', network: 'BSC', label: 'USDT · BNB Smart Chain (BEP20)' },
   { asset: 'USDT', network: 'Tron', label: 'USDT · Tron (TRC20)' },
   { asset: 'USDT', network: 'Ethereum', label: 'USDT · Ethereum (ERC20)' },
@@ -43,6 +45,29 @@ const PAIRS: { asset: string; network: string; label: string }[] = [
   { asset: 'XRP', network: 'xrpl', label: 'XRP · XRP Ledger' },
   { asset: 'GRAM', network: 'The Open Network', label: 'GRAM · TON' }
 ]
+
+const PAIR_LABEL = new Map(FALLBACK_PAIRS.map((p) => [`${p.asset}/${p.network}`, p.label]))
+
+/** Human-readable labels for provider-reported invoice states (never "credited"). */
+const PROVIDER_STATUS_LABEL: Record<string, string> = {
+  new: 'Awaiting payment',
+  waiting: 'Awaiting payment',
+  paying: 'Payment detected',
+  confirmed: 'Confirming on-chain',
+  paid: 'Paid',
+  manual_accept: 'Manual review',
+  underpaid: 'Underpaid',
+  expired: 'Expired',
+  refunding: 'Refunding',
+  refunded: 'Refunded'
+}
+
+function formatExpiry(iso: string | null): string {
+  if (!iso) return ''
+  const ts = new Date(iso).getTime()
+  if (!Number.isFinite(ts)) return ''
+  return new Date(ts).toLocaleString()
+}
 
 const STATUS_TONE: Record<string, 'warning' | 'success' | 'demo' | 'default'> = {
   REQUESTED: 'demo',
@@ -88,6 +113,27 @@ export default function Wallet() {
   const savedWallet = withdrawals.data?.wallet
   const payoutsEnabled = withdrawals.data?.payoutsEnabled ?? false
 
+  // Server-authoritative policy (never hardcode fee/minimum in the client).
+  const policy = withdrawals.data?.policy
+  const minGross = Number(policy?.minGrossSp ?? 1000)
+  const feeUsdt = Number(policy?.feeUsdt ?? 0.25)
+  const providerFeeUsdt = policy?.providerFeeUsdt ?? '0.25'
+  const minDepositUsdt = deposits.data?.minDepositUsdt ?? '0.01'
+  const depositAccess = deposits.data?.depositAccess ?? 'disabled'
+
+  // Verified asset/network allowlist comes from the server; the built-in list is
+  // only a fallback so the UI never presents a route the provider may not support.
+  const pairs = useMemo<{ asset: string; network: string; label: string }[]>(() => {
+    const assets = deposits.data?.assets ?? []
+    if (assets.length === 0) return FALLBACK_PAIRS
+    return assets.map((a) => ({
+      asset: a.asset,
+      network: a.network,
+      label: PAIR_LABEL.get(`${a.asset}/${a.network}`) ?? `${a.asset} · ${a.networkName}`,
+    }))
+  }, [deposits.data?.assets])
+  const activePair = pairs[Math.min(pairIndex, pairs.length - 1)] ?? pairs[0]
+
   useEffect(() => {
     if (savedWallet?.address) setAddress((a) => a || savedWallet.address!)
   }, [savedWallet?.address])
@@ -127,7 +173,13 @@ export default function Wallet() {
       reloadAll()
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Request failed'
-      setNotice(msg === 'withdrawals_unavailable' ? "Withdrawals aren't open yet." : msg)
+      setNotice(
+        msg === 'withdrawals_unavailable' || msg === 'payments_disabled'
+          ? "Withdrawals aren't open yet."
+          : msg === 'payout_fee_semantics_unverified'
+            ? 'Payouts are temporarily unavailable while the provider fee rules are being verified.'
+            : msg,
+      )
     } finally {
       setBusy(false)
     }
@@ -151,11 +203,15 @@ export default function Wallet() {
     setNotice('')
     setInvoiceUrl('')
     try {
-      const pair = PAIRS[pairIndex] ?? PAIRS[0]
+      const pair = activePair
       const dep = await createDeposit({ amountUsdt: depositAmount, asset: pair.asset, network: pair.network })
       setDepositAmount('')
-      if (dep.payUrl) setInvoiceUrl(dep.payUrl)
-      setNotice(`Invoice created for ${dep.amountUsdt} USDT — pay the invoice to receive Bonus SP.`)
+      if (dep.payUrl) {
+        setInvoiceUrl(dep.payUrl)
+        window.open(dep.payUrl, '_blank', 'noopener,noreferrer')
+      }
+      const expiry = dep.expiresAt ? ` It expires ${formatExpiry(dep.expiresAt)}.` : ''
+      setNotice(`Payment page ready for ${dep.amountUsdt} USDT. Complete the invoice to receive Bonus SP.${expiry}`)
       reloadAll()
     } catch (err) {
       setNotice(
@@ -216,55 +272,80 @@ export default function Wallet() {
           </Badge>
         </div>
         <p className="mt-2 text-[11px] text-muted">
-          Choose an asset/network, create an invoice, then pay it. Bonus SP (1 USDT = 1,000 SP) is credited
-          automatically once the invoice is fully paid.
+          Choose an asset/network, then continue to the secure payment page. Bonus SP (1 USDT = 1,000 SP) is
+          credited automatically once the invoice is fully paid. Repeating while an invoice is open resumes the
+          same invoice instead of creating a duplicate.
         </p>
-        <form onSubmit={submitDeposit} className="mt-3 space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-xs text-muted">
-              Amount (USDT)
-              <input
-                inputMode="decimal"
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-                placeholder="e.g. 10"
-                className="mt-1 w-full rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-sm text-white outline-none focus:border-primary"
-              />
-              <span className="mt-1 block text-[10px] text-muted">Minimum 0.01 USDT · 1 USDT = 1,000 Bonus SP</span>
-            </label>
-            <label className="block text-xs text-muted">
-              Asset / network
-              <select
-                value={pairIndex}
-                onChange={(e) => setPairIndex(Number(e.target.value))}
-                className="mt-1 w-full rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-sm text-white outline-none focus:border-primary"
-              >
-                {PAIRS.map((p, i) => (
-                  <option key={`${p.asset}-${p.network}`} value={i}>{p.label}</option>
-                ))}
-              </select>
-            </label>
+        {!wallet.data?.paymentsEnabled || depositAccess === 'disabled' ? (
+          <div className="mt-3 rounded-xl border border-line bg-surface-2/50 p-3 text-[11px] text-muted">
+            <p className="font-semibold text-white">Deposits aren&apos;t available to you yet.</p>
+            <p className="mt-1">
+              External deposits are currently disabled. Existing invoices still settle once paid. CEO purchases
+              with existing SP remain available in the Market.
+            </p>
           </div>
-          <Button type="submit" disabled={busy || !depositAmount} isLoading={busy}>Create invoice</Button>
-        </form>
-        {invoiceUrl && (
-          <a href={invoiceUrl} target="_blank" rel="noreferrer" className="mt-3 block truncate rounded-xl border border-success/30 bg-success/5 px-3 py-2 text-xs text-success underline">
-            Open payment invoice →
-          </a>
+        ) : (
+          <>
+            <form onSubmit={submitDeposit} className="mt-3 space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs text-muted">
+                  Amount (USDT)
+                  <input
+                    inputMode="decimal"
+                    value={depositAmount}
+                    onChange={(e) => setDepositAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="e.g. 10"
+                    className="mt-1 w-full rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-sm text-white outline-none focus:border-primary"
+                  />
+                  <span className="mt-1 block text-[10px] text-muted">Minimum {minDepositUsdt} USDT · 1 USDT = 1,000 Bonus SP</span>
+                </label>
+                <label className="block text-xs text-muted">
+                  Asset / network
+                  <select
+                    value={pairIndex}
+                    onChange={(e) => setPairIndex(Number(e.target.value))}
+                    className="mt-1 w-full rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-sm text-white outline-none focus:border-primary"
+                  >
+                    {pairs.map((p, i) => (
+                      <option key={`${p.asset}-${p.network}`} value={i}>{p.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <Button type="submit" disabled={busy || !depositAmount} isLoading={busy}>Continue to Payment</Button>
+            </form>
+            {invoiceUrl && (
+              <a href={invoiceUrl} target="_blank" rel="noreferrer" className="mt-3 block truncate rounded-xl border border-success/30 bg-success/5 px-3 py-2 text-xs text-success underline">
+                Open payment invoice →
+              </a>
+            )}
+          </>
         )}
         {(deposits.data?.deposits ?? []).length > 0 && (
           <Card padding="none" className="mt-3 overflow-hidden border-line">
-            {(deposits.data?.deposits ?? []).map((d, i) => (
-              <div key={d.id} className={`flex items-center gap-3 px-3 py-2.5 ${i !== 0 ? 'border-t border-line' : ''}`}>
-                <span className="flex-1 text-xs text-white">
-                  {d.amountUsdt} USDT
-                  {d.expectedAsset ? (
-                    <span className="text-muted"> · {d.expectedAsset}{d.expectedNetwork ? `/${d.expectedNetwork}` : ''}</span>
-                  ) : null}
-                </span>
-                <Badge variant={STATUS_TONE[d.status] ?? 'default'}>{d.status}</Badge>
-              </div>
-            ))}
+            {(deposits.data?.deposits ?? []).map((d, i) => {
+              const providerLabel = d.lastProviderStatus ? PROVIDER_STATUS_LABEL[d.lastProviderStatus] : undefined
+              return (
+                <div key={d.id} className={`flex items-center gap-3 px-3 py-2.5 ${i !== 0 ? 'border-t border-line' : ''}`}>
+                  <span className="min-w-0 flex-1 text-xs text-white">
+                    <span className="block">
+                      {d.amountUsdt} USDT
+                      {d.expectedAsset ? (
+                        <span className="text-muted"> · {d.expectedAsset}{d.expectedNetwork ? `/${d.expectedNetwork}` : ''}</span>
+                      ) : null}
+                    </span>
+                    {(providerLabel || (d.status === 'CREATED' && d.expiresAt)) && (
+                      <span className="block text-[10px] text-muted">
+                        {providerLabel}
+                        {providerLabel && d.status === 'CREATED' && d.expiresAt ? ' · ' : ''}
+                        {d.status === 'CREATED' && d.expiresAt ? `expires ${formatExpiry(d.expiresAt)}` : ''}
+                      </span>
+                    )}
+                  </span>
+                  <Badge variant={STATUS_TONE[d.status] ?? 'default'}>{d.status}</Badge>
+                </div>
+              )
+            })}
           </Card>
         )}
       </Card>
@@ -342,7 +423,7 @@ export default function Wallet() {
                   inputMode="numeric"
                   value={gross}
                   onChange={(e) => setGross(e.target.value.replace(/[^0-9]/g, ''))}
-                  placeholder={String(MIN_SP)}
+                  placeholder={String(minGross)}
                   className="mt-1 w-full rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-sm text-white outline-none focus:border-primary"
                 />
               </label>
@@ -356,7 +437,7 @@ export default function Wallet() {
                 />
               </label>
             </div>
-            {gross && Number(gross) >= MIN_SP && (
+            {gross && Number(gross) >= minGross && (
               <div className="grid grid-cols-3 gap-2 rounded-xl border border-line bg-surface-2/40 p-2 text-center text-[11px]">
                 <div>
                   <div className="text-muted">Gross</div>
@@ -364,15 +445,20 @@ export default function Wallet() {
                 </div>
                 <div>
                   <div className="text-muted">Fee</div>
-                  <div className="font-semibold text-white">0.30 USDT</div>
+                  <div className="font-semibold text-white">{feeUsdt.toFixed(2)} USDT</div>
                 </div>
                 <div>
                   <div className="text-muted">You receive</div>
-                  <div className="font-semibold text-success">{(Number(gross) / 1000 - 0.3).toFixed(2)} USDT</div>
+                  <div className="font-semibold text-success">{(Number(gross) / 1000 - feeUsdt).toFixed(2)} USDT</div>
                 </div>
               </div>
             )}
-            <Button type="submit" disabled={busy || Number(gross) < MIN_SP || earned < Number(gross) || !address} isLoading={busy}>
+            <p className="text-[10px] text-muted">
+              Minimum {minGross.toLocaleString()} Earned SP ({(minGross / 1000).toFixed(2)} USDT) · flat
+              {' '}{feeUsdt.toFixed(2)} USDT fee. The provider charges a separate ~{providerFeeUsdt} USDT BEP20
+              network fee (included in the flat fee).
+            </p>
+            <Button type="submit" disabled={busy || Number(gross) < minGross || earned < Number(gross) || !address} isLoading={busy}>
               Submit request
             </Button>
           </form>

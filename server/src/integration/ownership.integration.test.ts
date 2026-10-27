@@ -8,7 +8,7 @@ import { Pool } from '@neondatabase/serverless'
 import { grantStarterCeo } from '../services/starterCeo'
 import { OwnershipLimitError } from '../services/ownership'
 import { startProduction, collectProduction, ProductionError } from '../services/production'
-import { buildReconciliationInput, confirmDepositIntent, createDepositInvoice, processWebhook } from '../services/payments'
+import { buildReconciliationInput, confirmDepositIntent, createDepositIntent, createDepositInvoice, processWebhook } from '../services/payments'
 import {
   createWithdrawalRequest,
   executeWithdrawalPayout,
@@ -22,6 +22,9 @@ import type { OxapayConfig, OxapayFetch, OxapayFetchResponse } from '../services
 
 process.env.PAYMENTS_ENABLED = 'true'
 process.env.PAYOUTS_ENABLED = 'true'
+// Real payout execution is fail-closed until the provider fee-deduction side is
+// confirmed; configure it here so the isolated payout-execution tests can run.
+process.env.OXAPAY_PAYOUT_FEE_SEMANTICS = 'payer'
 process.env.REFERRAL_REWARDS_ENABLED = 'true'
 
 /**
@@ -544,7 +547,7 @@ test('reaching the lifetime cap archives the copy and blocks further starts', { 
 // stays as production (credits the verified invoice amount as Bonus SP).
 // ---------------------------------------------------------------------------
 
-function depositConfig(accepted: string[], trackId: string): OxapayConfig {
+function depositConfig(accepted: string[], trackId: string, expiredAt = 1700000000): OxapayConfig {
   const json = (body: unknown): OxapayFetchResponse => ({
     ok: true,
     status: 200,
@@ -555,7 +558,7 @@ function depositConfig(accepted: string[], trackId: string): OxapayConfig {
     if (url.endsWith('/payment/invoice')) {
       return json({
         status: 200,
-        data: { track_id: trackId, payment_url: 'https://pay.oxapay.test/x', expired_at: 1700000000 },
+        data: { track_id: trackId, payment_url: 'https://pay.oxapay.test/x', expired_at: expiredAt },
       })
     }
     return json({ status: 404, error: { type: 'not_found' } })
@@ -612,6 +615,50 @@ test('deposit confirmation credits Bonus SP exactly once under concurrency', { s
     assert.equal(acct.bonusSp, 10000n)
     assert.equal(acct.earnedSp, 0n)
     assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'DEPOSIT_CREDIT' } }), 1)
+  } finally {
+    await cleanupUser(userId)
+  }
+})
+
+test('deposit invoice resume/dedupe and expiry on the isolated branch', { skip }, async () => {
+  const userId = await createUser()
+  try {
+    const future = Math.floor(Date.now() / 1000) + 3600
+    const first = await createDepositIntent(
+      db!,
+      userId,
+      '10.00',
+      depositConfig(['USDT'], `itest_track_${shortId()}`, future),
+      { asset: 'USDT', network: 'BSC' },
+    )
+    // A repeated request for the same open invoice resumes it (no duplicate row).
+    const second = await createDepositIntent(
+      db!,
+      userId,
+      '10.00',
+      depositConfig(['USDT'], `itest_track_${shortId()}`, future),
+      { asset: 'USDT', network: 'BSC' },
+    )
+    assert.equal(second.externalId, first.externalId)
+    assert.equal(await db!.paymentIntent.count({ where: { userId, purpose: 'deposit' } }), 1)
+
+    // Force the open invoice's provider expiry into the past: the next request
+    // expires it and creates a fresh invoice.
+    const row = await db!.paymentIntent.findUniqueOrThrow({ where: { id: first.id } })
+    await db!.paymentIntent.update({
+      where: { id: first.id },
+      data: { metadata: { ...(row.metadata as Record<string, unknown>), expiredAt: Math.floor(Date.now() / 1000) - 60 } },
+    })
+    const third = await createDepositIntent(
+      db!,
+      userId,
+      '10.00',
+      depositConfig(['USDT'], `itest_track_${shortId()}`, future),
+      { asset: 'USDT', network: 'BSC' },
+    )
+    assert.notEqual(third.externalId, first.externalId)
+    assert.equal(await db!.paymentIntent.count({ where: { userId, purpose: 'deposit' } }), 2)
+    assert.equal((await db!.paymentIntent.findUniqueOrThrow({ where: { id: first.id } })).status, 'EXPIRED')
   } finally {
     await cleanupUser(userId)
   }
@@ -693,20 +740,20 @@ test('withdrawal: request locks Earned SP and a confirmed payout settles exactly
   try {
     await db!.spAccount.create({ data: { userId, earnedSp: 9000n, bonusSp: 5000n, lifetimeEarnedSp: 9000n } })
     const addr = payoutAddr('a')
-    const view = await createWithdrawalRequest(db!, userId, { grossSp: 3000n, address: addr })
+    const view = await createWithdrawalRequest(db!, userId, { grossSp: 1000n, address: addr })
     assert.equal(view.status, 'REQUESTED')
-    assert.equal(Number(view.netUsdt), 2.7)
-    assert.equal(Number(view.feeUsdt), 0.3)
+    assert.equal(Number(view.netUsdt), 0.75)
+    assert.equal(Number(view.feeUsdt), 0.25)
 
     // Earned SP locked; Bonus SP untouched.
     let acct = await db!.spAccount.findUniqueOrThrow({ where: { userId } })
-    assert.equal(acct.earnedSp, 6000n)
+    assert.equal(acct.earnedSp, 8000n)
     assert.equal(acct.bonusSp, 5000n)
     assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'WITHDRAWAL_LOCK' } }), 1)
 
     // One pending request per user.
     await assert.rejects(
-      () => createWithdrawalRequest(db!, userId, { grossSp: 3000n, address: addr }),
+      () => createWithdrawalRequest(db!, userId, { grossSp: 1000n, address: addr }),
       (e: unknown) => e instanceof WithdrawalError && e.code === 'pending_exists',
     )
 
@@ -738,7 +785,7 @@ test('withdrawal: request locks Earned SP and a confirmed payout settles exactly
 
     // Exactly once: locked SP is consumed (no release/settle entries), no double credit.
     acct = await db!.spAccount.findUniqueOrThrow({ where: { userId } })
-    assert.equal(acct.earnedSp, 6000n)
+    assert.equal(acct.earnedSp, 8000n)
     assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'WITHDRAWAL_LOCK' } }), 1)
     assert.equal(await db!.spLedgerEntry.count({ where: { userId, sourceType: 'WITHDRAWAL_RELEASE' } }), 0)
   } finally {
@@ -753,7 +800,7 @@ test('withdrawal: a failed payout releases Earned SP exactly once', { skip }, as
   try {
     await db!.spAccount.create({ data: { userId, earnedSp: 9000n, bonusSp: 0n, lifetimeEarnedSp: 9000n } })
     const addr = payoutAddr('b')
-    const view = await createWithdrawalRequest(db!, userId, { grossSp: 3000n, address: addr })
+    const view = await createWithdrawalRequest(db!, userId, { grossSp: 1000n, address: addr })
     await reviewWithdrawal(db!, 1, view.id, 'APPROVED')
 
     const trackId = `itest_pay_${shortId()}`
@@ -792,7 +839,7 @@ test('withdrawal: payout submission is idempotent (single provider call)', { ski
   try {
     await db!.spAccount.create({ data: { userId, earnedSp: 9000n, bonusSp: 0n, lifetimeEarnedSp: 9000n } })
     const addr = payoutAddr('c')
-    const view = await createWithdrawalRequest(db!, userId, { grossSp: 3000n, address: addr })
+    const view = await createWithdrawalRequest(db!, userId, { grossSp: 1000n, address: addr })
     await reviewWithdrawal(db!, 1, view.id, 'APPROVED')
 
     const { config, calls } = withdrawalPayoutConfig(`itest_pay_${shortId()}`)

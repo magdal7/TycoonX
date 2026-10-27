@@ -104,6 +104,20 @@ class FakePrisma {
       if (!row) throw new Error('not found')
       return row
     },
+    findMany: async (args: any): Promise<IntentRow[]> => {
+      const w = args?.where ?? {}
+      let rows = this.intents.filter((i) => {
+        if (w.userId !== undefined && i.userId !== w.userId) return false
+        if (w.provider !== undefined && i.provider !== w.provider) return false
+        if (w.purpose !== undefined && i.purpose !== w.purpose) return false
+        if (w.status?.in && !w.status.in.includes(i.status)) return false
+        if (typeof w.status === 'string' && i.status !== w.status) return false
+        return true
+      })
+      if (args?.orderBy?.id === 'desc') rows = rows.slice().sort((a, b) => b.id - a.id)
+      if (typeof args?.take === 'number') rows = rows.slice(0, args.take)
+      return rows
+    },
     updateMany: async (args: any): Promise<{ count: number }> => {
       const w = args.where
       const rows = this.intents.filter((i) => i.id === w.id && (w.status === undefined || i.status === w.status))
@@ -605,4 +619,103 @@ test('a partial (0.50) payment for a 1.00 invoice never settles', () => {
     evaluateDepositSettlement({ status: 'underpaid', amount: '0.50', asset: 'USDT', network: 'BSC' }, intent),
     { settle: false, reason: 'non_confirming' },
   )
+})
+
+test('createDepositIntent resumes an existing open invoice instead of creating a duplicate', async () => {
+  const future = Math.floor(Date.now() / 1000) + 3600
+  const { config, calls } = makeConfig(() =>
+    jsonResponse({ status: 200, data: { track_id: 'should-not-be-used', payment_url: 'x' } }),
+  )
+  const f = new FakePrisma()
+  seedIntent(f, {
+    externalId: 'track-existing',
+    amountUsdt: '10.00',
+    creditedSp: 10000n,
+    status: 'CREATED',
+    payUrl: 'https://pay/track-existing',
+    metadata: { orderId: 'dep_1', asset: 'USDT', network: 'BSC', expiredAt: future },
+  })
+
+  const view = await createDepositIntent(asClient(f), 1, '10.00', config, { asset: 'USDT', network: 'BSC' })
+  assert.equal(view.externalId, 'track-existing')
+  assert.equal(view.payUrl, 'https://pay/track-existing')
+  assert.equal(f.intents.length, 1)
+  assert.equal(calls.length, 0)
+})
+
+test('createDepositIntent expires a stale invoice and creates a fresh one', async () => {
+  const past = Math.floor(Date.now() / 1000) - 60
+  const future = Math.floor(Date.now() / 1000) + 3600
+  const { config, calls } = routedConfig({
+    accepted: ['USDT'],
+    invoice: { track_id: 'track-new', payment_url: 'https://pay/track-new', expired_at: future },
+  })
+  const f = new FakePrisma()
+  seedIntent(f, {
+    externalId: 'track-old',
+    amountUsdt: '10.00',
+    creditedSp: 10000n,
+    status: 'CREATED',
+    payUrl: 'https://pay/track-old',
+    metadata: { orderId: 'dep_old', asset: 'USDT', network: 'BSC', expiredAt: past },
+  })
+
+  const view = await createDepositIntent(asClient(f), 1, '10.00', config, { asset: 'USDT', network: 'BSC' })
+  assert.equal(view.externalId, 'track-new')
+  assert.equal(view.expiresAt, new Date(future * 1000).toISOString())
+  assert.equal(f.intents.length, 2)
+  assert.equal(f.intents[0].status, 'EXPIRED')
+  // accepted-currencies + invoice
+  assert.equal(calls.length, 2)
+})
+
+test('processWebhook marks an expired invoice EXPIRED and never credits', async () => {
+  const f = new FakePrisma()
+  seedIntent(f, { status: 'CREATED', metadata: { orderId: 'dep_1', asset: 'USDT', network: 'BSC' } })
+
+  const result = await processWebhook(asClient(f), {
+    eventId: 'track-1:expired:',
+    externalId: 'track-1',
+    status: 'Expired',
+    amountUsdt: '10.00',
+  })
+  assert.equal(result.ignored, true)
+  assert.equal(f.intents[0].status, 'EXPIRED')
+  assert.equal(f.ledger.length, 0)
+  assert.equal(f.accounts.length, 0)
+  assert.equal((f.intents[0].metadata as Record<string, unknown>).lastProviderStatus, 'expired')
+})
+
+test('processWebhook records an underpaid status without crediting', async () => {
+  const f = new FakePrisma()
+  seedIntent(f, { status: 'CREATED', metadata: { orderId: 'dep_1', asset: 'USDT', network: 'BSC' } })
+
+  const result = await processWebhook(asClient(f), {
+    eventId: 'track-1:underpaid:',
+    externalId: 'track-1',
+    status: 'Underpaid',
+    amountUsdt: '0.50',
+  })
+  assert.equal(result.ignored, true)
+  assert.equal(result.reason, 'non_confirming')
+  assert.equal(f.intents[0].status, 'CREATED')
+  assert.equal((f.intents[0].metadata as Record<string, unknown>).lastProviderStatus, 'underpaid')
+  assert.equal(f.ledger.length, 0)
+  assert.equal(f.accounts.length, 0)
+})
+
+test('processWebhook keeps manual_accept open for review and never credits', async () => {
+  const f = new FakePrisma()
+  seedIntent(f, { status: 'PENDING', metadata: { orderId: 'dep_1', asset: 'USDT', network: 'BSC' } })
+
+  await processWebhook(asClient(f), {
+    eventId: 'track-1:manual_accept:',
+    externalId: 'track-1',
+    status: 'manual_accept',
+    amountUsdt: '10.00',
+  })
+  assert.equal(f.intents[0].status, 'PENDING')
+  assert.equal((f.intents[0].metadata as Record<string, unknown>).lastProviderStatus, 'manual_accept')
+  assert.equal(f.ledger.length, 0)
+  assert.equal(f.accounts.length, 0)
 })

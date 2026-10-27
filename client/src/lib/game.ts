@@ -21,6 +21,7 @@ export interface OwnedCeo {
   templateId: number
   templateSlug: string
   templateName: string
+  templateImageUrl: string | null
   rarity: string
   acquisitionType: string
   level: number
@@ -366,11 +367,24 @@ export interface WithdrawalWallet {
   holdActive: boolean
 }
 
+export interface WithdrawalPolicy {
+  minGrossSp: string
+  feeUsdt: string
+  minNetUsdt: string
+  network: string
+  providerFeeUsdt: string
+  payoutFeeSemantics: 'unknown' | 'payer' | 'merchant'
+  payoutsEnabled: boolean
+}
+
 export const fetchWithdrawals = () =>
-  request<{ withdrawals: RawWithdrawal[]; wallet: WithdrawalWallet; payoutsEnabled: boolean }>('/api/game/withdrawals').then((d) => ({
+  request<{ withdrawals: RawWithdrawal[]; wallet: WithdrawalWallet; payoutsEnabled: boolean; policy: WithdrawalPolicy }>(
+    '/api/game/withdrawals',
+  ).then((d) => ({
     withdrawals: d.withdrawals.map(mapWithdrawal),
     wallet: d.wallet,
     payoutsEnabled: d.payoutsEnabled,
+    policy: d.policy,
   }))
 
 export const fetchWithdrawalWallet = () =>
@@ -474,8 +488,23 @@ export interface DepositView {
   payUrl: string | null
   expectedAsset: string | null
   expectedNetwork: string | null
+  lastProviderStatus: string | null
+  expiresAt: string | null
   createdAt: string
   confirmedAt: string | null
+}
+
+export interface DepositAsset {
+  asset: string
+  network: string
+  networkName: string
+}
+
+export interface DepositPolicy {
+  paymentsEnabled: boolean
+  depositAccess: 'disabled' | 'admin_allowlist' | 'all'
+  minDepositUsdt: string
+  assets: DepositAsset[]
 }
 
 export interface PurchaseView {
@@ -503,7 +532,9 @@ export const fetchWalletTransactions = () =>
   request<{ transactions: WalletTransaction[] }>('/api/game/wallet/transactions').then((d) => d.transactions)
 
 export const fetchDeposits = () =>
-  request<{ deposits: DepositView[]; paymentsEnabled: boolean }>('/api/game/deposits')
+  request<{ deposits: DepositView[]; paymentsEnabled: boolean; depositAccess: DepositPolicy['depositAccess']; minDepositUsdt: string; assets: DepositAsset[] }>(
+    '/api/game/deposits',
+  )
 
 export const createDeposit = (input: { amountUsdt: string; asset?: string; network?: string }) =>
   request<{ deposit: DepositView }>('/api/game/deposits', jsonPost({ ...input, confirm: true })).then(

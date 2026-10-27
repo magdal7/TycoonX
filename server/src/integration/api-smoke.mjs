@@ -39,6 +39,12 @@ const EXPECTED_PROJECT_ID = 'wandering-king-57462138'
 // is spawned with this value and payments stay disabled throughout.
 const SMOKE_OXAPAY_KEY = 'itest_smoke_oxapay_key'
 
+// The smoke run pins the server's financial gates explicitly so the expected
+// `paymentsEnabled` values are deterministic and can never contradict each other.
+// Defaults to the fail-closed state; opt in with SMOKE_PAYMENTS_ENABLED="true".
+const SMOKE_PAYMENTS_ENABLED = process.env.SMOKE_PAYMENTS_ENABLED === 'true'
+const SMOKE_PAYMENTS_LABEL = SMOKE_PAYMENTS_ENABLED ? 'payments enabled' : 'payments disabled'
+
 const PROTECTED_BRANCHES = [
   'br-delicate-butterfly-b4et73g9', // production
   'br-dawn-cherry-b4dnrhm5', // staging
@@ -178,7 +184,7 @@ try {
 
   server = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
     cwd: serverRoot,
-    env: { ...process.env, DATABASE_URL: testUrl, DIRECT_URL: testUrl, PORT: String(PORT), NODE_ENV: 'development', OXAPAY_MERCHANT_API_KEY: SMOKE_OXAPAY_KEY },
+    env: { ...process.env, DATABASE_URL: testUrl, DIRECT_URL: testUrl, PORT: String(PORT), NODE_ENV: 'development', OXAPAY_MERCHANT_API_KEY: SMOKE_OXAPAY_KEY, PAYMENTS_ENABLED: SMOKE_PAYMENTS_ENABLED ? 'true' : 'false', PAYOUTS_ENABLED: 'false', REFERRAL_REWARDS_ENABLED: 'false' },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })
@@ -438,21 +444,21 @@ try {
   // ---- Step 6: wallet + CEO purchases ----
   const wallet = await api('/api/game/wallet', { cookie: cookie2 })
   step(
-    'wallet summary (SP + zero USDT, payments disabled)',
-    wallet.status === 200 && !!wallet.json?.sp && wallet.json?.usdt?.balance === '0.00' && wallet.json?.paymentsEnabled === false,
+    `wallet summary (SP + zero USDT, ${SMOKE_PAYMENTS_LABEL})`,
+    wallet.status === 200 && !!wallet.json?.sp && wallet.json?.usdt?.balance === '0.00' && wallet.json?.paymentsEnabled === SMOKE_PAYMENTS_ENABLED,
     wallet.json,
   )
   const walletTx = await api('/api/game/wallet/transactions', { cookie: cookie2 })
   step('wallet transaction history', walletTx.status === 200 && Array.isArray(walletTx.json?.transactions))
 
   const deposits = await api('/api/game/deposits', { cookie: cookie2 })
-  step('deposit list readable (payments enabled)', deposits.status === 200 && Array.isArray(deposits.json?.deposits) && deposits.json?.paymentsEnabled === true)
+  step(`deposit list readable (${SMOKE_PAYMENTS_LABEL})`, deposits.status === 200 && Array.isArray(deposits.json?.deposits) && deposits.json?.paymentsEnabled === SMOKE_PAYMENTS_ENABLED)
 
   const marketCatalog = await api('/api/ceos?isActive=true', { cookie: cookie2 })
   const buyable = marketCatalog.json?.ceos?.find((c) => Number(c.priceUsd) > 0)
   step('market has a buyable CEO', Boolean(buyable))
   const purchaseList = await api('/api/game/purchases', { cookie: cookie2 })
-  step('purchase list readable (payments enabled)', purchaseList.status === 200 && Array.isArray(purchaseList.json?.purchases) && purchaseList.json?.paymentsEnabled === true)
+  step(`purchase list readable (${SMOKE_PAYMENTS_LABEL})`, purchaseList.status === 200 && Array.isArray(purchaseList.json?.purchases) && purchaseList.json?.paymentsEnabled === SMOKE_PAYMENTS_ENABLED)
 
   // OxaPay callback: authenticated by HMAC-SHA512 over the exact raw body.
   // With a valid signature the event is recorded and ignored (payments disabled).
@@ -480,7 +486,7 @@ try {
   step('webhook rejects an invalid signature (401)', webhookBad.status === 401, { status: webhookBad.status })
 
   const adminPayments = await api('/api/admin/payments', { cookie })
-  step('admin payments list', adminPayments.status === 200 && Array.isArray(adminPayments.json?.payments) && adminPayments.json?.paymentsEnabled === false)
+  step('admin payments list', adminPayments.status === 200 && Array.isArray(adminPayments.json?.payments) && adminPayments.json?.paymentsEnabled === SMOKE_PAYMENTS_ENABLED)
   const adminPurchases = await api('/api/admin/purchases', { cookie })
   step('admin purchases list', adminPurchases.status === 200 && Array.isArray(adminPurchases.json?.purchases))
 

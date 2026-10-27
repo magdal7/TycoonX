@@ -2,10 +2,14 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { PrismaClient } from '@prisma/client'
 import {
+  FLAT_FEE_SP,
+  MIN_GROSS_SP,
   WithdrawalError,
   createWithdrawalRequest,
   executeWithdrawalPayout,
+  getWithdrawalPolicy,
   isUncertainPayoutError,
+  netUsdtString,
   processPayoutWebhook,
   reconcileWithdrawalPayout,
   resolveUncertainPayoutSubmission,
@@ -14,7 +18,14 @@ import {
   walletHoldMs,
 } from './withdrawals'
 import { OxapayError, type OxapayConfig, type OxapayFetch, type OxapayFetchResponse } from './oxapay'
-import { minPayoutUsdt } from '../lib/payments'
+import {
+  DEFAULT_PAYOUT_FEE_SEMANTICS,
+  isPayoutFeeSemanticsConfirmed,
+  minPayoutUsdt,
+  payoutFeeSemantics,
+  payoutProviderFeeUsdt,
+  payoutSubmitAmountUsdt,
+} from '../lib/payments'
 
 // New-request guard defaults to requiring payout operations to be available;
 // individual tests that exercise the disabled path delete this explicitly.
@@ -298,9 +309,9 @@ function seedWithdrawal(f: FakePrisma, overrides: Partial<WithdrawalRow> = {}): 
   const row: WithdrawalRow = {
     id: 1,
     userId: 1,
-    grossSp: 3000n,
-    feeUsdt: '0.30',
-    netUsdt: '2.70',
+    grossSp: 1000n,
+    feeUsdt: '0.25',
+    netUsdt: '0.75',
     address: '0x' + 'a'.repeat(40),
     network: 'BEP20',
     status: 'APPROVED',
@@ -321,7 +332,7 @@ function seedPayoutIntent(f: FakePrisma, withdrawalId: number, externalId: strin
     userId: 1,
     provider: 'OXAPAY',
     externalId,
-    amountUsdt: '2.70',
+    amountUsdt: '0.75',
     status: 'PENDING',
     purpose: 'withdrawal',
     payAddress: '0x' + 'a'.repeat(40),
@@ -334,12 +345,17 @@ function seedPayoutIntent(f: FakePrisma, withdrawalId: number, externalId: strin
 
 const withPayouts = async (fn: () => Promise<void>): Promise<void> => {
   const saved = process.env.PAYOUTS_ENABLED
+  const savedSemantics = process.env.OXAPAY_PAYOUT_FEE_SEMANTICS
   process.env.PAYOUTS_ENABLED = 'true'
+  // The provider fee-deduction side must be confirmed for real payout execution.
+  process.env.OXAPAY_PAYOUT_FEE_SEMANTICS = 'payer'
   try {
     await fn()
   } finally {
     if (saved === undefined) delete process.env.PAYOUTS_ENABLED
     else process.env.PAYOUTS_ENABLED = saved
+    if (savedSemantics === undefined) delete process.env.OXAPAY_PAYOUT_FEE_SEMANTICS
+    else process.env.OXAPAY_PAYOUT_FEE_SEMANTICS = savedSemantics
   }
 }
 
@@ -432,12 +448,12 @@ test('a failed payout webhook releases the locked Earned SP and rejects the requ
     const f = new FakePrisma()
     seedWithdrawal(f, { status: 'APPROVED' })
     seedPayoutIntent(f, 1, 'pay_1')
-    f.accounts.push({ userId: 1, earnedSp: 0n, bonusSp: 0n, lifetimeEarnedSp: 3000n, version: 0 })
+    f.accounts.push({ userId: 1, earnedSp: 0n, bonusSp: 0n, lifetimeEarnedSp: 1000n, version: 0 })
 
     const result = await processPayoutWebhook(asClient(f), { eventId: 'evt_fail', trackId: 'pay_1', status: 'Failed' })
     assert.equal(result.reason, 'reversed')
     assert.equal(f.withdrawals[0].status, 'REJECTED')
-    assert.equal(f.accounts[0].earnedSp, 3000n)
+    assert.equal(f.accounts[0].earnedSp, 1000n)
     assert.equal(f.ledger.filter((l) => l.sourceType === 'WITHDRAWAL_RELEASE').length, 1)
 
     const replay = await processPayoutWebhook(asClient(f), { eventId: 'evt_fail_2', trackId: 'pay_1', status: 'Failed' })
@@ -485,15 +501,16 @@ test('createWithdrawalRequest enforces a 24h cooldown after a payout', async () 
   seedWithdrawal(f, { status: 'PAID', updatedAt: new Date() })
 
   await assert.rejects(
-    () => createWithdrawalRequest(asClient(f), 1, { grossSp: 3000n, address: '0x' + 'b'.repeat(40) }),
+    () => createWithdrawalRequest(asClient(f), 1, { grossSp: 1000n, address: '0x' + 'b'.repeat(40) }),
     (e: unknown) => e instanceof WithdrawalError && e.code === 'cooldown',
   )
 
   f.withdrawals[0].updatedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
-  const created = await createWithdrawalRequest(asClient(f), 1, { grossSp: 3000n, address: '0x' + 'b'.repeat(40) })
+  const created = await createWithdrawalRequest(asClient(f), 1, { grossSp: 1000n, address: '0x' + 'b'.repeat(40) })
   assert.equal(created.status, 'REQUESTED')
-  assert.equal(created.netUsdt, '2.70')
-  assert.equal(f.accounts[0].earnedSp, 6000n)
+  assert.equal(created.feeUsdt, '0.25')
+  assert.equal(created.netUsdt, '0.75')
+  assert.equal(f.accounts[0].earnedSp, 8000n)
 })
 
 test('walletHoldMs is configurable and defaults to 24h', () => {
@@ -505,16 +522,16 @@ test('walletHoldMs is configurable and defaults to 24h', () => {
 
 test('createWithdrawalRequest reports insufficient_sp (Earned only; Bonus excluded)', async () => {
   const f = new FakePrisma()
-  f.accounts.push({ userId: 1, earnedSp: 3000n, bonusSp: 9000n, lifetimeEarnedSp: 3000n, version: 0 })
+  f.accounts.push({ userId: 1, earnedSp: 1000n, bonusSp: 9000n, lifetimeEarnedSp: 1000n, version: 0 })
   f.users.push({ id: 1, withdrawalWallet: null, withdrawalWalletChangedAt: null })
 
   await assert.rejects(
-    () => createWithdrawalRequest(asClient(f), 1, { grossSp: 6000n, address: '0x' + 'a'.repeat(40) }),
+    () => createWithdrawalRequest(asClient(f), 1, { grossSp: 2000n, address: '0x' + 'a'.repeat(40) }),
     (e: unknown) => e instanceof WithdrawalError && e.code === 'insufficient_sp',
   )
   // Bonus SP must never be touched by a withdrawal lock attempt.
   assert.equal(f.accounts[0].bonusSp, 9000n)
-  assert.equal(f.accounts[0].earnedSp, 3000n)
+  assert.equal(f.accounts[0].earnedSp, 1000n)
 })
 
 test('setWithdrawalWallet saves the first wallet and starts the hold on a change', async () => {
@@ -548,10 +565,10 @@ test('createWithdrawalRequest saves the first wallet on the first request', asyn
   f.users.push({ id: 1, withdrawalWallet: null, withdrawalWalletChangedAt: null })
   const addr = '0x' + 'd'.repeat(40)
 
-  const created = await createWithdrawalRequest(asClient(f), 1, { grossSp: 3000n, address: addr })
+  const created = await createWithdrawalRequest(asClient(f), 1, { grossSp: 1000n, address: addr })
   assert.equal(created.address, addr)
   assert.equal(f.users[0].withdrawalWallet, addr)
-  assert.equal(f.accounts[0].earnedSp, 6000n)
+  assert.equal(f.accounts[0].earnedSp, 8000n)
 })
 
 test('createWithdrawalRequest rejects an address that differs from the saved wallet', async () => {
@@ -560,7 +577,7 @@ test('createWithdrawalRequest rejects an address that differs from the saved wal
   f.users.push({ id: 1, withdrawalWallet: '0x' + 'd'.repeat(40), withdrawalWalletChangedAt: null })
 
   await assert.rejects(
-    () => createWithdrawalRequest(asClient(f), 1, { grossSp: 3000n, address: '0x' + 'e'.repeat(40) }),
+    () => createWithdrawalRequest(asClient(f), 1, { grossSp: 1000n, address: '0x' + 'e'.repeat(40) }),
     (e: unknown) => e instanceof WithdrawalError && e.code === 'wallet_mismatch',
   )
 })
@@ -575,12 +592,12 @@ test('createWithdrawalRequest is blocked during the wallet-change hold', async (
     f.users.push({ id: 1, withdrawalWallet: addr, withdrawalWalletChangedAt: new Date() })
 
     await assert.rejects(
-      () => createWithdrawalRequest(asClient(f), 1, { grossSp: 3000n, address: addr }),
+      () => createWithdrawalRequest(asClient(f), 1, { grossSp: 1000n, address: addr }),
       (e: unknown) => e instanceof WithdrawalError && e.code === 'wallet_hold',
     )
 
     f.users[0].withdrawalWalletChangedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
-    const created = await createWithdrawalRequest(asClient(f), 1, { grossSp: 3000n, address: addr })
+    const created = await createWithdrawalRequest(asClient(f), 1, { grossSp: 1000n, address: addr })
     assert.equal(created.address, addr)
   } finally {
     if (envelopeHold === undefined) delete process.env.WITHDRAWAL_WALLET_HOLD_HOURS
@@ -712,7 +729,7 @@ test('createWithdrawalRequest is blocked while payout operations are unavailable
     f.accounts.push({ userId: 1, earnedSp: 9000n, bonusSp: 0n, lifetimeEarnedSp: 9000n, version: 0 })
     f.users.push({ id: 1, withdrawalWallet: null, withdrawalWalletChangedAt: null })
     await assert.rejects(
-      () => createWithdrawalRequest(asClient(f), 1, { grossSp: 3000n, address: '0x' + 'a'.repeat(40) }),
+      () => createWithdrawalRequest(asClient(f), 1, { grossSp: 1000n, address: '0x' + 'a'.repeat(40) }),
       (e: unknown) => e instanceof WithdrawalError && e.code === 'withdrawals_unavailable',
     )
     // No request created, no SP locked, wallet untouched.
@@ -734,7 +751,7 @@ test('createWithdrawalRequest enforces the provider payout minimum on the net am
     f.accounts.push({ userId: 1, earnedSp: 9000n, bonusSp: 0n, lifetimeEarnedSp: 9000n, version: 0 })
     f.users.push({ id: 1, withdrawalWallet: null, withdrawalWalletChangedAt: null })
     await assert.rejects(
-      () => createWithdrawalRequest(asClient(f), 1, { grossSp: 3000n, address: '0x' + 'a'.repeat(40) }),
+      () => createWithdrawalRequest(asClient(f), 1, { grossSp: 1000n, address: '0x' + 'a'.repeat(40) }),
       (e: unknown) => e instanceof WithdrawalError && e.code === 'below_payout_minimum',
     )
     assert.equal(f.accounts[0].earnedSp, 9000n)
@@ -749,4 +766,116 @@ test('minPayoutUsdt defaults to the verified 0.01 and rejects invalid values', (
   assert.equal(minPayoutUsdt({ OXAPAY_MIN_PAYOUT_USDT: '' }), '0.01')
   assert.equal(minPayoutUsdt({ OXAPAY_MIN_PAYOUT_USDT: 'nope' }), '0.01')
   assert.equal(minPayoutUsdt({ OXAPAY_MIN_PAYOUT_USDT: '2.50' }), '2.50')
+})
+
+test('getWithdrawalPolicy exposes server-side fee, minimum, and provider-fee values', () => {
+  const policy = getWithdrawalPolicy({})
+  assert.equal(policy.minGrossSp, '1000')
+  assert.equal(policy.feeUsdt, '0.25')
+  assert.equal(policy.minNetUsdt, '0.01')
+  assert.equal(policy.network, 'BEP20')
+  assert.equal(policy.providerFeeUsdt, '0.25')
+  // Missing config resolves to the owner-verified default, not "unknown".
+  assert.equal(policy.payoutFeeSemantics, DEFAULT_PAYOUT_FEE_SEMANTICS)
+  assert.equal(policy.payoutsEnabled, false)
+  // Values stay server-authoritative and configurable.
+  assert.equal(getWithdrawalPolicy({ OXAPAY_PAYOUT_PROVIDER_FEE_USDT: '0.40' }).providerFeeUsdt, '0.40')
+  assert.equal(getWithdrawalPolicy({ OXAPAY_PAYOUT_PROVIDER_FEE_USDT: 'nope' }).providerFeeUsdt, '0.25')
+  assert.equal(getWithdrawalPolicy({ OXAPAY_PAYOUT_FEE_SEMANTICS: 'merchant' }).payoutFeeSemantics, 'merchant')
+  assert.equal(getWithdrawalPolicy({ OXAPAY_PAYOUT_FEE_SEMANTICS: 'payer' }).payoutFeeSemantics, 'payer')
+  // An unrecognized explicit value still fails closed to "unknown".
+  assert.equal(getWithdrawalPolicy({ OXAPAY_PAYOUT_FEE_SEMANTICS: 'nope' }).payoutFeeSemantics, 'unknown')
+})
+
+test('withdrawal fee math: 1,000 SP gross minus a 250 SP fee nets 0.75 USDT', () => {
+  assert.equal(MIN_GROSS_SP, 1000n)
+  assert.equal(FLAT_FEE_SP, 250n)
+  assert.equal(netUsdtString(1000n), '0.75')
+  assert.equal(netUsdtString(2000n), '1.75')
+  assert.equal(payoutProviderFeeUsdt({}), '0.25')
+})
+
+test('payoutSubmitAmountUsdt preserves the recipient net and never double-deducts the provider fee', () => {
+  // merchant (owner-verified): provider bills its fee from the merchant balance,
+  // so the requested amount is the net and the recipient receives exactly 0.75.
+  assert.equal(payoutSubmitAmountUsdt('0.75', { OXAPAY_PAYOUT_FEE_SEMANTICS: 'merchant' }), '0.75')
+  // payer: provider deducts its fee from the requested amount, so the fee is
+  // added once; the recipient still receives exactly 0.75.
+  assert.equal(payoutSubmitAmountUsdt('0.75', { OXAPAY_PAYOUT_FEE_SEMANTICS: 'payer' }), '1')
+  // Configurable provider fee is applied exactly once.
+  assert.equal(
+    payoutSubmitAmountUsdt('0.75', { OXAPAY_PAYOUT_FEE_SEMANTICS: 'payer', OXAPAY_PAYOUT_PROVIDER_FEE_USDT: '0.40' }),
+    '1.15',
+  )
+  // Unknown semantics fail closed.
+  assert.throws(
+    () => payoutSubmitAmountUsdt('0.75', { OXAPAY_PAYOUT_FEE_SEMANTICS: 'nope' }),
+    /semantics unconfirmed/,
+  )
+})
+
+test('payout fee semantics default to the owner-verified merchant behavior (deploy-safe)', () => {
+  assert.equal(DEFAULT_PAYOUT_FEE_SEMANTICS, 'merchant')
+  // Missing/blank config must not disable payouts.
+  assert.equal(payoutFeeSemantics({}), 'merchant')
+  assert.equal(payoutFeeSemantics({ OXAPAY_PAYOUT_FEE_SEMANTICS: '' }), 'merchant')
+  assert.equal(isPayoutFeeSemanticsConfirmed({}), true)
+  assert.equal(isPayoutFeeSemanticsConfirmed({ OXAPAY_PAYOUT_FEE_SEMANTICS: 'payer' }), true)
+  // Only an unrecognized explicit value fails closed.
+  assert.equal(payoutFeeSemantics({ OXAPAY_PAYOUT_FEE_SEMANTICS: 'nope' }), 'unknown')
+  assert.equal(isPayoutFeeSemanticsConfirmed({ OXAPAY_PAYOUT_FEE_SEMANTICS: 'nope' }), false)
+})
+
+test('executeWithdrawalPayout works with the production environment (no semantics var) and submits the net once', async () => {
+  const savedPay = process.env.PAYOUTS_ENABLED
+  const savedSem = process.env.OXAPAY_PAYOUT_FEE_SEMANTICS
+  process.env.PAYOUTS_ENABLED = 'true'
+  delete process.env.OXAPAY_PAYOUT_FEE_SEMANTICS
+  try {
+    const f = new FakePrisma()
+    seedWithdrawal(f)
+    const sent: Array<Record<string, unknown>> = []
+    const { config, calls } = payoutConfig((_url, init) => {
+      sent.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+      return json({ status: 200, data: { track_id: 'pay_1', status: 'Pending' } })
+    })
+
+    const first = await executeWithdrawalPayout(asClient(f), 1, config)
+    assert.equal(first.trackId, 'pay_1')
+    assert.equal(first.alreadySubmitted, false)
+    assert.equal(calls.length, 1)
+    assert.equal(f.intents.length, 1)
+    // The owner-confirmed net is delivered exactly once (no provider deduction).
+    assert.equal(sent[0].amount, 0.75)
+    assert.equal(f.intents[0].amountUsdt, '0.75')
+  } finally {
+    if (savedPay === undefined) delete process.env.PAYOUTS_ENABLED
+    else process.env.PAYOUTS_ENABLED = savedPay
+    if (savedSem === undefined) delete process.env.OXAPAY_PAYOUT_FEE_SEMANTICS
+    else process.env.OXAPAY_PAYOUT_FEE_SEMANTICS = savedSem
+  }
+})
+
+test('executeWithdrawalPayout fails closed on an unrecognized semantics value', async () => {
+  const savedPay = process.env.PAYOUTS_ENABLED
+  const savedSem = process.env.OXAPAY_PAYOUT_FEE_SEMANTICS
+  process.env.PAYOUTS_ENABLED = 'true'
+  process.env.OXAPAY_PAYOUT_FEE_SEMANTICS = 'weird'
+  try {
+    const f = new FakePrisma()
+    seedWithdrawal(f)
+    const { config, calls } = payoutConfig(() => json({ status: 200, data: { track_id: 'pay_1' } }))
+    await assert.rejects(
+      () => executeWithdrawalPayout(asClient(f), 1, config),
+      (e: unknown) => e instanceof WithdrawalError && e.code === 'payout_fee_semantics_unverified',
+    )
+    // Fail-closed: no provider call, no anchor created.
+    assert.equal(calls.length, 0)
+    assert.equal(f.intents.length, 0)
+  } finally {
+    if (savedPay === undefined) delete process.env.PAYOUTS_ENABLED
+    else process.env.PAYOUTS_ENABLED = savedPay
+    if (savedSem === undefined) delete process.env.OXAPAY_PAYOUT_FEE_SEMANTICS
+    else process.env.OXAPAY_PAYOUT_FEE_SEMANTICS = savedSem
+  }
 })

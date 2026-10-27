@@ -14,6 +14,9 @@ export interface IsoPalette {
   detail: string
 }
 
+/** Production state of an owned CEO unit shown on the empire map. */
+export type OwnedUnitState = 'idle' | 'producing' | 'ready' | 'exhausted'
+
 export interface BuildingDef {
   id: string
   type: BuildingType
@@ -28,6 +31,12 @@ export interface BuildingDef {
   accent: string
   palette: IsoPalette
   status: BuildingStatus
+  /**
+   * Present only for units that represent a real owned CEO copy. `id` is then
+   * `owned-<ownedCeoId>` and these fields drive the interaction panel.
+   */
+  ownedCeoId?: number
+  state?: OwnedUnitState
 }
 
 export type PlotStatus = 'locked' | 'available'

@@ -15,7 +15,8 @@ import {
   Sparkles,
   UserPlus,
   ShieldCheck,
-  Map
+  Map,
+  HelpCircle
 } from 'lucide-react'
 import { Link, useRouter } from './router'
 import { Logo, LogoMark } from './Logo'
@@ -41,11 +42,12 @@ const PRIMARY: NavItem[] = [
 ]
 
 const SECONDARY: NavItem[] = [
-  { id: 'world', label: 'Empire Map', href: '/dashboard/world', Icon: Map },
+  { id: 'world', label: 'My Empire', href: '/dashboard/world', Icon: Map },
   { id: 'achievements', label: 'Achievements', href: '/dashboard/achievements', Icon: Sparkles, feature: 'achievements' },
   { id: 'leaderboard', label: 'Leaderboard', href: '/dashboard/leaderboard', Icon: Trophy, feature: 'leaderboard' },
   { id: 'referrals', label: 'Referrals', href: '/dashboard/referrals', Icon: UserPlus },
-  { id: 'wallet', label: 'Wallet', href: '/dashboard/wallet', Icon: Wallet, feature: 'wallet' }
+  { id: 'wallet', label: 'Wallet', href: '/dashboard/wallet', Icon: Wallet, feature: 'wallet' },
+  { id: 'help', label: 'Help', href: '/dashboard/help', Icon: HelpCircle }
 ]
 
 function isActive(current: string, href: string): boolean {
@@ -65,6 +67,7 @@ export function Layout({ children }: LayoutProps) {
   const { data: resources } = useResources()
   const settings = usePublicSettings()
   const features = settings.data?.features
+  const payoutsAvailable = settings.data?.capabilities?.payouts
 
   const allowed = (item: NavItem) => !item.feature || !features || features[item.feature]
   const primaryItems = PRIMARY.filter(allowed)
@@ -244,7 +247,11 @@ export function Layout({ children }: LayoutProps) {
               Community · Telegram
             </a>
             <p className="mt-4 px-3 text-[10px] leading-relaxed text-muted">
-              CEO production is a game mechanic. Withdrawals aren&apos;t open yet.
+              CEO production is a game mechanic. {payoutsAvailable === true
+                ? 'Eligible Earned SP withdrawals are available with admin approval; nominal rates are not guaranteed returns.'
+                : payoutsAvailable === false
+                  ? 'Withdrawals are not open yet; nominal rates are not guaranteed returns.'
+                  : 'Financial feature availability is shown in the Wallet.'}
             </p>
           </div>
         </div>

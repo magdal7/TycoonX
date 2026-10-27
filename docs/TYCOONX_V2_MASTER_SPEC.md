@@ -32,14 +32,23 @@ Every verified player receives one free **Intern** CEO copy. Other CEO copies ar
 
 | CEO | Price USDT | Nominal SP / 24h continuous running | Lifetime cap SP / copy |
 |---|---:|---:|---:|
-| Intern | Free | 10 | 40 |
-| CEO 2 | 0.99 | 100 | 1,200 |
-| CEO 3 | 4.99 | 1,000 | 6,500 |
-| CEO 4 | 19.99 | 5,000 | 28,000 |
-| CEO 5 | 49.99 | 10,000 | 75,000 |
-| CEO 6 | 99.99 | 25,000 | 160,000 |
-| CEO 7 | 249.99 | 50,000 | 450,000 |
-| CEO 8 | 999.99 | 100,000 | 2,000,000 |
+| Intern | Free | 120 | 500 |
+| CEO 2 | 0.99 | 600 | 1,200 |
+| CEO 3 | 4.99 | 2,166 | 6,500 |
+| CEO 4 | 19.99 | 9,333 | 28,000 |
+| CEO 5 | 49.99 | 18,750 | 75,000 |
+| CEO 6 | 99.99 | 40,000 | 160,000 |
+| CEO 7 | 249.99 | 90,000 | 450,000 |
+| CEO 8 | 999.99 | 400,000 | 2,000,000 |
+
+> **Production-authoritative (2026-10-27):** the nominal SP/24h rates and the Intern lifetime cap above
+> are the values configured in the production Neon CEO catalog and supersede the earlier owner-approved
+> table. Prices and premium lifetime caps are unchanged. The already-applied migration
+> `20261018000000_v25_economy_sp_production` still embeds the *earlier* rates, so a freshly seeded
+> (non-production) database will diverge from production until a separate, additive rate-sync migration is
+> approved and run; **do not** edit that applied migration or re-run it against production. CEO cycle
+> duration is unchanged (`CEO.cycleHours = 4`; equipment durations remain Standard 4h / Extended 6h /
+> Advanced 8h) — only the per-24h rates and the Intern cap changed.
 
 **Equipment — V2.4 implementation defaults (previously proposed):** Standard 4h/free/level 1; Extended 6h/500 SP/unlock player level 5; Advanced 8h/1,500 SP/unlock player level 12. Upgrade a CEO copy once per tier; charge only for the selected new equipment (no trade-in, no repeat purchase); selecting equipment applies to **future** cycles, not an active cycle. Hourly production rate is unchanged: longer cycles yield proportionally more SP **per collection**, not more SP per hour; never exceed lifetime cap. The last cycle pays at most remaining cap; if remaining cap is lower than a full cycle, collect only that remainder and archive. The paid equipment's SP sink must not change the Earned SP production rate or create Earned SP. Use precise fractional accrual with deterministic rounding and cap enforcement. Do not advertise nominal daily production as guaranteed earnings.
 
@@ -89,7 +98,7 @@ Referrals (owner-confirmed V2.5): **10 Bonus SP** per qualified referral; **10% 
 - **Go-live gates:** Obtain written confirmation that the provider permits TycoonX's paid CEO / finite withdrawable-production model; verify merchant eligibility and any KYC/AML, jurisdictional and regulatory obligations; validate current API documentation, fees and limits; complete small controlled end-to-end deposit and payout tests, callback replay tests and reconciliation; approve operations and risk controls. If any gate fails, keep payment features disabled and request owner approval for alternatives. Do not store live keys in repository/docs.
 
 ### Withdrawal rules and wallet security
-- Withdrawals: **USDT BEP20 only**. Minimum **3,000 Earned SP = 3 USDT**; flat fee **0.30 USDT**. **V2.4 fee interpretation:** minimum applies to gross request amount; fee deducted from gross, so a 3 USDT request pays 2.70 USDT to wallet; show fee/net before confirmation. One pending request/account. Next request permitted only 24h after successful payout. Lock gross Earned SP atomically on request; release on rejection/cancellation, settle once on payout. Do not allow Bonus SP withdrawals.
+- Withdrawals: **USDT BEP20 only**. Minimum **1,000 Earned SP = 1 USDT**; flat fee **0.25 USDT** (owner-approved, equal to the confirmed OxaPay BEP20 provider fee; no platform margin). **Fee interpretation:** minimum applies to gross request amount; fee deducted from gross exactly once, so a 1 USDT request pays 0.75 USDT to wallet; show fee/net before confirmation. One pending request/account. Next request permitted only 24h after successful payout. Lock gross Earned SP atomically on request; release on rejection/cancellation, settle once on payout. Do not allow Bonus SP withdrawals.
 - One saved withdrawal wallet/account. Changing it sends immediate email and blocks **new withdrawal requests for 24 hours** from last change. A subsequent change restarts the hold. CEO activity unaffected. Validate BEP20 address/network and display warning against wrong network.
 - **V2.4 pending-withdrawal policy:** any existing pending withdrawal is automatically put **on security hold for manual Admin review** when wallet is changed; it retains its originally submitted address and cannot be redirected by the change. Admin can cancel/refund or, after review and hold expiry, authorize payout to the **original** address only with an explicit operator check. Never silently send to the new address. Audit every status transition.
 - Admin approval of withdrawal is required; OxaPay payout integration remains disabled until the go-live gates above are met. Before gateway integration, build safe request/review states only, not pretend to transfer crypto. Enforce idempotent payout reconciliation, exact amounts, and fraud checks before any real withdrawals go live.

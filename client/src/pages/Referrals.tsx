@@ -41,7 +41,11 @@ export default function Referrals() {
       <SectionHeading
         eyebrow="Growth"
         title="Referrals"
-        description="Invite friends. A referred user's first confirmed deposit-funded CEO purchase qualifies them — earning you 10 Bonus SP plus 10% recurring commission on their deposit-funded purchases."
+        description={
+          data?.rewardsEnabled
+            ? "Invite friends. A referred user's first confirmed deposit-funded CEO purchase qualifies them — earning you 10 Bonus SP plus 10% recurring commission on their deposit-funded purchases."
+            : "Invite friends. Referral rewards are currently disabled while the economics are finalized; qualified referrals are recorded and will not be credited until rewards are enabled."
+        }
         right={<Button size="sm" variant="ghost" onClick={reload} iconLeft={<RefreshCw className="h-4 w-4" />}>Refresh</Button>}
       />
 
@@ -55,13 +59,20 @@ export default function Referrals() {
             <div className="flex items-center gap-2">
               <Users className="h-4 w-4 text-primary" />
               <h2 className="text-sm font-bold text-white">Your referral code</h2>
-              <Badge variant="warning" className="ml-auto">Rewards pending approval</Badge>
+              {data.rewardsEnabled ? (
+                <Badge variant="success" className="ml-auto">Rewards active</Badge>
+              ) : (
+                <Badge variant="warning" className="ml-auto">Rewards disabled</Badge>
+              )}
             </div>
             <p className="mt-1 text-xs text-muted">
               Share your link. A referred user's <b className="text-ink">first confirmed deposit-funded CEO purchase</b> qualifies them:
               you earn <b className="text-ink">{data.registrationBonusSp} Bonus SP</b> once, plus a recurring{' '}
               <b className="text-ink">{data.commissionPercent}%</b> commission in {data.commissionCurrency} on the deposit-funded portion of
               their later eligible purchases. Commissions are non-withdrawable; free, promotional and referral bonuses never earn commission.
+              {!data.rewardsEnabled && (
+                <> <b className="text-ink">Rewards are currently disabled</b> — qualified activity is recorded but nothing is credited until they are enabled.</>
+              )}
             </p>
             <div className="mt-3 flex gap-2">
               <input readOnly value={link} className="min-w-0 flex-1 rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-xs text-muted" aria-label="Referral link" />

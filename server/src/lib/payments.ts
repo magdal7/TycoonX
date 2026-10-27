@@ -69,6 +69,87 @@ export function minPayoutUsdt(env: Record<string, string | undefined> = process.
 }
 
 /**
+ * Confirmed OxaPay USDT/BEP20 payout provider fee in USDT
+ * (`OXAPAY_PAYOUT_PROVIDER_FEE_USDT`, default "0.25"). This is the provider's
+ * advertised withdraw_fee; it is tracked separately from the player-facing flat
+ * fee and is deducted at most once — see `payoutFeeSemantics` and Master Spec §9.
+ */
+export function payoutProviderFeeUsdt(env: Record<string, string | undefined> = process.env): string {
+  const raw = (env.OXAPAY_PAYOUT_PROVIDER_FEE_USDT ?? '').trim()
+  return USDT_RE.test(raw) ? raw : '0.25'
+}
+
+export type PayoutFeeSemantics = 'unknown' | 'payer' | 'merchant'
+
+/**
+ * Owner-verified payout fee semantics. The owner confirmed the real payout
+ * behavior: a 1.00 USDT gross withdrawal at a 0.25 USDT player fee delivers
+ * exactly 0.75 USDT to the recipient. OxaPay therefore bills its 0.25 USDT
+ * BEP20 payout fee from the merchant balance and forwards the full requested
+ * amount to the recipient (the "merchant" side), rather than deducting it from
+ * the payout amount. Encoding this as the default means a code deploy cannot
+ * disable payouts for lack of a new environment variable; an explicit
+ * `OXAPAY_PAYOUT_FEE_SEMANTICS` still overrides it.
+ */
+export const DEFAULT_PAYOUT_FEE_SEMANTICS: PayoutFeeSemantics = 'merchant'
+
+/**
+ * Which side the provider deducts its payout fee from. Missing/blank config
+ * resolves to the owner-verified default (`merchant`); an explicit "payer" or
+ * "merchant" is honored; any other value fails closed to `'unknown'`, which
+ * keeps real payout execution blocked (see `isPayoutFeeSemanticsConfirmed`).
+ * ("payer" = deducted from the payout amount, "merchant" = billed separately.)
+ */
+export function payoutFeeSemantics(env: Record<string, string | undefined> = process.env): PayoutFeeSemantics {
+  const raw = (env.OXAPAY_PAYOUT_FEE_SEMANTICS ?? '').trim().toLowerCase()
+  if (raw === '') return DEFAULT_PAYOUT_FEE_SEMANTICS
+  if (raw === 'payer' || raw === 'merchant') return raw
+  return 'unknown'
+}
+
+export function isPayoutFeeSemanticsConfirmed(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return payoutFeeSemantics(env) !== 'unknown'
+}
+
+const USDT_SCALE = 6
+const USDT_SCALE_FACTOR = 10n ** BigInt(USDT_SCALE)
+
+function usdtToScaled(amount: string): bigint {
+  const trimmed = amount.trim()
+  if (!USDT_RE.test(trimmed)) throw new Error('invalid usdt amount')
+  const [intPart, frac = ''] = trimmed.split('.')
+  return BigInt(intPart) * USDT_SCALE_FACTOR + BigInt((frac + '000000').slice(0, USDT_SCALE))
+}
+
+function scaledToUsdt(value: bigint): string {
+  const whole = value / USDT_SCALE_FACTOR
+  const frac = (value % USDT_SCALE_FACTOR).toString().padStart(USDT_SCALE, '0').replace(/0+$/, '')
+  return frac ? `${whole}.${frac}` : whole.toString()
+}
+
+/**
+ * The `amount` submitted to the OxaPay payout API so the recipient receives
+ * exactly the player net (`netUsdt`) while the provider fee is deducted at most
+ * once:
+ *  - `merchant`: the provider bills its fee from the merchant balance and pays
+ *    the requested amount in full, so the net is submitted unchanged.
+ *  - `payer`: the provider deducts its fee from the requested amount, so the
+ *    provider fee is added; the recipient still receives exactly the net.
+ * Fails closed (throws) when the semantics are unconfirmed (`unknown`).
+ */
+export function payoutSubmitAmountUsdt(
+  netUsdt: string,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  const semantics = payoutFeeSemantics(env)
+  if (semantics === 'unknown') throw new Error('payout fee semantics unconfirmed')
+  if (semantics === 'merchant') return netUsdt
+  return scaledToUsdt(usdtToScaled(netUsdt) + usdtToScaled(payoutProviderFeeUsdt(env)))
+}
+
+/**
  * Converts a USDT decimal string to integer SP exactly (no floating point).
  * 1 USDT = 1,000 SP, so 0.001 USDT = 1 SP; extra decimals beyond 3 are truncated.
  */

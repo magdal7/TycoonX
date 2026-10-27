@@ -1,7 +1,15 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { isUniqueViolation } from '../lib/idempotency'
-import { buildDepositDiagnostic, compareDecimal, evaluateDepositSettlement, synthesizeWebhookEventId } from '../lib/oxapay'
+import {
+  buildDepositDiagnostic,
+  canonicalizeStatus,
+  compareDecimal,
+  decimalEquals,
+  evaluateDepositSettlement,
+  normalizePaymentStatus,
+  synthesizeWebhookEventId,
+} from '../lib/oxapay'
 import { isSupportedDepositPair, normalizeAsset, normalizeNetwork } from '../lib/oxapayAssets'
 import {
   isPaymentsEnabled,
@@ -88,6 +96,7 @@ function serializeIntent(row: {
   createdAt: Date
   confirmedAt: Date | null
 }) {
+  const expiresAtSeconds = readMetadataNumber(row.metadata ?? null, 'expiredAt')
   return {
     id: row.id,
     userId: row.userId,
@@ -101,6 +110,8 @@ function serializeIntent(row: {
     payUrl: row.payUrl,
     expectedAsset: readMetadataString(row.metadata ?? null, 'asset') ?? null,
     expectedNetwork: readMetadataString(row.metadata ?? null, 'network') ?? null,
+    lastProviderStatus: readMetadataString(row.metadata ?? null, 'lastProviderStatus') ?? null,
+    expiresAt: expiresAtSeconds !== undefined ? new Date(expiresAtSeconds * 1000).toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     confirmedAt: row.confirmedAt ? row.confirmedAt.toISOString() : null,
   }
@@ -118,9 +129,108 @@ function readMetadataString(
   return typeof value === 'string' && value.trim() !== '' ? value : undefined
 }
 
+/** Reads a finite numeric field from a Prisma JSON metadata blob. */
+function readMetadataNumber(
+  metadata: Prisma.JsonValue | null | undefined,
+  key: string,
+): number | undefined {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined
+  const value = (metadata as Record<string, unknown>)[key]
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+  return undefined
+}
+
+/** Provider expiry (unix seconds, from metadata) as epoch ms, or null when absent. */
+function intentExpiresAtMs(metadata: Prisma.JsonValue | null | undefined): number | null {
+  const seconds = readMetadataNumber(metadata, 'expiredAt')
+  return seconds !== undefined ? seconds * 1000 : null
+}
+
+/**
+ * Marks a user's open deposit intents whose provider expiry has passed as
+ * EXPIRED. Safe to call before creating/resuming an invoice; never touches a
+ * confirmed intent and never credits anything.
+ */
+export async function expireStaleDepositIntents(db: PrismaClient, userId: number): Promise<number> {
+  const rows = await db.paymentIntent.findMany({
+    where: { userId, provider: PAYMENT_PROVIDER, purpose: 'deposit', status: { in: ['CREATED', 'PENDING'] } },
+    select: { id: true, status: true, metadata: true },
+  })
+  const now = Date.now()
+  let expired = 0
+  for (const row of rows) {
+    const expiresAt = intentExpiresAtMs(row.metadata)
+    if (expiresAt === null || expiresAt > now) continue
+    const guard = await db.paymentIntent.updateMany({
+      where: { id: row.id, status: row.status },
+      data: { status: 'EXPIRED' },
+    })
+    if (guard.count === 1) expired += 1
+  }
+  return expired
+}
+
+/**
+ * Finds an existing open, unexpired deposit intent matching the requested amount
+ * and (when supplied) the canonical asset/network selection. This is the
+ * server-side resume/dedupe guard that prevents repeated clicks, refreshes and
+ * retries from creating duplicate invoices for the same deposit.
+ */
+export async function findResumableDepositIntent(
+  db: PrismaClient,
+  userId: number,
+  amountUsdt: string,
+  selection?: DepositSelection,
+) {
+  const rows = await db.paymentIntent.findMany({
+    where: { userId, provider: PAYMENT_PROVIDER, purpose: 'deposit', status: { in: ['CREATED', 'PENDING'] } },
+    orderBy: { id: 'desc' },
+    take: 10,
+  })
+  const now = Date.now()
+  const wantAsset = selection?.asset ? normalizeAsset(selection.asset) : null
+  const wantNetwork = selection?.network ? normalizeNetwork(selection.network) : null
+  for (const row of rows) {
+    const expiresAt = intentExpiresAtMs(row.metadata)
+    if (expiresAt !== null && expiresAt <= now) continue
+    if (!decimalEquals(row.amountUsdt.toString(), amountUsdt)) continue
+    const asset = readMetadataString(row.metadata, 'asset') ?? null
+    const network = readMetadataString(row.metadata, 'network') ?? null
+    if (asset !== wantAsset || network !== wantNetwork) continue
+    return row
+  }
+  return null
+}
+
 /** Structured, non-sensitive settlement logging (no payloads/keys/signatures/PII). */
 function logDepositDiagnostic(diagnostic: ReturnType<typeof buildDepositDiagnostic>): void {
   console.log(JSON.stringify({ scope: 'oxapay.deposit', ...diagnostic }))
+}
+
+/**
+ * Merges the latest provider status into the intent metadata so the client and
+ * admin can surface pending/underpaid/manual-accept states. Non-sensitive only;
+ * never credits and never changes the intent amount.
+ */
+async function recordIntentProviderStatus(
+  db: PrismaClient,
+  intentId: number,
+  metadata: Prisma.JsonValue | null | undefined,
+  status: string,
+): Promise<void> {
+  const base =
+    metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+      ? { ...(metadata as Record<string, unknown>) }
+      : {}
+  base.lastProviderStatus = canonicalizeStatus(status)
+  await db.paymentIntent.updateMany({
+    where: { id: intentId },
+    data: { metadata: base as Prisma.InputJsonValue },
+  })
 }
 
 /** Optional user-selected deposit asset/network (verified against the allowlist). */
@@ -203,6 +313,11 @@ export async function createDepositIntent(
   if (!isPaymentsEnabled()) throw new PaymentError('payments_disabled')
   if (!isValidUsdtAmount(amountUsdt) || usdtToSp(amountUsdt) <= 0n) throw new PaymentError('invalid_amount')
   if (compareDecimal(amountUsdt, minDepositUsdt()) < 0) throw new PaymentError('invalid_amount')
+  // Resume/dedupe: retire expired invoices, then return an existing matching open
+  // invoice instead of creating a duplicate (repeated clicks/refreshes/retries).
+  await expireStaleDepositIntents(db, userId)
+  const resumable = await findResumableDepositIntent(db, userId, amountUsdt, selection)
+  if (resumable) return serializeIntent(resumable)
   return createDepositInvoice(db, config ?? loadOxapayConfig(), userId, amountUsdt, selection)
 }
 
@@ -314,6 +429,11 @@ export async function processWebhook(
     return { ignored: true, reason: 'intent_not_found' }
   }
 
+  // Record the latest verified provider status on the intent (never credits
+  // here). This surfaces paying/underpaid/manual_accept/expired to the client.
+  const providerStatus = normalizePaymentStatus(input.status)
+  await recordIntentProviderStatus(db, intent.id, intent.metadata, input.status)
+
   if (intent.status === 'CONFIRMED') {
     await db.paymentWebhookEvent.update({
       where: { id: eventId },
@@ -358,13 +478,40 @@ export async function processWebhook(
     // Non-confirming provider statuses are expected transitions; verification
     // failures are recorded as IGNORED. Neither credits anything.
     const eventStatus = decision.reason === 'non_confirming' ? 'PROCESSED' : 'IGNORED'
+
+    // Expiry is an explicit terminal transition: an open intent whose provider
+    // invoice expired is marked EXPIRED (guarded; a confirmed intent never is).
+    if (providerStatus === 'expired' && (intent.status === 'CREATED' || intent.status === 'PENDING')) {
+      await db.paymentIntent.updateMany({
+        where: { id: intent.id, status: intent.status },
+        data: { status: 'EXPIRED' },
+      })
+    }
+
+    // Distinguish under/overpayment for diagnostics (both never settle and both
+    // remain open for admin review / reconciliation; neither is auto-credited).
+    let outcome: string = decision.reason
+    if (decision.reason === 'amount_mismatch' && input.amountUsdt !== undefined) {
+      try {
+        outcome = compareDecimal(input.amountUsdt, intent.amountUsdt.toString()) < 0 ? 'underpaid' : 'overpaid'
+      } catch {
+        outcome = 'amount_mismatch'
+      }
+    } else if (providerStatus === 'manual_accept') {
+      outcome = 'manual_accept'
+    } else if (providerStatus === 'underpaid') {
+      outcome = 'underpaid'
+    } else if (providerStatus === 'expired') {
+      outcome = 'expired'
+    }
+
     await db.paymentWebhookEvent.update({
       where: { id: eventId },
       data: { status: eventStatus, processedAt: new Date(), paymentIntentId: intent.id },
     })
     logDepositDiagnostic(
       buildDepositDiagnostic({
-        outcome: decision.reason,
+        outcome,
         status: input.status,
         asset: input.asset ?? null,
         network: input.network ?? null,

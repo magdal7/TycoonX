@@ -5,6 +5,7 @@ export interface OwnedCeoView {
   templateId: number
   templateSlug: string
   templateName: string
+  templateImageUrl: string | null
   rarity: string
   acquisitionType: string
   level: number
@@ -56,6 +57,7 @@ export async function listOwnedCeos(
           lifetimeCapSp: true,
           priceUsd: true,
           cycleHours: true,
+          imageUrl: true,
         },
       },
       cycles: {
@@ -78,6 +80,7 @@ export async function listOwnedCeos(
       templateId: row.templateId,
       templateSlug: row.template.slug,
       templateName: row.template.name,
+      templateImageUrl: row.template.imageUrl ?? null,
       rarity: row.template.rarity,
       acquisitionType: row.acquisitionType,
       level: row.level,

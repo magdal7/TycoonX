@@ -4,6 +4,7 @@ import {
   canCreateDeposit,
   depositAccessMode,
   depositAdminAllowlist,
+  runtimeCapabilities,
 } from './paymentAccess'
 
 test('deposit access mode is disabled by default and unknown values fail closed', () => {
@@ -43,4 +44,26 @@ test('canCreateDeposit: disabled mode blocks everyone even when payments are ena
   const env = { PAYMENTS_ENABLED: 'true', DEPOSIT_ACCESS_MODE: 'disabled' }
   assert.equal(canCreateDeposit({ id: 1, role: 'ADMIN' }, env), false)
   assert.equal(canCreateDeposit({ id: 1, role: 'ADMIN' }, { PAYMENTS_ENABLED: 'true' }), false)
+})
+
+test('runtimeCapabilities reflects the three independent gates (fail-closed by default)', () => {
+  assert.deepEqual(runtimeCapabilities({}), {
+    deposits: false,
+    payouts: false,
+    referralRewards: false,
+  })
+  assert.deepEqual(
+    runtimeCapabilities({
+      PAYMENTS_ENABLED: 'true',
+      PAYOUTS_ENABLED: 'true',
+      REFERRAL_REWARDS_ENABLED: 'true',
+    }),
+    { deposits: true, payouts: true, referralRewards: true },
+  )
+  // Gates stay independent.
+  assert.deepEqual(runtimeCapabilities({ PAYMENTS_ENABLED: 'true' }), {
+    deposits: true,
+    payouts: false,
+    referralRewards: false,
+  })
 })

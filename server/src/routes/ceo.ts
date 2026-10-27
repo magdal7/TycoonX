@@ -23,6 +23,7 @@ function serializeCEO(ceo: any) {
     lifetimeCapSp: ceo.lifetimeCapSp?.toString?.() ?? null,
     cycleHours: ceo.cycleHours,
     energyCost: ceo.energyCost,
+    imageUrl: ceo.imageUrl ?? null,
     isActive: ceo.isActive,
     createdAt: ceo.createdAt,
     updatedAt: ceo.updatedAt,

@@ -9,15 +9,18 @@ import { rarityStyle, RARITY_ORDER, type Ceo } from '../lib/ceos'
 import { useApi } from '../lib/useApi'
 import { fetchCeos } from '../lib/ceos'
 import { createPurchase } from '../lib/game'
-import { notifyResourcesChanged } from '../lib/resources'
+import { notifyResourcesChanged, useResources } from '../lib/resources'
 import { formatNumber, formatUsd } from '../lib/format'
 
 type SortKey = 'featured' | 'price-asc' | 'price-desc'
 
-function MarketCard({ ceo }: { ceo: Ceo }) {
+function MarketCard({ ceo, spTotal }: { ceo: Ceo; spTotal: number }) {
   const style = rarityStyle(ceo.rarity)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const priceSp = ceo.priceUsd <= 0 ? 0 : Math.round(ceo.priceUsd * 1000)
+  const affordable = priceSp === 0 || spTotal >= priceSp
+  const shortfall = priceSp > 0 ? Math.max(0, priceSp - spTotal) : 0
 
   async function buy() {
     setBusy(true)
@@ -45,7 +48,7 @@ function MarketCard({ ceo }: { ceo: Ceo }) {
       <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${style.glow} to-transparent`} />
       <div className="relative z-10 flex flex-1 flex-col p-4">
         <div className="mb-3 flex items-start gap-3">
-          <CeoAvatar name={ceo.name} slug={ceo.slug} rarity={ceo.rarity} size={60} />
+          <CeoAvatar name={ceo.name} slug={ceo.slug} rarity={ceo.rarity} size={60} imageUrl={ceo.imageUrl} />
           <div className="min-w-0 flex-1">
             <h3 className="truncate font-bold leading-tight text-white">{ceo.name}</h3>
             <p className="text-[11px] text-muted">{ceoRole(ceo.rarity)}</p>
@@ -61,7 +64,7 @@ function MarketCard({ ceo }: { ceo: Ceo }) {
               {ceo.priceUsd > 0 && <span className="text-xs text-muted">USDT</span>}
             </div>
             {ceo.priceUsd > 0 && (
-              <p className="mt-0.5 text-[10px] text-accent">≈ {formatNumber(Math.round(ceo.priceUsd * 1000))} SP</p>
+              <p className="mt-0.5 text-[10px] text-accent">≈ {formatNumber(priceSp)} SP</p>
             )}
           </div>
           <div className="text-right">
@@ -88,8 +91,15 @@ function MarketCard({ ceo }: { ceo: Ceo }) {
         </p>
 
         {notice && <p className="mb-2 text-[10px] text-amber-300">{notice}</p>}
-        <Button variant="primary" size="sm" className="mt-auto w-full" isLoading={busy} disabled={ceo.priceUsd <= 0} onClick={buy}>
-          <ShoppingCart className="h-3.5 w-3.5 mr-2" /> {ceo.priceUsd <= 0 ? 'Included free' : 'Buy with SP'}
+        {priceSp > 0 && (
+          <p className={`mb-2 text-[10px] ${affordable ? 'text-muted' : 'text-amber-300'}`}>
+            {affordable
+              ? `Balance ${formatNumber(spTotal)} SP · Bonus SP spends first`
+              : `Need ${formatNumber(shortfall)} more SP (you have ${formatNumber(spTotal)} SP)`}
+          </p>
+        )}
+        <Button variant="primary" size="sm" className="mt-auto w-full" isLoading={busy} disabled={ceo.priceUsd <= 0 || !affordable} onClick={buy}>
+          <ShoppingCart className="h-3.5 w-3.5 mr-2" /> {ceo.priceUsd <= 0 ? 'Included free' : affordable ? 'Buy with SP' : 'Not enough SP'}
         </Button>
       </div>
     </Card>
@@ -98,10 +108,12 @@ function MarketCard({ ceo }: { ceo: Ceo }) {
 
 export default function Market() {
   const { data, loading, error, reload } = useApi(() => fetchCeos(), [])
+  const resources = useResources()
   const [search, setSearch] = useState('')
   const [rarity, setRarity] = useState('All')
   const [sort, setSort] = useState<SortKey>('featured')
 
+  const spTotal = Number(resources.data?.sp.totalSp ?? 0)
   const ceos = data ?? []
   const rarities = useMemo(() => {
     const present = Array.from(new Set(ceos.map((c) => c.rarity)))
@@ -126,7 +138,7 @@ export default function Market() {
         eyebrow="Marketplace"
         title="CEO Market"
         description="Recruit executives with defined production mechanics and finite lifetime caps."
-        right={<Badge variant="default">SP MARKET</Badge>}
+        right={<Badge variant="default">{spTotal > 0 ? `Balance ${formatNumber(spTotal)} SP` : 'SP MARKET'}</Badge>}
       />
 
       <Card padding="sm" className="border border-success/25 bg-success/5">
@@ -184,7 +196,7 @@ export default function Market() {
         <EmptyState Icon={Inbox} title={ceos.length === 0 ? 'No executives available yet' : 'No matches'} description={ceos.length === 0 ? 'Check back soon.' : 'Try a different search or filter.'} />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visible.map((ceo) => <MarketCard key={ceo.id} ceo={ceo} />)}
+          {visible.map((ceo) => <MarketCard key={ceo.id} ceo={ceo} spTotal={spTotal} />)}
         </div>
       )}
 

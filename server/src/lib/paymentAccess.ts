@@ -1,4 +1,26 @@
-import { isPaymentsEnabled } from './payments'
+import { isPaymentsEnabled, isPayoutsEnabled } from './payments'
+import { isReferralRewardsEnabled } from './referralRules'
+
+/**
+ * Server-authoritative runtime availability for the three independent financial
+ * gates, safe to expose publicly (booleans only, never secrets). Public surfaces
+ * use this instead of hardcoding a financial state.
+ */
+export interface PublicCapabilities {
+  deposits: boolean
+  payouts: boolean
+  referralRewards: boolean
+}
+
+export function runtimeCapabilities(
+  env: Record<string, string | undefined> = process.env,
+): PublicCapabilities {
+  return {
+    deposits: isPaymentsEnabled(env),
+    payouts: isPayoutsEnabled(env),
+    referralRewards: isReferralRewardsEnabled(env),
+  }
+}
 
 /**
  * Deposit access control (owner-approved architecture).

@@ -4,6 +4,7 @@ import { AuthRequest, requireAuth } from '../../middleware/auth'
 import {
   cancelWithdrawalRequest,
   createWithdrawalRequest,
+  getWithdrawalPolicy,
   getWithdrawalWallet,
   listWithdrawals,
   setWithdrawalWallet,
@@ -30,6 +31,7 @@ const STATUS: Record<WithdrawalErrorCode, number> = {
   wallet_pending: 409,
   wallet_mismatch: 422,
   insufficient_sp: 422,
+  payout_fee_semantics_unverified: 503,
 }
 
 function handle(error: unknown, res: Response): boolean {
@@ -50,7 +52,7 @@ export function createGameWithdrawalRouter(db: PrismaClient): Router {
       listWithdrawals(db, req.user!.id),
       getWithdrawalWallet(db, req.user!.id),
     ])
-    res.json({ withdrawals, wallet, payoutsEnabled: isPayoutsEnabled() })
+    res.json({ withdrawals, wallet, payoutsEnabled: isPayoutsEnabled(), policy: getWithdrawalPolicy() })
   })
 
   router.get('/withdrawals/wallet', async (req: AuthRequest, res: Response) => {

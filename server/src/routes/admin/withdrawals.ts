@@ -30,6 +30,7 @@ const STATUS: Record<WithdrawalErrorCode, number> = {
   wallet_pending: 409,
   wallet_mismatch: 422,
   insufficient_sp: 422,
+  payout_fee_semantics_unverified: 503,
 }
 
 /** Admin withdrawal review queue. Approving never triggers a real payout. */
