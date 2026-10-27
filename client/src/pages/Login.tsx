@@ -5,11 +5,14 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Card } from '../components/ui/card'
 import { LogoMark } from '../components/Logo'
+import LanguageSelector from '../components/LanguageSelector'
+import { useT } from '../i18n'
 
 type Props = { navigate: (p: string) => void }
 
 export default function Login({ navigate }: Props) {
   const { login } = useAuth()
+  const t = useT()
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -22,26 +25,29 @@ export default function Login({ navigate }: Props) {
     setError('')
     const res = await login(email, password)
     setLoading(false)
-    if (res.error) setError(res.error || 'Sign in failed')
+    if (res.error) setError(res.error || t('auth.login.failed'))
     else navigate('/dashboard')
   }
 
   return (
     <div className="min-h-screen bg-bg text-ink font-sans px-4 py-6 pb-[calc(env(safe-area-inset-bottom)_+_2rem)]">
-      <a
-        href="/"
-        onClick={(e) => { e.preventDefault(); navigate('/') }}
-        className="flex items-center gap-2 text-accent/70 hover:text-accent transition mb-6"
-        aria-label="Back to home"
-      >
-        <ArrowLeft className="h-4 w-4" /> Back
-      </a>
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <a
+          href="/"
+          onClick={(e) => { e.preventDefault(); navigate('/') }}
+          className="flex items-center gap-2 text-accent/70 transition hover:text-accent"
+          aria-label={t('auth.backHome')}
+        >
+          <ArrowLeft className="h-4 w-4 rtl:rotate-180" /> {t('auth.back')}
+        </a>
+        <LanguageSelector variant="compact" />
+      </div>
 
       <div className="max-w-sm mx-auto">
         <div className="text-center mb-8">
           <LogoMark size={48} className="mx-auto mb-4" />
-          <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
-          <p className="text-muted text-sm mt-2">Sign in to your TycoonX empire</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t('auth.login.title')}</h1>
+          <p className="text-muted text-sm mt-2">{t('auth.login.subtitle')}</p>
         </div>
 
         <Card padding="lg" hover={false} className="border border-line">
@@ -49,7 +55,7 @@ export default function Login({ navigate }: Props) {
             <div>
               <div className="flex items-center gap-2">
                 <Mail className="h-5 w-5 text-muted" />
-                <label className="text-sm font-medium text-ink">Email address</label>
+                <label className="text-sm font-medium text-ink">{t('auth.email')}</label>
               </div>
               <Input name="email" type="email" required autoComplete="email" className="mt-1" />
             </div>
@@ -57,7 +63,7 @@ export default function Login({ navigate }: Props) {
             <div>
               <div className="flex items-center gap-2">
                 <Lock className="h-5 w-5 text-muted" />
-                <label className="text-sm font-medium text-ink">Password</label>
+                <label className="text-sm font-medium text-ink">{t('auth.password')}</label>
               </div>
               <Input name="password" type="password" required minLength={8} autoComplete="current-password" showPasswordToggle className="mt-1" />
             </div>
@@ -70,30 +76,30 @@ export default function Login({ navigate }: Props) {
             )}
 
             <Button type="submit" className="w-full" isLoading={loading}>
-              {loading ? 'Signing in...' : 'Sign in'}
-              <ChevronRight className="ml-2 h-4 w-4" />
+              {loading ? t('auth.login.submitting') : t('auth.login.submit')}
+              <ChevronRight className="ms-2 h-4 w-4 rtl:rotate-180" />
             </Button>
           </form>
 
           <div className="mt-6 pt-6 border-t border-line">
-            <p className="text-center text-sm text-muted mb-4">Don&apos;t have an account?</p>
+            <p className="text-center text-sm text-muted mb-4">{t('auth.noAccount')}</p>
             <a
               href="/register"
               onClick={(e) => { e.preventDefault(); navigate('/register') }}
               className="w-full flex items-center justify-center gap-2 text-sm text-accent underline"
             >
-              Create account <span aria-hidden="true">→</span>
+              {t('auth.createAccountLink')} <span aria-hidden="true" className="rtl:rotate-180">→</span>
             </a>
           </div>
 
           <div className="mt-4">
-            <p className="text-[10px] text-muted text-center">Free to play · Production is a game mechanic</p>
+            <p className="text-[10px] text-muted text-center">{t('auth.freeToPlay')}</p>
           </div>
         </Card>
       </div>
 
-      <div className="fixed bottom-[calc(env(safe-area-inset-bottom)_+_1rem)] left-4 right-4 text-center pointer-events-none">
-        <p className="text-[10px] text-muted">TycoonX &bull; Build your tech empire</p>
+      <div className="fixed bottom-[calc(env(safe-area-inset-bottom)_+_1rem)] inset-x-4 text-center pointer-events-none">
+        <p className="text-[10px] text-muted">TycoonX &bull; {t('brand.tagline')}</p>
       </div>
     </div>
   )

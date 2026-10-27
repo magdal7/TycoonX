@@ -11,34 +11,40 @@ import {
   AlertTriangle,
   RefreshCw,
   Trophy,
-  Building2,
   Archive,
   Map as MapIcon,
-  ChevronRight
+  ChevronRight,
+  Sparkles,
+  Target,
+  Wallet as WalletIcon,
+  ChevronDown,
+  TrendingUp
 } from 'lucide-react'
 import { Link } from '../components/router'
 import OnboardingGuide from '../components/OnboardingGuide'
 import { Card } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
-import { Progress, Stat, SectionHeading, EmptyState, CardSkeleton } from '../components/ui/kit'
+import { Progress, SectionHeading, EmptyState, CardSkeleton, Skeleton } from '../components/ui/kit'
 import { CeoAvatar, RARITY_FRAME, ceoRole, type CeoPortraitState } from '../components/CeoAvatar'
 import { rarityStyle } from '../lib/ceos'
 import { useApi } from '../lib/useApi'
 import { useResources } from '../lib/resources'
 import { usePublicSettings } from '../lib/siteSettings'
+import { useAuth } from '../context/AuthContext'
 import {
   bulkCollect,
   bulkStart,
   collectCycle,
   fetchOwnedCeos,
+  fetchWalletTransactions,
   startCycle,
   upgradeEquipment,
   type OwnedCeo
 } from '../lib/game'
 import { formatNumber } from '../lib/format'
+import { useI18n, type TranslationKey } from '../i18n'
 
-const EQUIP_LABEL: Record<string, string> = { STANDARD: 'Standard · 4h', EXTENDED: 'Extended · 6h', ADVANCED: 'Advanced · 8h' }
 const EQUIP_COST: Record<string, number> = { EXTENDED: 500, ADVANCED: 1500 }
 const EQUIP_LEVEL: Record<string, number> = { EXTENDED: 5, ADVANCED: 12 }
 
@@ -54,37 +60,19 @@ function countdown(iso: string, now: number): string {
   return `${sec}s`
 }
 
-function statusBadge(ceo: OwnedCeo) {
-  if (ceo.archivedAt || ceo.status === 'EXHAUSTED') return <Badge variant="warning">Archived</Badge>
-  if (ceo.canCollect) return <Badge variant="success">Ready to collect</Badge>
-  if (ceo.cycleEndsAt) return <Badge variant="demo">Producing</Badge>
-  return <Badge>Idle</Badge>
-}
-
-function portraitState(ceo: OwnedCeo): CeoPortraitState {
-  if (ceo.archivedAt || ceo.status === 'EXHAUSTED') return 'exhausted'
-  if (ceo.canCollect) return 'ready'
-  if (ceo.cycleEndsAt) return 'producing'
-  return 'idle'
-}
-
-/** Elapsed fraction of the current production cycle (0–100). */
-function cyclePct(ceo: OwnedCeo, now: number): number {
-  if (!ceo.cycleEndsAt) return 0
-  const total = Math.max(1, ceo.cycleHours * 3600 * 1000)
-  const remaining = new Date(ceo.cycleEndsAt).getTime() - now
-  return Math.max(0, Math.min(100, (1 - remaining / total) * 100))
-}
-
 export default function Home() {
+  const { t, tp } = useI18n()
+  const { user } = useAuth()
   const resources = useResources()
-  const capabilities = usePublicSettings().data?.capabilities
   const fleet = useApi(() => fetchOwnedCeos(), [])
+  const activity = useApi(() => fetchWalletTransactions(), [])
+  const features = usePublicSettings().data?.features
   const [busy, setBusy] = useState<Record<number, boolean>>({})
   const [now, setNow] = useState(() => Date.now())
   const [notice, setNotice] = useState('')
   const [flash, setFlash] = useState('')
   const [reward, setReward] = useState<{ amount: number; label: string } | null>(null)
+  const [showDetails, setShowDetails] = useState(false)
 
   function showReward(amount: number, label: string) {
     if (amount <= 0) return
@@ -97,19 +85,20 @@ export default function Home() {
     setNotice('')
     try {
       const r = await collectCycle(ceo.id)
-      if (!r.alreadyCollected) showReward(r.rewardSp, `${ceo.templateName} collected`)
+      if (!r.alreadyCollected) showReward(r.rewardSp, ceo.templateName)
       resources.reload()
       fleet.reload()
+      activity.reload()
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : 'Collect failed')
+      setNotice(e instanceof Error ? e.message : t('dashboard.collectFailed'))
     } finally {
       setBusy((b) => ({ ...b, [ceo.id]: false }))
     }
   }
 
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
   }, [])
 
   const owned = fleet.data ?? []
@@ -129,8 +118,9 @@ export default function Home() {
       }
       resources.reload()
       fleet.reload()
+      activity.reload()
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : 'Action failed')
+      setNotice(e instanceof Error ? e.message : t('dashboard.actionFailed'))
     } finally {
       setBusy((b) => ({ ...b, [id]: false }))
     }
@@ -145,61 +135,66 @@ export default function Home() {
     try {
       if (kind === 'start') {
         await bulkStart(ids)
-        setFlash(`Started ${ids.length} cycle${ids.length === 1 ? '' : 's'}`)
+        setFlash(tp('dashboard.cyclesStarted', ids.length))
       } else {
-        // Expected total from the server-provided per-copy reward (real data).
         const expected = ready.reduce((sum, c) => sum + (c.cycleRewardSp ?? 0), 0)
         const r = await bulkCollect(ids)
-        setFlash(`Collected ${r.summary.succeeded} cycle${r.summary.succeeded === 1 ? '' : 's'}`)
-        if (r.summary.succeeded > 0) showReward(expected, `${r.summary.succeeded} cycle${r.summary.succeeded === 1 ? '' : 's'} collected`)
+        setFlash(tp('dashboard.cyclesCollected', r.summary.succeeded))
+        if (r.summary.succeeded > 0) showReward(expected, tp('dashboard.cyclesCollectedLabel', r.summary.succeeded))
       }
       window.setTimeout(() => setFlash(''), 4000)
       resources.reload()
       fleet.reload()
+      activity.reload()
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : 'Bulk action failed')
+      setNotice(e instanceof Error ? e.message : t('dashboard.bulkFailed'))
     }
   }
 
   const startable = owned.filter((c) => c.canStart).length
   const collectable = owned.filter((c) => c.canCollect).length
   const activeCycles = owned.filter((c) => c.cycleEndsAt && !c.archivedAt && c.status !== 'EXHAUSTED').length
-  const fleetOutput = owned.reduce((sum, c) => sum + (c.nominalSpPer24h ?? 0), 0)
+  const production = owned.reduce((sum, c) => sum + (c.nominalSpPer24h ?? 0), 0)
+  const recent = (activity.data ?? []).slice(0, 4)
+
+  const statusBadge = (ceo: OwnedCeo) => {
+    if (ceo.archivedAt || ceo.status === 'EXHAUSTED') return <Badge variant="warning">{t('common.archived')}</Badge>
+    if (ceo.canCollect) return <Badge variant="success">{t('common.ready')}</Badge>
+    if (ceo.cycleEndsAt) return <Badge variant="demo">{t('common.producing')}</Badge>
+    return <Badge>{t('common.idle')}</Badge>
+  }
+
+  function portraitState(ceo: OwnedCeo): CeoPortraitState {
+    if (ceo.archivedAt || ceo.status === 'EXHAUSTED') return 'exhausted'
+    if (ceo.canCollect) return 'ready'
+    if (ceo.cycleEndsAt) return 'producing'
+    return 'idle'
+  }
+
+  function cyclePct(ceo: OwnedCeo): number {
+    if (!ceo.cycleEndsAt) return 0
+    const total = Math.max(1, ceo.cycleHours * 3600 * 1000)
+    const remaining = new Date(ceo.cycleEndsAt).getTime() - now
+    return Math.max(0, Math.min(100, (1 - remaining / total) * 100))
+  }
 
   return (
     <div className="space-y-5 animate-fade-in">
-      {/* Empire banner */}
+      {/* Greeting + balances */}
       <Card padding="lg" className="relative overflow-hidden border-line">
-        <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -left-10 h-56 w-56 rounded-full bg-accent/20 blur-3xl" />
+        <div className="pointer-events-none absolute -right-20 -top-20 h-52 w-52 rounded-full bg-primary/20 blur-3xl" />
         <div className="relative z-10">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm text-muted">{t('dashboard.greeting', { name: user?.username ?? '' })}</p>
+              <h1 className="mt-0.5 text-xl font-black tracking-tight sm:text-2xl">
+                <span className="text-gradient">{progress?.rank ?? t('profile.rarity')}</span>
+                <span className="text-muted"> · {t('common.level')} {level}</span>
+              </h1>
+            </div>
             <span className="chip border-primary/40 text-primary">
-              <Rocket className="h-3.5 w-3.5" /> Emerald Empire · Command Center
+              <Rocket className="h-3.5 w-3.5" /> {t('brand.empire')}
             </span>
-            <span className="chip">
-              <Trophy className="h-3.5 w-3.5" /> {progress?.rank ?? 'Rookie'} · Level {level}
-            </span>
-          </div>
-          <h1 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl">
-            Build your <span className="text-gradient">technology empire</span>
-          </h1>
-          <p className="mt-1 max-w-lg text-sm text-muted">
-            Recruit CEOs, run production cycles, and climb the ranks. Production is a game mechanic — Earned SP
-            is the only potentially withdrawable balance. {capabilities?.payouts === true
-              ? 'Eligible Earned SP withdrawals are available with admin approval.'
-              : capabilities?.payouts === false
-                ? 'Withdrawals are not open yet.'
-                : 'Withdrawal availability is shown in the Wallet.'}
-          </p>
-
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            <Stat label="Earned SP" value={sp ? formatNumber(sp.earnedSp) : '—'} Icon={Coins} tone="text-gold" hint="potentially withdrawable" />
-            <Stat label="Bonus SP" value={sp ? formatNumber(sp.bonusSp) : '—'} Icon={Gem} tone="text-accent" hint="non-withdrawable" />
-            <Stat label="Lifetime XP" value={progress ? formatNumber(progress.xp) : '—'} Icon={Star} tone="text-primary" />
-            <Stat label="CEO Fleet" value={owned.length} Icon={Cpu} />
-            <Stat label="Fleet output" value={formatNumber(fleetOutput)} Icon={Rocket} tone="text-primary" hint="SP / 24h · gameplay" />
-            <Stat label="Active cycles" value={activeCycles} Icon={Clock} hint={collectable > 0 ? `${collectable} ready` : 'in progress'} />
           </div>
 
           {progress && (
@@ -207,10 +202,27 @@ export default function Home() {
               <Progress
                 value={progress.intoLevel}
                 max={progress.toNext || 1}
-                label={`Level ${progress.level} · ${formatNumber(progress.intoLevel)} / ${formatNumber(progress.toNext)} XP to next`}
+                label={t('dashboard.levelToNext', { level: progress.level, current: formatNumber(progress.intoLevel), total: formatNumber(progress.toNext) })}
               />
             </div>
           )}
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-gold/25 bg-gold/5 p-3">
+              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted">
+                <Coins className="h-3.5 w-3.5 text-gold" /> {t('dashboard.earnedSp')}
+              </div>
+              <div className="mt-1 text-2xl font-black text-gold">{sp ? formatNumber(sp.earnedSp) : '—'}</div>
+              <div className="text-[10px] text-muted">{t('stat.potentiallyWithdrawable')}</div>
+            </div>
+            <div className="rounded-2xl border border-accent/25 bg-accent/5 p-3">
+              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted">
+                <Gem className="h-3.5 w-3.5 text-accent" /> {t('dashboard.bonusSp')}
+              </div>
+              <div className="mt-1 text-2xl font-black text-accent">{sp ? formatNumber(sp.bonusSp) : '—'}</div>
+              <div className="text-[10px] text-muted">{t('stat.nonWithdrawable')}</div>
+            </div>
+          </div>
         </div>
       </Card>
 
@@ -235,21 +247,48 @@ export default function Home() {
         </div>
       )}
 
-      {/* Bulk actions */}
+      {/* Compact empire overview (secondary metrics grouped / expandable) */}
+      <Card padding="md" className="border-line">
+        <button
+          type="button"
+          onClick={() => setShowDetails((v) => !v)}
+          className="flex w-full items-center gap-3 text-start"
+          aria-expanded={showDetails}
+        >
+          <TrendingUp className="h-4 w-4 shrink-0 text-primary" />
+          <span className="text-sm font-bold text-white">{t('dashboard.overview')}</span>
+          <span className="ms-auto flex items-center gap-3 text-xs text-muted">
+            <span className="inline-flex items-center gap-1"><Cpu className="h-3.5 w-3.5" /> {owned.length}</span>
+            <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {activeCycles}</span>
+            {collectable > 0 && <Badge variant="success">{t('dashboard.ready', { count: collectable })}</Badge>}
+            <ChevronDown className={`h-4 w-4 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
+          </span>
+        </button>
+        {showDetails && (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <OverviewStat Icon={Cpu} label={t('dashboard.myCeos')} value={String(owned.length)} />
+            <OverviewStat Icon={Rocket} label={t('dashboard.production')} value={formatNumber(production)} hint={t('dashboard.productionHint')} />
+            <OverviewStat Icon={Clock} label={t('dashboard.activeCycles')} value={String(activeCycles)} />
+            <OverviewStat Icon={Star} label={t('dashboard.lifetimeXp')} value={progress ? formatNumber(progress.xp) : '—'} />
+          </div>
+        )}
+      </Card>
+
+      {/* Primary gameplay actions */}
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={() => runBulk('start')} disabled={startable === 0} iconLeft={<Play className="h-4 w-4" />}>
-          Start All ({startable})
+        <Button size="sm" onClick={() => runBulk('start')} disabled={startable === 0} iconLeft={<Play className="h-4 w-4 rtl:rotate-180" />}>
+          {t('dashboard.startAll', { count: startable })}
         </Button>
         <Button size="sm" variant="success" onClick={() => runBulk('collect')} disabled={collectable === 0} iconLeft={<Download className="h-4 w-4" />}>
-          Collect All ({collectable})
+          {t('dashboard.collectAll', { count: collectable })}
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => { resources.reload(); fleet.reload() }} iconLeft={<RefreshCw className="h-4 w-4" />}>
-          Refresh
+        <Button size="sm" variant="ghost" onClick={() => { resources.reload(); fleet.reload(); activity.reload() }} iconLeft={<RefreshCw className="h-4 w-4" />}>
+          {t('common.refresh')}
         </Button>
       </div>
 
-      {/* Fleet */}
-      <SectionHeading eyebrow="Your collection" title="CEO Fleet" description="Each copy has a finite lifetime production cap and archives when exhausted." />
+      {/* My CEOs */}
+      <SectionHeading eyebrow={t('dashboard.section.collection')} title={t('dashboard.fleet.title')} description={t('dashboard.fleet.description')} />
 
       {fleet.loading ? (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -257,9 +296,9 @@ export default function Home() {
           <CardSkeleton />
         </div>
       ) : fleet.error ? (
-        <EmptyState Icon={AlertTriangle} title="Could not load your fleet" description={fleet.error} action={<Button size="sm" variant="outline" onClick={fleet.reload}>Retry</Button>} />
+        <EmptyState Icon={AlertTriangle} title={t('dashboard.fleet.error')} description={fleet.error} action={<Button size="sm" variant="outline" onClick={fleet.reload}>{t('common.retry')}</Button>} />
       ) : owned.length === 0 ? (
-        <EmptyState Icon={Cpu} title="No CEOs yet" description="Your free Intern CEO is provisioned on first sign-in." />
+        <EmptyState Icon={Cpu} title={t('dashboard.fleet.empty.title')} description={t('dashboard.fleet.empty.body')} />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {owned.map((ceo) => (
@@ -269,9 +308,12 @@ export default function Home() {
               level={level}
               now={now}
               busy={!!busy[ceo.id]}
-              onStart={() => run(ceo.id, () => startCycle(ceo.id), (r) => `Cycle started · ${r.cycleHours}h`)}
+              statusBadge={statusBadge(ceo)}
+              portrait={portraitState(ceo)}
+              pct={cyclePct(ceo)}
+              onStart={() => run(ceo.id, () => startCycle(ceo.id), (r) => t('dashboard.cycleStarted', { hours: r.cycleHours }))}
               onCollect={() => collectOne(ceo)}
-              onUpgrade={(target) => run(ceo.id, () => upgradeEquipment(ceo.id, target), () => `Equipment upgraded to ${target}`)}
+              onUpgrade={(target) => run(ceo.id, () => upgradeEquipment(ceo.id, target), () => t('dashboard.equipUpgraded', { tier: target }))}
             />
           ))}
         </div>
@@ -281,28 +323,91 @@ export default function Home() {
       <Card className="flex items-center gap-3 border-line bg-surface-2/40">
         <MapIcon className="h-5 w-5 text-primary" />
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-white">My Empire</p>
-          <p className="text-xs text-muted">See your owned CEOs on the interactive empire map.</p>
+          <p className="text-sm font-semibold text-white">{t('dashboard.world.title')}</p>
+          <p className="text-xs text-muted">{t('dashboard.world.body')}</p>
         </div>
         <Link
           to="/dashboard/world"
-          className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-xl border border-line px-3 py-2 text-xs font-semibold text-ink transition-colors hover:bg-white/5"
+          className="ms-auto inline-flex shrink-0 items-center gap-1 rounded-xl border border-line px-3 py-2 text-xs font-semibold text-ink transition-colors hover:bg-white/5"
         >
-          Open <ChevronRight className="h-3.5 w-3.5" />
+          {t('common.open')} <ChevronRight className="h-3.5 w-3.5 rtl:rotate-180" />
         </Link>
       </Card>
 
-      {/* Coming soon */}
-      <Card className="flex items-center gap-3 border-dashed border-line bg-surface-2/40">
-        <Building2 className="h-5 w-5 text-muted" />
-        <div>
-          <p className="text-sm font-semibold text-white">Tech Empire</p>
-          <p className="text-xs text-muted">Buildings, projects and staff are coming soon.</p>
-        </div>
-        <Badge variant="warning" className="ml-auto">Coming Soon</Badge>
-      </Card>
+      {/* Missions & progression */}
+      <SectionHeading eyebrow={t('nav.progress')} title={t('dashboard.missions.title')} />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Link to="/dashboard/tasks" className="flex items-center gap-3 rounded-2xl border border-line bg-surface/60 p-4 transition-colors hover:border-primary/40">
+          <Target className="h-5 w-5 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-white">{t('dashboard.missions.title')}</p>
+            <p className="truncate text-[11px] text-muted">{collectable > 0 ? t('dashboard.missions.body', { count: collectable }) : t('dashboard.missions.none')}</p>
+          </div>
+        </Link>
+        {features?.leaderboard !== false && (
+          <Link to="/dashboard/leaderboard" className="flex items-center gap-3 rounded-2xl border border-line bg-surface/60 p-4 transition-colors hover:border-primary/40">
+            <Trophy className="h-5 w-5 shrink-0 text-gold" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-white">{t('nav.leaderboard')}</p>
+              <p className="truncate text-[11px] text-muted">{t('landing.progress.leaderboard.text')}</p>
+            </div>
+          </Link>
+        )}
+        {features?.achievements === true && (
+          <Link to="/dashboard/achievements" className="flex items-center gap-3 rounded-2xl border border-line bg-surface/60 p-4 transition-colors hover:border-primary/40">
+            <Sparkles className="h-5 w-5 shrink-0 text-accent" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-white">{t('nav.achievements')}</p>
+              <p className="truncate text-[11px] text-muted">{t('landing.progress.achievements.text')}</p>
+            </div>
+          </Link>
+        )}
+      </div>
+
+      {/* Recent activity */}
+      <section className="space-y-2">
+        <h2 className="flex items-center gap-2 text-sm font-bold text-white"><WalletIcon className="h-4 w-4 text-muted" /> {t('dashboard.activity.title')}</h2>
+        {activity.loading ? (
+          <Skeleton className="h-14" />
+        ) : recent.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-line bg-surface-2/40 px-3 py-3 text-xs text-muted">{t('dashboard.activity.empty')}</p>
+        ) : (
+          <Card padding="none" className="overflow-hidden border-line">
+            {recent.map((tx, i) => (
+              <div key={tx.id} className={`flex items-center gap-3 px-3 py-2.5 ${i !== 0 ? 'border-t border-line' : ''}`}>
+                <span className="flex-1 truncate text-xs text-muted">{tx.label}</span>
+                <span className={`text-sm font-semibold ${tx.type === 'SP' && tx.amount.startsWith('-') ? 'text-red-300' : 'text-white'}`}>
+                  {tx.type === 'SP' && !tx.amount.startsWith('-') ? '+' : ''}{formatNumber(Number(tx.amount))}{tx.type === 'SP' ? ' SP' : tx.type === 'DEPOSIT' || tx.type === 'PURCHASE' ? ' USDT' : ''}
+                </span>
+              </div>
+            ))}
+          </Card>
+        )}
+      </section>
 
       <OnboardingGuide />
+    </div>
+  )
+}
+
+function OverviewStat({
+  Icon,
+  label,
+  value,
+  hint
+}: {
+  Icon: React.ComponentType<{ className?: string }>
+  label: string
+  value: string
+  hint?: string
+}) {
+  return (
+    <div className="rounded-xl border border-line bg-surface-2/60 p-2.5">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted">
+        <Icon className="h-3.5 w-3.5" /> {label}
+      </div>
+      <div className="mt-1 text-base font-bold text-white">{value}</div>
+      {hint && <div className="text-[9px] text-muted">{hint}</div>}
     </div>
   )
 }
@@ -312,6 +417,9 @@ function FleetCard({
   level,
   now,
   busy,
+  statusBadge,
+  portrait,
+  pct,
   onStart,
   onCollect,
   onUpgrade
@@ -320,10 +428,14 @@ function FleetCard({
   level: number
   now: number
   busy: boolean
+  statusBadge: React.ReactNode
+  portrait: CeoPortraitState
+  pct: number
   onStart: () => void
   onCollect: () => void
   onUpgrade: (target: 'EXTENDED' | 'ADVANCED') => void
 }) {
+  const t = useI18n().t
   const style = rarityStyle(ceo.rarity)
   const cap = ceo.lifetimeCapSp ?? 0
   const earned = ceo.lifetimeEarnedSp
@@ -334,23 +446,23 @@ function FleetCard({
   return (
     <Card padding="md" className={`border ${RARITY_FRAME[ceo.rarity] ?? 'border-line'} flex flex-col`}>
       <div className="flex items-start gap-3">
-        <CeoAvatar name={ceo.templateName} slug={ceo.templateSlug} rarity={ceo.rarity} size={72} state={portraitState(ceo)} imageUrl={ceo.templateImageUrl} />
+        <CeoAvatar name={ceo.templateName} slug={ceo.templateSlug} rarity={ceo.rarity} size={72} state={portrait} imageUrl={ceo.templateImageUrl} />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <h3 className="truncate text-base font-bold text-white">{ceo.templateName}</h3>
-              <p className={`text-[11px] font-semibold ${style.accent}`}>{ceoRole(ceo.rarity)} · {ceo.rarity}</p>
+              <p className={`text-[11px] font-semibold ${style.accent}`}>{ceoRole(ceo.rarity)} · {t(`rarity.${ceo.rarity}` as TranslationKey)}</p>
             </div>
-            {statusBadge(ceo)}
+            {statusBadge}
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
             <div className="rounded-lg border border-line bg-surface-2/60 px-2 py-1.5">
-              <div className="text-muted">Yield</div>
+              <div className="text-muted">{t('dashboard.yield')}</div>
               <div className="font-bold text-white">{ceo.nominalSpPer24h != null ? formatNumber(ceo.nominalSpPer24h) : '—'}<span className="font-normal text-muted"> /24h</span></div>
             </div>
             <div className="rounded-lg border border-line bg-surface-2/60 px-2 py-1.5">
-              <div className="text-muted">Equipment</div>
-              <div className="truncate font-bold text-white">{EQUIP_LABEL[ceo.equipment] ?? ceo.equipment}</div>
+              <div className="text-muted">{t('dashboard.equipment')}</div>
+              <div className="truncate font-bold text-white">{t(`equip.${ceo.equipment}` as TranslationKey)}</div>
             </div>
           </div>
         </div>
@@ -361,12 +473,12 @@ function FleetCard({
           value={earned}
           max={cap || 1}
           tone="gold"
-          label={`Lifetime production ${formatNumber(earned)} / ${formatNumber(cap)} SP`}
+          label={t('dashboard.lifetimeProduction', { earned: formatNumber(earned), cap: formatNumber(cap) })}
         />
         <p className="mt-1 text-[10px] text-muted">
           {archived
-            ? 'Lifetime cap reached — this copy is archived; ownership is retained.'
-            : `${formatNumber(Math.max(0, cap - earned))} SP of lifetime capacity remaining before this copy archives.`}
+            ? t('dashboard.capReached')
+            : t('dashboard.capRemaining', { sp: formatNumber(Math.max(0, cap - earned)) })}
         </p>
       </div>
 
@@ -374,18 +486,18 @@ function FleetCard({
         <div className="flex items-center gap-2">
           <Clock className="h-3.5 w-3.5 text-muted" />
           {archived ? (
-            <span className="inline-flex items-center gap-1.5 text-muted"><Archive className="h-3.5 w-3.5" /> Archived — cap reached, ownership retained</span>
+            <span className="inline-flex items-center gap-1.5 text-muted"><Archive className="h-3.5 w-3.5" /> {t('dashboard.archivedNote')}</span>
           ) : ceo.canCollect ? (
-            <span className="inline-flex items-center gap-1.5 font-semibold text-success motion-safe:animate-pulse-soft"><Download className="h-3.5 w-3.5" /> Ready · {formatNumber(ceo.cycleRewardSp ?? 0)} SP</span>
+            <span className="inline-flex items-center gap-1.5 font-semibold text-success motion-safe:animate-pulse-soft"><Download className="h-3.5 w-3.5" /> {t('dashboard.readyToCollect', { sp: formatNumber(ceo.cycleRewardSp ?? 0) })}</span>
           ) : ceo.cycleEndsAt ? (
-            <span className="text-muted">Producing · ready in {countdown(ceo.cycleEndsAt, now)}</span>
+            <span className="text-muted">{t('dashboard.producingIn', { time: countdown(ceo.cycleEndsAt, now) })}</span>
           ) : (
-            <span className="text-muted">Idle — start a cycle to produce</span>
+            <span className="text-muted">{t('dashboard.idleStart')}</span>
           )}
         </div>
         {!archived && ceo.cycleEndsAt && !ceo.canCollect && (
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/5" role="progressbar" aria-label="Cycle progress">
-            <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-[width] duration-1000 ease-linear" style={{ width: `${cyclePct(ceo, now)}%` }} />
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/5" role="progressbar" aria-label={t('dashboard.cycleProgress')}>
+            <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-[width] duration-1000 ease-linear" style={{ width: `${pct}%` }} />
           </div>
         )}
       </div>
@@ -393,11 +505,11 @@ function FleetCard({
       <div className="mt-3 flex items-center gap-2">
         {ceo.canCollect ? (
           <Button size="sm" variant="success" className="flex-1" onClick={onCollect} isLoading={busy} iconLeft={<Download className="h-4 w-4" />}>
-            Collect
+            {t('dashboard.collect.collectBtn')}
           </Button>
         ) : (
-          <Button size="sm" className="flex-1" onClick={onStart} disabled={!ceo.canStart} isLoading={busy} iconLeft={<Play className="h-4 w-4" />}>
-            {archived ? 'Exhausted' : ceo.cycleEndsAt ? 'Producing' : 'Start cycle'}
+          <Button size="sm" className="flex-1" onClick={onStart} disabled={!ceo.canStart} isLoading={busy} iconLeft={<Play className="h-4 w-4 rtl:rotate-180" />}>
+            {archived ? t('common.exhausted') : ceo.cycleEndsAt ? t('common.producing') : t('dashboard.collect.startBtn')}
           </Button>
         )}
       </div>
@@ -406,26 +518,23 @@ function FleetCard({
         <>
           <div className="mt-2 flex gap-2">
             {tierOrder.slice(currentIdx + 1).map((tier) => {
-              const t = tier as 'EXTENDED' | 'ADVANCED'
-              const locked = level < (EQUIP_LEVEL[t] ?? 1)
+              const target = tier as 'EXTENDED' | 'ADVANCED'
+              const locked = level < (EQUIP_LEVEL[target] ?? 1)
               return (
                 <button
-                  key={t}
+                  key={target}
                   type="button"
                   disabled={locked || busy}
-                  onClick={() => onUpgrade(t)}
+                  onClick={() => onUpgrade(target)}
                   className="flex-1 rounded-lg border border-line bg-surface-2/50 px-2 py-1.5 text-[10px] font-semibold text-muted transition-colors hover:border-primary/50 hover:text-white disabled:opacity-40"
-                  title={locked ? `Unlocks at player level ${EQUIP_LEVEL[t]}` : `Upgrade to ${t} for ${EQUIP_COST[t]} SP`}
+                  title={locked ? t('dashboard.unlockAt', { level: EQUIP_LEVEL[target] }) : t('dashboard.upgradeTo', { tier: target, cost: EQUIP_COST[target] })}
                 >
-                  {locked ? `Lv ${EQUIP_LEVEL[t]} to unlock ${t}` : `Upgrade ${t} · ${formatNumber(EQUIP_COST[t])} SP`}
+                  {locked ? t('dashboard.lvToUnlock', { level: EQUIP_LEVEL[target], tier: target }) : t('dashboard.upgradeBtn', { tier: target, cost: formatNumber(EQUIP_COST[target]) })}
                 </button>
               )
             })}
           </div>
-          <p className="mt-1.5 text-[10px] text-muted">
-            Longer equipment yields proportionally more SP per collection — the hourly rate is unchanged. Upgrades
-            cost SP once and apply to future cycles, not one already running.
-          </p>
+          <p className="mt-1.5 text-[10px] text-muted">{t('dashboard.equipNote')}</p>
         </>
       )}
     </Card>

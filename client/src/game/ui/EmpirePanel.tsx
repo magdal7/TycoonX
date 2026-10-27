@@ -4,14 +4,10 @@ import { Button } from '../../components/ui/button'
 import { Progress } from '../../components/ui/kit'
 import { CeoAvatar, ceoRole, type CeoPortraitState } from '../../components/CeoAvatar'
 import { formatNumber } from '../../lib/format'
+import { useT, type TranslationKey } from '../../i18n'
 import type { OwnedCeo } from '../../lib/game'
 import type { Selected } from '../engine/types'
 
-const EQUIP_LABEL: Record<string, string> = {
-  STANDARD: 'Standard - 4h',
-  EXTENDED: 'Extended - 6h',
-  ADVANCED: 'Advanced - 8h',
-}
 const EQUIP_COST: Record<string, number> = { EXTENDED: 500, ADVANCED: 1500 }
 const EQUIP_LEVEL: Record<string, number> = { EXTENDED: 5, ADVANCED: 12 }
 const TIER_ORDER = ['STANDARD', 'EXTENDED', 'ADVANCED']
@@ -35,13 +31,6 @@ function portraitState(ceo: OwnedCeo): CeoPortraitState {
   return 'idle'
 }
 
-function statusBadge(ceo: OwnedCeo) {
-  if (ceo.archivedAt || ceo.status === 'EXHAUSTED') return <Badge variant="warning">Exhausted</Badge>
-  if (ceo.canCollect) return <Badge variant="success">Ready to collect</Badge>
-  if (ceo.cycleEndsAt) return <Badge variant="demo">Producing</Badge>
-  return <Badge>Idle</Badge>
-}
-
 export default function EmpirePanel({
   selected,
   owned,
@@ -63,26 +52,34 @@ export default function EmpirePanel({
   onUpgrade: (ceo: OwnedCeo, target: 'EXTENDED' | 'ADVANCED') => void
   onClose: () => void
 }) {
+  const t = useT()
   const ceo =
     selected?.id?.startsWith('owned-')
       ? owned.find((c) => c.id === Number(selected.id.slice('owned-'.length))) ?? null
       : null
+
+  const statusBadge = (row: OwnedCeo) => {
+    if (row.archivedAt || row.status === 'EXHAUSTED') return <Badge variant="warning">{t('common.exhausted')}</Badge>
+    if (row.canCollect) return <Badge variant="success">{t('common.ready')}</Badge>
+    if (row.cycleEndsAt) return <Badge variant="demo">{t('common.producing')}</Badge>
+    return <Badge>{t('common.idle')}</Badge>
+  }
 
   const body = ceo ? (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted">
-            <Building2 className="h-3 w-3" /> Owned CEO
+            <Building2 className="h-3 w-3" /> {t('game.ownedCeo')}
           </span>
           <h2 className="mt-0.5 truncate text-lg font-bold text-ink">{ceo.templateName}</h2>
-          <p className="text-[11px] font-semibold text-gold">{ceoRole(ceo.rarity)} - {ceo.rarity}</p>
+          <p className="text-[11px] font-semibold text-gold">{ceoRole(ceo.rarity)} · {t(`rarity.${ceo.rarity}` as TranslationKey)}</p>
         </div>
         <button
           type="button"
           onClick={onClose}
           className="rounded-md p-1 text-muted hover:text-ink lg:hidden"
-          aria-label="Close details"
+          aria-label={t('common.close')}
         >
           <X className="h-4 w-4" />
         </button>
@@ -94,12 +91,12 @@ export default function EmpirePanel({
           {statusBadge(ceo)}
           <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
             <div className="rounded-lg border border-line bg-surface-2/60 px-2 py-1.5">
-              <div className="text-muted">Yield</div>
+              <div className="text-muted">{t('dashboard.yield')}</div>
               <div className="font-bold text-ink">{ceo.nominalSpPer24h != null ? formatNumber(ceo.nominalSpPer24h) : '-'}<span className="font-normal text-muted"> /24h</span></div>
             </div>
             <div className="rounded-lg border border-line bg-surface-2/60 px-2 py-1.5">
-              <div className="text-muted">Equipment</div>
-              <div className="truncate font-bold text-ink">{EQUIP_LABEL[ceo.equipment] ?? ceo.equipment}</div>
+              <div className="text-muted">{t('dashboard.equipment')}</div>
+              <div className="truncate font-bold text-ink">{t(`equip.${ceo.equipment}` as TranslationKey)}</div>
             </div>
           </div>
         </div>
@@ -109,20 +106,20 @@ export default function EmpirePanel({
         value={ceo.lifetimeEarnedSp}
         max={ceo.lifetimeCapSp || 1}
         tone="gold"
-        label={`Lifetime production ${formatNumber(ceo.lifetimeEarnedSp)} / ${formatNumber(ceo.lifetimeCapSp ?? 0)} SP`}
+        label={t('dashboard.lifetimeProduction', { earned: formatNumber(ceo.lifetimeEarnedSp), cap: formatNumber(ceo.lifetimeCapSp ?? 0) })}
       />
 
       <div className="rounded-lg border border-line bg-surface-2/50 p-3 text-xs">
         <div className="flex items-center gap-2">
           <Clock className="h-3.5 w-3.5 text-muted" />
           {ceo.archivedAt || ceo.status === 'EXHAUSTED' ? (
-            <span className="text-muted">Archived - cap reached, ownership retained</span>
+            <span className="text-muted">{t('dashboard.archivedNote')}</span>
           ) : ceo.canCollect ? (
-            <span className="font-semibold text-success">Ready - {formatNumber(ceo.cycleRewardSp ?? 0)} SP</span>
+            <span className="font-semibold text-success">{t('dashboard.readyToCollect', { sp: formatNumber(ceo.cycleRewardSp ?? 0) })}</span>
           ) : ceo.cycleEndsAt ? (
-            <span className="text-muted">Producing - ready in {countdown(ceo.cycleEndsAt, now)}</span>
+            <span className="text-muted">{t('dashboard.producingIn', { time: countdown(ceo.cycleEndsAt, now) })}</span>
           ) : (
-            <span className="text-muted">Idle - start a cycle to produce</span>
+            <span className="text-muted">{t('dashboard.idleStart')}</span>
           )}
         </div>
       </div>
@@ -130,11 +127,11 @@ export default function EmpirePanel({
       <div className="flex items-center gap-2">
         {ceo.canCollect ? (
           <Button size="sm" variant="success" className="flex-1" onClick={() => onCollect(ceo)} isLoading={!!busy[ceo.id]} iconLeft={<Download className="h-4 w-4" />}>
-            Collect
+            {t('dashboard.collect.collectBtn')}
           </Button>
         ) : (
-          <Button size="sm" className="flex-1" onClick={() => onStart(ceo)} disabled={!ceo.canStart} isLoading={!!busy[ceo.id]} iconLeft={<Play className="h-4 w-4" />}>
-            {ceo.archivedAt || ceo.status === 'EXHAUSTED' ? 'Exhausted' : ceo.cycleEndsAt ? 'Producing' : 'Start cycle'}
+          <Button size="sm" className="flex-1" onClick={() => onStart(ceo)} disabled={!ceo.canStart} isLoading={!!busy[ceo.id]} iconLeft={<Play className="h-4 w-4 rtl:rotate-180" />}>
+            {ceo.archivedAt || ceo.status === 'EXHAUSTED' ? t('common.exhausted') : ceo.cycleEndsAt ? t('common.producing') : t('dashboard.collect.startBtn')}
           </Button>
         )}
       </div>
@@ -142,17 +139,17 @@ export default function EmpirePanel({
       {!(ceo.archivedAt || ceo.status === 'EXHAUSTED') && TIER_ORDER.indexOf(ceo.equipment) < TIER_ORDER.length - 1 && (
         <div className="flex gap-2">
           {TIER_ORDER.slice(TIER_ORDER.indexOf(ceo.equipment) + 1).map((tier) => {
-            const t = tier as 'EXTENDED' | 'ADVANCED'
-            const locked = level < (EQUIP_LEVEL[t] ?? 1)
+            const target = tier as 'EXTENDED' | 'ADVANCED'
+            const locked = level < (EQUIP_LEVEL[target] ?? 1)
             return (
               <button
-                key={t}
+                key={target}
                 type="button"
                 disabled={locked || !!busy[ceo.id]}
-                onClick={() => onUpgrade(ceo, t)}
+                onClick={() => onUpgrade(ceo, target)}
                 className="flex-1 rounded-lg border border-line bg-surface-2/50 px-2 py-1.5 text-[10px] font-semibold text-muted transition-colors hover:border-primary/50 hover:text-ink disabled:opacity-40"
               >
-                {locked ? `Lv ${EQUIP_LEVEL[t]} to unlock ${t}` : `Upgrade ${t} - ${formatNumber(EQUIP_COST[t])} SP`}
+                {locked ? t('dashboard.lvToUnlock', { level: EQUIP_LEVEL[target], tier: target }) : t('dashboard.upgradeBtn', { tier: target, cost: formatNumber(EQUIP_COST[target]) })}
               </button>
             )
           })}
@@ -160,33 +157,31 @@ export default function EmpirePanel({
       )}
 
       <dl className="mt-1 sr-only">
-        <dt>Owned CEO</dt>
+        <dt>{t('game.ownedCeo')}</dt>
         <dd>{ceo.templateName}</dd>
       </dl>
     </div>
   ) : selected ? (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-2">
-        <h2 className="text-lg font-bold text-ink">Company Headquarters</h2>
-        <button type="button" onClick={onClose} className="rounded-md p-1 text-muted hover:text-ink lg:hidden" aria-label="Close details">
+        <h2 className="text-lg font-bold text-ink">{t('game.hq.title')}</h2>
+        <button type="button" onClick={onClose} className="rounded-md p-1 text-muted hover:text-ink lg:hidden" aria-label={t('common.close')}>
           <X className="h-4 w-4" />
         </button>
       </div>
-      <p className="text-sm text-muted">Your home base. This is decorative scenery — it has no production, purchase or upgrade action.</p>
+      <p className="text-sm text-muted">{t('game.hq.body')}</p>
       <Button variant="outline" size="sm" disabled className="w-full">
-        <Lock className="mr-2 h-3.5 w-3.5" /> Decoration
+        <Lock className="me-2 h-3.5 w-3.5" /> {t('game.decoration')}
       </Button>
     </div>
   ) : (
     <div className="py-8 text-center">
       <Building2 className="mx-auto mb-2 h-6 w-6 text-muted" />
-      <p className="text-sm text-ink">{owned.length ? 'Select one of your CEOs' : 'Your empire is empty'}</p>
-      <p className="text-xs text-muted">
-        {owned.length ? 'Tap a unit on the map to view and manage it.' : 'Claim your free Intern CEO to start your empire.'}
-      </p>
+      <p className="text-sm text-ink">{owned.length ? t('game.selected') : t('game.emptyTitle')}</p>
+      <p className="text-xs text-muted">{owned.length ? t('game.noSelection') : t('game.emptyBody')}</p>
       {!owned.length && (
-        <Button size="sm" className="mt-3" onClick={onClose} iconLeft={<ArrowUpRight className="h-3.5 w-3.5" />}>
-          Go to Empire
+        <Button size="sm" className="mt-3" onClick={onClose} iconLeft={<ArrowUpRight className="h-3.5 w-3.5 rtl:rotate-90" />}>
+          {t('game.goToEmpire')}
         </Button>
       )}
     </div>

@@ -11,10 +11,12 @@ import { fetchCeos } from '../lib/ceos'
 import { createPurchase } from '../lib/game'
 import { notifyResourcesChanged, useResources } from '../lib/resources'
 import { formatNumber, formatUsd } from '../lib/format'
+import { useT, type TranslationKey } from '../i18n'
 
 type SortKey = 'featured' | 'price-asc' | 'price-desc'
 
 function MarketCard({ ceo, spTotal }: { ceo: Ceo; spTotal: number }) {
+  const t = useT()
   const style = rarityStyle(ceo.rarity)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
@@ -28,14 +30,14 @@ function MarketCard({ ceo, spTotal }: { ceo: Ceo; spTotal: number }) {
     try {
       await createPurchase(ceo.id, `${ceo.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
       notifyResourcesChanged()
-      setNotice('Purchased — the CEO was added to your collection.')
+      setNotice(t('market.purchased'))
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Purchase failed'
+      const msg = err instanceof Error ? err.message : t('market.purchaseFailed')
       setNotice(
         msg === 'insufficient_sp'
-          ? 'Not enough SP. Deposit USDT or earn SP first.'
+          ? t('market.insufficient')
           : msg === 'ownership_limit'
-            ? 'You already own the maximum copies of this CEO.'
+            ? t('market.ownershipLimit')
             : msg,
       )
     } finally {
@@ -52,23 +54,23 @@ function MarketCard({ ceo, spTotal }: { ceo: Ceo; spTotal: number }) {
           <div className="min-w-0 flex-1">
             <h3 className="truncate font-bold leading-tight text-white">{ceo.name}</h3>
             <p className="text-[11px] text-muted">{ceoRole(ceo.rarity)}</p>
-            <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[10px] font-semibold ${style.badge}`}>{ceo.rarity}</span>
+            <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[10px] font-semibold ${style.badge}`}>{t(`rarity.${ceo.rarity}` as TranslationKey)}</span>
           </div>
         </div>
 
         <div className="mb-3 flex items-end justify-between">
           <div>
-            <p className="text-[10px] text-muted">Price</p>
+            <p className="text-[10px] text-muted">{t('market.price')}</p>
             <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-bold text-white">{ceo.priceUsd === 0 ? 'Free' : formatUsd(ceo.priceUsd)}</span>
+              <span className="text-2xl font-bold text-white">{ceo.priceUsd === 0 ? t('common.free') : formatUsd(ceo.priceUsd)}</span>
               {ceo.priceUsd > 0 && <span className="text-xs text-muted">USDT</span>}
             </div>
             {ceo.priceUsd > 0 && (
               <p className="mt-0.5 text-[10px] text-accent">≈ {formatNumber(priceSp)} SP</p>
             )}
           </div>
-          <div className="text-right">
-            <p className="text-[10px] text-muted">Lifetime cap</p>
+          <div className="text-end">
+            <p className="text-[10px] text-muted">{t('market.lifetimeCap')}</p>
             <div className="text-sm font-bold text-gold">{ceo.lifetimeCapSp != null ? `${formatNumber(ceo.lifetimeCapSp)} SP` : '—'}</div>
           </div>
         </div>
@@ -82,24 +84,24 @@ function MarketCard({ ceo, spTotal }: { ceo: Ceo; spTotal: number }) {
           <div className="rounded-lg border border-line bg-surface-2/60 p-2 text-center">
             <Clock className="mx-auto h-3.5 w-3.5 text-muted" />
             <div className="mt-0.5 text-xs font-bold text-white">{ceo.cycleHours}h</div>
-            <div className="text-[9px] uppercase tracking-wide text-muted">Base cycle</div>
+            <div className="text-[9px] uppercase tracking-wide text-muted">{t('market.baseCycle')}</div>
           </div>
         </div>
 
         <p className="mb-3 flex items-center gap-1.5 text-[10px] text-muted">
-          <ShieldCheck className="h-3 w-3 shrink-0 text-success" /> Finite lifetime cap per copy · not an investment
+          <ShieldCheck className="h-3 w-3 shrink-0 text-success" /> {t('market.notInvestment')}
         </p>
 
         {notice && <p className="mb-2 text-[10px] text-amber-300">{notice}</p>}
         {priceSp > 0 && (
           <p className={`mb-2 text-[10px] ${affordable ? 'text-muted' : 'text-amber-300'}`}>
             {affordable
-              ? `Balance ${formatNumber(spTotal)} SP · Bonus SP spends first`
-              : `Need ${formatNumber(shortfall)} more SP (you have ${formatNumber(spTotal)} SP)`}
+              ? t('market.balanceFirst', { sp: formatNumber(spTotal) })
+              : t('market.needMore', { sp: formatNumber(shortfall), balance: formatNumber(spTotal) })}
           </p>
         )}
         <Button variant="primary" size="sm" className="mt-auto w-full" isLoading={busy} disabled={ceo.priceUsd <= 0 || !affordable} onClick={buy}>
-          <ShoppingCart className="h-3.5 w-3.5 mr-2" /> {ceo.priceUsd <= 0 ? 'Included free' : affordable ? 'Buy with SP' : 'Not enough SP'}
+          <ShoppingCart className="h-3.5 w-3.5 me-2" /> {ceo.priceUsd <= 0 ? t('market.includedFree') : affordable ? t('market.buyWithSp') : t('market.notEnough')}
         </Button>
       </div>
     </Card>
@@ -107,6 +109,7 @@ function MarketCard({ ceo, spTotal }: { ceo: Ceo; spTotal: number }) {
 }
 
 export default function Market() {
+  const t = useT()
   const { data, loading, error, reload } = useApi(() => fetchCeos(), [])
   const resources = useResources()
   const [search, setSearch] = useState('')
@@ -135,52 +138,49 @@ export default function Market() {
   return (
     <div className="space-y-5 animate-fade-in">
       <SectionHeading
-        eyebrow="Marketplace"
-        title="CEO Market"
-        description="Recruit executives with defined production mechanics and finite lifetime caps."
-        right={<Badge variant="default">{spTotal > 0 ? `Balance ${formatNumber(spTotal)} SP` : 'SP MARKET'}</Badge>}
+        eyebrow={t('market.eyebrow')}
+        title={t('market.title')}
+        description={t('market.description')}
+        right={<Badge variant="default">{spTotal > 0 ? t('common.balance') + ' ' + formatNumber(spTotal) + ' SP' : t('market.spMarket')}</Badge>}
       />
 
       <Card padding="sm" className="border border-success/25 bg-success/5">
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-success" />
-          <p className="text-xs text-success/90">
-            Buy CEOs with SP (Bonus SP first, then Earned SP) at 1 USDT = 1,000 SP. Deposits credit Bonus SP;
-            only Earned SP is potentially withdrawable, and payouts require admin approval.
-          </p>
+          <p className="text-xs text-success/90">{t('market.notice')}</p>
         </div>
       </Card>
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+          <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search executives..."
-            aria-label="Search CEOs"
-            className="w-full rounded-xl border border-line bg-surface-2/60 py-2.5 pl-9 pr-3 text-sm text-white placeholder-muted outline-none transition-colors focus:border-primary"
+            placeholder={t('market.searchPlaceholder')}
+            aria-label={t('market.searchLabel')}
+            className="w-full rounded-xl border border-line bg-surface-2/60 py-2.5 ps-9 pe-3 text-sm text-white placeholder-muted outline-none transition-colors focus:border-primary"
           />
         </div>
         <div className="flex gap-3">
-          <select value={rarity} onChange={(e) => setRarity(e.target.value)} aria-label="Filter by rarity" className="flex-1 rounded-xl border border-line bg-surface-2/60 px-3 py-2.5 text-sm text-white outline-none focus:border-primary sm:flex-none">
-            {rarities.map((r) => <option key={r} value={r}>{r === 'All' ? 'All rarities' : r}</option>)}
+          <select value={rarity} onChange={(e) => setRarity(e.target.value)} aria-label={t('market.filterLabel')} className="flex-1 rounded-xl border border-line bg-surface-2/60 px-3 py-2.5 text-sm text-white outline-none focus:border-primary sm:flex-none">
+            {rarities.map((r) => <option key={r} value={r}>{r === 'All' ? t('market.allRarities') : t(`rarity.${r}` as TranslationKey)}</option>)}
           </select>
-          <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="Sort" className="flex-1 rounded-xl border border-line bg-surface-2/60 px-3 py-2.5 text-sm text-white outline-none focus:border-primary sm:flex-none">
-            <option value="featured">Sort: Featured</option>
-            <option value="price-asc">Price: Low to High</option>
-            <option value="price-desc">Price: High to Low</option>
+          <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label={t('market.sortLabel')} className="flex-1 rounded-xl border border-line bg-surface-2/60 px-3 py-2.5 text-sm text-white outline-none focus:border-primary sm:flex-none">
+            <option value="featured">{t('market.sort.featured')}</option>
+            <option value="price-asc">{t('market.sort.priceAsc')}</option>
+            <option value="price-desc">{t('market.sort.priceDesc')}</option>
           </select>
         </div>
       </div>
 
       {!loading && !error && (
         <div className="flex items-center justify-between text-xs text-muted">
-          <span>Showing {visible.length} of {ceos.length} executives</span>
+          <span>{t('market.showing', { shown: visible.length, total: ceos.length })}</span>
           {filtersActive && (
             <button type="button" onClick={() => { setSearch(''); setRarity('All'); setSort('featured') }} className="inline-flex items-center gap-1 text-primary hover:underline">
-              <X className="h-3 w-3" /> Clear filters
+              <X className="h-3 w-3" /> {t('market.clearFilters')}
             </button>
           )}
         </div>
@@ -191,9 +191,9 @@ export default function Market() {
           {Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)}
         </div>
       ) : error ? (
-        <EmptyState Icon={AlertCircle} title="Could not load the market" description={error} action={<Button size="sm" variant="outline" onClick={reload}><RefreshCw className="mr-2 h-4 w-4" />Retry</Button>} />
+        <EmptyState Icon={AlertCircle} title={t('market.error')} description={error} action={<Button size="sm" variant="outline" onClick={reload}><RefreshCw className="me-2 h-4 w-4" />{t('common.retry')}</Button>} />
       ) : visible.length === 0 ? (
-        <EmptyState Icon={Inbox} title={ceos.length === 0 ? 'No executives available yet' : 'No matches'} description={ceos.length === 0 ? 'Check back soon.' : 'Try a different search or filter.'} />
+        <EmptyState Icon={Inbox} title={ceos.length === 0 ? t('market.none.title') : t('market.noMatch.title')} description={ceos.length === 0 ? t('market.none.body') : t('market.noMatch.body')} />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((ceo) => <MarketCard key={ceo.id} ceo={ceo} spTotal={spTotal} />)}
@@ -201,7 +201,7 @@ export default function Market() {
       )}
 
       <p className="flex items-center gap-1.5 text-[11px] text-muted">
-        <Sparkles className="h-3.5 w-3.5" /> New tiers and special editions arrive over time.
+        <Sparkles className="h-3.5 w-3.5" /> {t('market.footer')}
       </p>
     </div>
   )

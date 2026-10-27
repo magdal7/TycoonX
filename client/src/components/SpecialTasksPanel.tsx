@@ -7,6 +7,8 @@ import { Input } from './ui/input'
 import { EmptyState, SectionHeading, Skeleton } from './ui/kit'
 import { useApi } from '../lib/useApi'
 import { notifyResourcesChanged } from '../lib/resources'
+import { formatDate } from '../lib/format'
+import { useI18n, type TranslationKey } from '../i18n'
 import {
   claimSpecialTaskReward,
   fetchSpecialTasks,
@@ -15,36 +17,38 @@ import {
   type PlayerSpecialTaskState
 } from '../lib/game'
 
-const STATE_META: Record<PlayerSpecialTaskState, { label: string; variant: 'default' | 'demo' | 'success' | 'warning' }> = {
-  AVAILABLE: { label: 'Available', variant: 'demo' },
-  PENDING: { label: 'Pending review', variant: 'warning' },
-  APPROVED: { label: 'Ready to claim', variant: 'success' },
-  COMPLETED: { label: 'Completed', variant: 'success' },
-  REJECTED: { label: 'Rejected', variant: 'warning' },
-  EXPIRED: { label: 'Expired', variant: 'default' },
-  INELIGIBLE: { label: 'Locked', variant: 'default' },
-  FULL: { label: 'Full', variant: 'default' }
+const STATE_VARIANT: Record<PlayerSpecialTaskState, 'default' | 'demo' | 'success' | 'warning'> = {
+  AVAILABLE: 'demo',
+  PENDING: 'warning',
+  APPROVED: 'success',
+  COMPLETED: 'success',
+  REJECTED: 'warning',
+  EXPIRED: 'default',
+  INELIGIBLE: 'default',
+  FULL: 'default'
 }
 
 function rewards(task: PlayerSpecialTask): string {
   const parts: string[] = []
   if (task.rewardXp > 0) parts.push(`+${task.rewardXp} XP`)
   if (Number(task.rewardBonusSp) > 0) parts.push(`+${task.rewardBonusSp} Bonus SP`)
-  return parts.join(' · ') || 'No reward'
+  return parts.join(' · ')
 }
 
 function TaskCard({ task, onChanged }: { task: PlayerSpecialTask; onChanged: () => void }) {
+  const t = useI18n().t
   const [proofText, setProofText] = useState('')
   const [proofUrl, setProofUrl] = useState('')
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const meta = STATE_META[task.state]
+  const stateLabel = t(`specialState.${task.state}` as TranslationKey)
+  const rewardText = rewards(task) || t('special.noReward')
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!proofText.trim() && !proofUrl.trim()) {
-      setError('Provide proof text or a link.')
+      setError(t('special.needProof'))
       return
     }
     setBusy(true)
@@ -59,7 +63,7 @@ function TaskCard({ task, onChanged }: { task: PlayerSpecialTask; onChanged: () 
       setOpen(false)
       onChanged()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Submission failed')
+      setError(err instanceof Error ? err.message : t('special.submissionFailed'))
     } finally {
       setBusy(false)
     }
@@ -74,7 +78,7 @@ function TaskCard({ task, onChanged }: { task: PlayerSpecialTask; onChanged: () 
       notifyResourcesChanged()
       onChanged()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Claim failed')
+      setError(err instanceof Error ? err.message : t('special.claimFailed'))
     } finally {
       setBusy(false)
     }
@@ -87,41 +91,41 @@ function TaskCard({ task, onChanged }: { task: PlayerSpecialTask; onChanged: () 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={meta.variant}>{meta.label}</Badge>
+            <Badge variant={STATE_VARIANT[task.state]}>{stateLabel}</Badge>
             {task.expiresAt && (
               <span className="inline-flex items-center gap-1 text-[10px] text-muted">
-                <Clock className="h-3 w-3" /> ends {new Date(task.expiresAt).toLocaleDateString()}
+                <Clock className="h-3 w-3" /> {t('special.ends', { date: formatDate(task.expiresAt) })}
               </span>
             )}
           </div>
           <h3 className="mt-1.5 truncate text-sm font-bold text-white">{task.title}</h3>
           <p className="mt-0.5 text-xs text-muted">{task.description}</p>
-          <p className="mt-1 text-[11px] font-semibold text-primary">{rewards(task)}</p>
+          <p className="mt-1 text-[11px] font-semibold text-primary">{rewardText}</p>
           {task.link && (
             <a href={task.link} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-[11px] text-accent underline">
-              Open link <ExternalLink className="h-3 w-3" />
+              {t('special.openLink')} <ExternalLink className="h-3 w-3" />
             </a>
           )}
-          {task.proofInstructions && <p className="mt-1 text-[10px] text-muted">Proof: {task.proofInstructions}</p>}
-          {task.state === 'INELIGIBLE' && <p className="mt-1 text-[10px] text-muted">Requires level {task.minLevel}.</p>}
-          {task.state === 'REJECTED' && task.reviewNote && <p className="mt-1 text-[10px] text-amber-400">Reviewer: {task.reviewNote}</p>}
+          {task.proofInstructions && <p className="mt-1 text-[10px] text-muted">{t('special.proofLabel')}: {task.proofInstructions}</p>}
+          {task.state === 'INELIGIBLE' && <p className="mt-1 text-[10px] text-muted">{t('special.requiresLevel', { level: task.minLevel })}</p>}
+          {task.state === 'REJECTED' && task.reviewNote && <p className="mt-1 text-[10px] text-amber-400">{t('special.reviewer', { note: task.reviewNote })}</p>}
           {task.state === 'REJECTED' && (
-            <p className="mt-1 text-[10px] text-muted">Attempt {task.attemptsUsed} of {task.maxAttempts}{canRetry ? ' · you can resubmit' : ' · no attempts left'}</p>
+            <p className="mt-1 text-[10px] text-muted">{t('special.attempt', { used: task.attemptsUsed, max: task.maxAttempts })}{canRetry ? t('special.resubmitNote') : t('special.noAttempts')}</p>
           )}
           {error && <p className="mt-1 text-[10px] text-red-300">{error}</p>}
         </div>
 
         <div className="shrink-0">
           {task.state === 'APPROVED' && (
-            <Button size="sm" variant="success" isLoading={busy} onClick={claim} iconLeft={<Gift className="h-4 w-4" />}>Claim</Button>
+            <Button size="sm" variant="success" isLoading={busy} onClick={claim} iconLeft={<Gift className="h-4 w-4" />}>{t('special.claim')}</Button>
           )}
           {task.state === 'COMPLETED' && (
-            <span className="inline-flex items-center gap-1 text-xs font-semibold text-success"><CheckCircle2 className="h-4 w-4" /> Done</span>
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-success"><CheckCircle2 className="h-4 w-4" /> {t('common.done')}</span>
           )}
-          {task.state === 'PENDING' && <span className="text-xs text-muted">Under review</span>}
+          {task.state === 'PENDING' && <span className="text-xs text-muted">{t('special.underReview')}</span>}
           {(task.state === 'AVAILABLE' || canRetry) && (
             <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)} iconLeft={canRetry ? <RefreshCw className="h-4 w-4" /> : undefined}>
-              {canRetry ? 'Resubmit' : 'Submit'}
+              {canRetry ? t('special.resubmit') : t('special.submit')}
             </Button>
           )}
         </div>
@@ -129,11 +133,11 @@ function TaskCard({ task, onChanged }: { task: PlayerSpecialTask; onChanged: () 
 
       {open && (task.state === 'AVAILABLE' || canRetry) && (
         <form onSubmit={submit} className="mt-3 space-y-2 border-t border-line pt-3">
-          <Input value={proofText} onChange={(e) => setProofText(e.target.value)} placeholder="Proof details (optional if link provided)" maxLength={2000} className="text-xs" />
-          <Input value={proofUrl} onChange={(e) => setProofUrl(e.target.value)} type="url" placeholder="Proof link (optional if text provided)" className="text-xs" />
+          <Input value={proofText} onChange={(e) => setProofText(e.target.value)} placeholder={t('special.proofText')} maxLength={2000} className="text-xs" />
+          <Input value={proofUrl} onChange={(e) => setProofUrl(e.target.value)} type="url" placeholder={t('special.proofUrl')} className="text-xs" />
           <div className="flex gap-2">
-            <Button type="submit" size="sm" isLoading={busy} iconLeft={<Sparkles className="h-4 w-4" />}>Submit proof</Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" size="sm" isLoading={busy} iconLeft={<Sparkles className="h-4 w-4" />}>{t('special.submitProof')}</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           </div>
         </form>
       )}
@@ -142,17 +146,18 @@ function TaskCard({ task, onChanged }: { task: PlayerSpecialTask; onChanged: () 
 }
 
 export function SpecialTasksPanel() {
+  const t = useI18n().t
   const { data, loading, error, reload } = useApi(() => fetchSpecialTasks(), [])
 
   return (
     <section className="space-y-3">
-      <SectionHeading eyebrow="Special" title="Special Tasks" description="Time-boxed campaigns with reviewable rewards." />
+      <SectionHeading eyebrow={t('special.eyebrow')} title={t('special.title')} description={t('special.description')} />
       {loading ? (
         <Skeleton className="h-24" />
       ) : error ? (
-        <EmptyState Icon={AlertTriangle} title="Could not load special tasks" description={error} action={<Button size="sm" variant="outline" onClick={reload}>Retry</Button>} />
+        <EmptyState Icon={AlertTriangle} title={t('special.error')} description={error} action={<Button size="sm" variant="outline" onClick={reload}>{t('common.retry')}</Button>} />
       ) : !data || data.length === 0 ? (
-        <EmptyState Icon={Gift} title="No special tasks right now" description="Check back soon for campaigns." />
+        <EmptyState Icon={Gift} title={t('special.empty.title')} description={t('special.empty.body')} />
       ) : (
         <div className="space-y-2">
           {data.map((task) => (

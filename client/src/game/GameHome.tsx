@@ -20,9 +20,11 @@ import {
   type OwnedCeo
 } from '../lib/game'
 import { formatNumber } from '../lib/format'
+import { useI18n, type TranslationKey } from '../i18n'
 
 /** Interactive "My Empire": a visualisation of the player's real owned CEOs. */
 export default function GameHome({ navigate }: { navigate: (p: string) => void }) {
+  const { t, tp } = useI18n()
   const fleet = useApi(() => fetchOwnedCeos(), [])
   const resources = useResources()
   const owned = fleet.data ?? []
@@ -37,8 +39,8 @@ export default function GameHome({ navigate }: { navigate: (p: string) => void }
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
   }, [])
 
   function reload() {
@@ -56,7 +58,7 @@ export default function GameHome({ navigate }: { navigate: (p: string) => void }
       window.setTimeout(() => setFlash(''), 4000)
       reload()
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : 'Action failed')
+      setNotice(e instanceof Error ? e.message : t('dashboard.actionFailed'))
     } finally {
       setBusy((b) => ({ ...b, [ceo.id]: false }))
     }
@@ -71,15 +73,15 @@ export default function GameHome({ navigate }: { navigate: (p: string) => void }
     try {
       if (kind === 'start') {
         await bulkStart(ids)
-        setFlash(`Started ${ids.length} cycle${ids.length === 1 ? '' : 's'}`)
+        setFlash(tp('dashboard.cyclesStarted', ids.length))
       } else {
         const r = await bulkCollect(ids)
-        setFlash(`Collected ${r.summary.succeeded} cycle${r.summary.succeeded === 1 ? '' : 's'}`)
+        setFlash(tp('dashboard.cyclesCollected', r.summary.succeeded))
       }
       window.setTimeout(() => setFlash(''), 4000)
       reload()
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : 'Bulk action failed')
+      setNotice(e instanceof Error ? e.message : t('dashboard.bulkFailed'))
     }
   }
 
@@ -104,28 +106,28 @@ export default function GameHome({ navigate }: { navigate: (p: string) => void }
 
       {fleet.error ? (
         <div className="rounded-xl border border-line bg-surface-2/50 px-3 py-2 text-xs text-muted">
-          Could not load your empire. <button className="text-primary underline" onClick={fleet.reload}>Retry</button>
+          {t('game.error')} <button className="text-primary underline" onClick={fleet.reload}>{t('common.retry')}</button>
         </div>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={() => runBulk('start')} disabled={startable === 0} iconLeft={<Play className="h-4 w-4" />}>
-              Start All ({startable})
+            <Button size="sm" onClick={() => runBulk('start')} disabled={startable === 0} iconLeft={<Play className="h-4 w-4 rtl:rotate-180" />}>
+              {t('dashboard.startAll', { count: startable })}
             </Button>
             <Button size="sm" variant="success" onClick={() => runBulk('collect')} disabled={collectable === 0} iconLeft={<Download className="h-4 w-4" />}>
-              Collect All ({collectable})
+              {t('dashboard.collectAll', { count: collectable })}
             </Button>
-            <Button size="sm" variant="ghost" onClick={reload} iconLeft={<RefreshCw className="h-4 w-4" />}>Refresh</Button>
-            <Button size="sm" variant="outline" className="ml-auto" onClick={() => setShowList((v) => !v)} iconLeft={showList ? <MapIcon className="h-4 w-4" /> : <List className="h-4 w-4" />}>
-              {showList ? 'Map view' : 'List view'}
+            <Button size="sm" variant="ghost" onClick={reload} iconLeft={<RefreshCw className="h-4 w-4" />}>{t('common.refresh')}</Button>
+            <Button size="sm" variant="outline" className="ms-auto" onClick={() => setShowList((v) => !v)} iconLeft={showList ? <MapIcon className="h-4 w-4" /> : <List className="h-4 w-4" />}>
+              {showList ? t('game.mapView') : t('game.listView')}
             </Button>
           </div>
 
           {owned.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-line bg-surface-2/40 p-8 text-center">
-              <p className="text-sm font-semibold text-ink">Your empire is empty</p>
-              <p className="mt-1 text-xs text-muted">Your free Intern CEO is provisioned on first sign-in. Visit the Empire dashboard to claim and start producing.</p>
-              <Button size="sm" className="mt-4" onClick={() => navigate('/dashboard')}>Go to Empire</Button>
+              <p className="text-sm font-semibold text-ink">{t('game.emptyTitle')}</p>
+              <p className="mt-1 text-xs text-muted">{t('game.emptyBody')}</p>
+              <Button size="sm" className="mt-4" onClick={() => navigate('/dashboard')}>{t('game.goToEmpire')}</Button>
             </div>
           ) : showList ? (
             <div className="grid gap-2 sm:grid-cols-2">
@@ -134,15 +136,15 @@ export default function GameHome({ navigate }: { navigate: (p: string) => void }
                   key={ceo.id}
                   type="button"
                   onClick={() => { setShowList(false); setSelected({ kind: 'building', id: `owned-${ceo.id}` }) }}
-                  className="flex items-center gap-3 rounded-2xl border border-line bg-surface-2/50 p-3 text-left transition-colors hover:border-primary/50"
+                  className="flex items-center gap-3 rounded-2xl border border-line bg-surface-2/50 p-3 text-start transition-colors hover:border-primary/50"
                 >
                   <CeoAvatar name={ceo.templateName} slug={ceo.templateSlug} rarity={ceo.rarity} size={44} imageUrl={ceo.templateImageUrl} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold text-ink">{ceo.templateName}</div>
-                    <div className="text-[11px] text-muted">{ceo.rarity} - {ceo.equipment}</div>
+                    <div className="text-[11px] text-muted">{t(`rarity.${ceo.rarity}` as TranslationKey)} · {t(`equip.${ceo.equipment}` as TranslationKey)}</div>
                   </div>
                   <Badge variant={ceo.canCollect ? 'success' : ceo.cycleEndsAt ? 'demo' : 'default'}>
-                    {ceo.archivedAt || ceo.status === 'EXHAUSTED' ? 'Exhausted' : ceo.canCollect ? 'Ready' : ceo.cycleEndsAt ? 'Producing' : 'Idle'}
+                    {ceo.archivedAt || ceo.status === 'EXHAUSTED' ? t('common.exhausted') : ceo.canCollect ? t('common.ready') : ceo.cycleEndsAt ? t('common.producing') : t('common.idle')}
                   </Badge>
                 </button>
               ))}
@@ -159,9 +161,9 @@ export default function GameHome({ navigate }: { navigate: (p: string) => void }
                   level={level}
                   now={now}
                   busy={busy}
-                  onStart={(ceo) => run(ceo, () => startCycle(ceo.id), 'Cycle started')}
-                  onCollect={(ceo) => run(ceo, () => collectCycle(ceo.id), `${ceo.templateName} collected`)}
-                  onUpgrade={(ceo, target) => run(ceo, () => upgradeEquipment(ceo.id, target), `Equipment upgraded to ${target}`)}
+                  onStart={(ceo) => run(ceo, () => startCycle(ceo.id), t('game.cycleStarted'))}
+                  onCollect={(ceo) => run(ceo, () => collectCycle(ceo.id), t('game.collected', { name: ceo.templateName }))}
+                  onUpgrade={(ceo, target) => run(ceo, () => upgradeEquipment(ceo.id, target), t('dashboard.equipUpgraded', { tier: target }))}
                   onClose={() => setSelected(null)}
                 />
               </div>
@@ -170,7 +172,7 @@ export default function GameHome({ navigate }: { navigate: (p: string) => void }
 
           {hidden > 0 && (
             <p className="text-[11px] text-muted">
-              Showing {EMPIRE_MAX_UNITS} of {formatNumber(owned.length)} copies on the map. Use List view to reach every copy.
+              {t('game.hiddenNote', { max: EMPIRE_MAX_UNITS, total: formatNumber(owned.length) })}
             </p>
           )}
         </>

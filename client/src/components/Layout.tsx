@@ -24,30 +24,31 @@ import { useResources } from '../lib/resources'
 import { usePublicSettings, type FeatureSettings } from '../lib/siteSettings'
 import { formatNumber } from '../lib/format'
 import { useAuth } from '../context/AuthContext'
+import { useT, type TranslationKey } from '../i18n'
 
 interface NavItem {
   id: string
-  label: string
+  labelKey: TranslationKey
   href: string
   Icon: React.ComponentType<{ className?: string }>
   feature?: keyof FeatureSettings
 }
 
 const PRIMARY: NavItem[] = [
-  { id: 'home', label: 'Empire', href: '/dashboard', Icon: Home },
-  { id: 'market', label: 'Market', href: '/dashboard/market', Icon: Store, feature: 'market' },
-  { id: 'collection', label: 'CEOs', href: '/dashboard/collection', Icon: Boxes, feature: 'collection' },
-  { id: 'tasks', label: 'Missions', href: '/dashboard/tasks', Icon: Target, feature: 'tasks' },
-  { id: 'profile', label: 'Profile', href: '/dashboard/profile', Icon: User }
+  { id: 'home', labelKey: 'nav.empire', href: '/dashboard', Icon: Home },
+  { id: 'market', labelKey: 'nav.market', href: '/dashboard/market', Icon: Store, feature: 'market' },
+  { id: 'collection', labelKey: 'nav.ceos', href: '/dashboard/collection', Icon: Boxes, feature: 'collection' },
+  { id: 'tasks', labelKey: 'nav.missions', href: '/dashboard/tasks', Icon: Target, feature: 'tasks' },
+  { id: 'profile', labelKey: 'nav.profile', href: '/dashboard/profile', Icon: User }
 ]
 
 const SECONDARY: NavItem[] = [
-  { id: 'world', label: 'My Empire', href: '/dashboard/world', Icon: Map },
-  { id: 'achievements', label: 'Achievements', href: '/dashboard/achievements', Icon: Sparkles, feature: 'achievements' },
-  { id: 'leaderboard', label: 'Leaderboard', href: '/dashboard/leaderboard', Icon: Trophy, feature: 'leaderboard' },
-  { id: 'referrals', label: 'Referrals', href: '/dashboard/referrals', Icon: UserPlus },
-  { id: 'wallet', label: 'Wallet', href: '/dashboard/wallet', Icon: Wallet, feature: 'wallet' },
-  { id: 'help', label: 'Help', href: '/dashboard/help', Icon: HelpCircle }
+  { id: 'world', labelKey: 'nav.world', href: '/dashboard/world', Icon: Map },
+  { id: 'achievements', labelKey: 'nav.achievements', href: '/dashboard/achievements', Icon: Sparkles, feature: 'achievements' },
+  { id: 'leaderboard', labelKey: 'nav.leaderboard', href: '/dashboard/leaderboard', Icon: Trophy, feature: 'leaderboard' },
+  { id: 'referrals', labelKey: 'nav.referrals', href: '/dashboard/referrals', Icon: UserPlus },
+  { id: 'wallet', labelKey: 'nav.wallet', href: '/dashboard/wallet', Icon: Wallet, feature: 'wallet' },
+  { id: 'help', labelKey: 'nav.help', href: '/dashboard/help', Icon: HelpCircle }
 ]
 
 function isActive(current: string, href: string): boolean {
@@ -62,24 +63,27 @@ export interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const { currentPath } = useRouter()
   const { user } = useAuth()
+  const t = useT()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const { data: resources } = useResources()
   const settings = usePublicSettings()
   const features = settings.data?.features
-  const payoutsAvailable = settings.data?.capabilities?.payouts
 
   const allowed = (item: NavItem) => !item.feature || !features || features[item.feature]
   const primaryItems = PRIMARY.filter(allowed)
   const secondaryItems = SECONDARY.filter(allowed)
   const all = [...primaryItems, ...secondaryItems]
-  const activeLabel = all.find((i) => isActive(currentPath, i.href))?.label ?? 'TycoonX'
+  const activeLabel = (() => {
+    const item = all.find((i) => isActive(currentPath, i.href))
+    return item ? t(item.labelKey) : 'TycoonX'
+  })()
 
   return (
     <div className="theme-emerald flex min-h-screen bg-bg text-ink">
       {/* Sidebar (md+) */}
       <aside
-        className={`hidden shrink-0 flex-col border-r border-line bg-surface-2/60 backdrop-blur md:flex ${
+        className={`hidden shrink-0 flex-col border-e border-line bg-surface-2/60 backdrop-blur md:flex ${
           collapsed ? 'md:w-16' : 'md:w-64'
         }`}
       >
@@ -88,14 +92,14 @@ export function Layout({ children }: LayoutProps) {
           {!collapsed && <span className="text-lg font-black tracking-tighter text-gradient">TycoonX</span>}
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto p-2" aria-label="Primary">
+        <nav className="flex-1 space-y-1 overflow-y-auto p-2" aria-label={t('nav.primary')}>
           {primaryItems.map((item) => (
-            <SideLink key={item.id} item={item} active={isActive(currentPath, item.href)} collapsed={collapsed} />
+            <SideLink key={item.id} item={item} label={t(item.labelKey)} active={isActive(currentPath, item.href)} collapsed={collapsed} />
           ))}
           <div className="my-2 border-t border-line" />
-          {!collapsed && <p className="px-3 pb-1 text-[10px] uppercase tracking-widest text-muted">Progress</p>}
+          {!collapsed && <p className="px-3 pb-1 text-[10px] uppercase tracking-widest text-muted">{t('nav.progress')}</p>}
           {secondaryItems.map((item) => (
-            <SideLink key={item.id} item={item} active={isActive(currentPath, item.href)} collapsed={collapsed} />
+            <SideLink key={item.id} item={item} label={t(item.labelKey)} active={isActive(currentPath, item.href)} collapsed={collapsed} />
           ))}
         </nav>
 
@@ -106,16 +110,16 @@ export function Layout({ children }: LayoutProps) {
               className="mb-1 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs text-primary transition-colors hover:bg-primary/10"
             >
               <ShieldCheck className="h-4 w-4" />
-              {!collapsed && <span>Admin console</span>}
+              {!collapsed && <span>{t('nav.adminConsole')}</span>}
             </Link>
           )}
           <button
             type="button"
             onClick={() => setCollapsed((c) => !c)}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}
             className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs text-muted transition-colors hover:bg-white/5 hover:text-ink"
           >
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <><PanelLeftClose className="h-4 w-4" /><span>Collapse</span></>}
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <><PanelLeftClose className="h-4 w-4" /><span>{t('nav.collapse')}</span></>}
           </button>
         </div>
       </aside>
@@ -140,7 +144,7 @@ export function Layout({ children }: LayoutProps) {
             type="button"
             onClick={() => setMobileOpen(true)}
             className="text-ink md:hidden"
-            aria-label="Open menu"
+            aria-label={t('nav.openMenu')}
           >
             <Menu className="h-6 w-6" />
           </button>
@@ -149,7 +153,7 @@ export function Layout({ children }: LayoutProps) {
           </div>
           <span className="hidden text-sm font-semibold text-ink md:block">{activeLabel}</span>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ms-auto flex items-center gap-2">
             <div className="hidden items-center gap-1.5 rounded-full border border-line bg-surface-2/70 px-3 py-1.5 text-xs font-semibold text-gold sm:flex">
               <Coins className="h-3.5 w-3.5" />
               {resources ? formatNumber(resources.sp.totalSp) : '—'}
@@ -158,7 +162,7 @@ export function Layout({ children }: LayoutProps) {
             <Link
               to="/dashboard/profile"
               className="grid h-9 w-9 place-items-center rounded-full border border-line bg-surface-2/70 text-xs font-bold text-ink"
-              title={user?.username ?? 'Profile'}
+              title={user?.username ?? t('nav.profile')}
             >
               {(user?.username ?? 'TX').slice(0, 2).toUpperCase()}
             </Link>
@@ -174,7 +178,7 @@ export function Layout({ children }: LayoutProps) {
         {/* Bottom nav (mobile) */}
         <nav
           className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
-          aria-label="Primary"
+          aria-label={t('nav.primary')}
         >
           <div className="flex h-16 items-stretch">
             {primaryItems.map((item) => {
@@ -188,7 +192,7 @@ export function Layout({ children }: LayoutProps) {
                   }`}
                 >
                   <item.Icon className="h-5 w-5" />
-                  <span>{item.label}</span>
+                  <span>{t(item.labelKey)}</span>
                 </Link>
               )
             })}
@@ -200,16 +204,16 @@ export function Layout({ children }: LayoutProps) {
       {mobileOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm md:hidden" onClick={() => setMobileOpen(false)}>
           <div
-            className="absolute inset-y-0 left-0 w-72 max-w-[80%] border-r border-line bg-surface-2 p-4 pb-[calc(env(safe-area-inset-bottom)_+_1rem)]"
+            className="absolute inset-y-0 start-0 w-72 max-w-[80%] border-e border-line bg-surface-2 p-4 pb-[calc(env(safe-area-inset-bottom)_+_1rem)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-6 flex items-center justify-between">
               <Logo size={32} />
-              <button type="button" onClick={() => setMobileOpen(false)} className="text-muted hover:text-ink" aria-label="Close menu">
+              <button type="button" onClick={() => setMobileOpen(false)} className="text-muted hover:text-ink" aria-label={t('nav.closeMenu')}>
                 <X className="h-6 w-6" />
               </button>
             </div>
-            <nav className="space-y-1" aria-label="Mobile">
+            <nav className="space-y-1" aria-label={t('nav.primary')}>
               {all.map((item) => {
                 const active = isActive(currentPath, item.href)
                 return (
@@ -222,7 +226,7 @@ export function Layout({ children }: LayoutProps) {
                     }`}
                   >
                     <item.Icon className="h-5 w-5" />
-                    {item.label}
+                    {t(item.labelKey)}
                   </Link>
                 )
               })}
@@ -233,7 +237,7 @@ export function Layout({ children }: LayoutProps) {
                   className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
                 >
                   <ShieldCheck className="h-5 w-5" />
-                  Admin console
+                  {t('nav.adminConsole')}
                 </Link>
               )}
             </nav>
@@ -244,15 +248,9 @@ export function Layout({ children }: LayoutProps) {
               className="mt-4 flex items-center gap-2 rounded-xl border border-line px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-white/5 hover:text-ink"
             >
               <Sparkles className="h-4 w-4 text-primary" />
-              Community · Telegram
+              {t('nav.communityTelegram')}
             </a>
-            <p className="mt-4 px-3 text-[10px] leading-relaxed text-muted">
-              CEO production is a game mechanic. {payoutsAvailable === true
-                ? 'Eligible Earned SP withdrawals are available with admin approval; nominal rates are not guaranteed returns.'
-                : payoutsAvailable === false
-                  ? 'Withdrawals are not open yet; nominal rates are not guaranteed returns.'
-                  : 'Financial feature availability is shown in the Wallet.'}
-            </p>
+            <p className="mt-4 px-3 text-[10px] leading-relaxed text-muted">{t('layout.financialNote')}</p>
           </div>
         </div>
       )}
@@ -260,17 +258,27 @@ export function Layout({ children }: LayoutProps) {
   )
 }
 
-function SideLink({ item, active, collapsed }: { item: NavItem; active: boolean; collapsed: boolean }) {
+function SideLink({
+  item,
+  label,
+  active,
+  collapsed
+}: {
+  item: NavItem
+  label: string
+  active: boolean
+  collapsed: boolean
+}) {
   return (
     <Link
       to={item.href}
-      title={item.label}
+      title={label}
       className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
         active ? 'bg-gradient-to-r from-primary/25 to-gold/10 text-ink shadow-[inset_2px_0_0_0_rgb(var(--c-gold))]' : 'text-muted hover:bg-white/5 hover:text-ink'
       } ${collapsed ? 'justify-center' : ''}`}
     >
       <item.Icon className="h-5 w-5 shrink-0" />
-      {!collapsed && <span className="truncate">{item.label}</span>}
+      {!collapsed && <span className="truncate">{label}</span>}
     </Link>
   )
 }

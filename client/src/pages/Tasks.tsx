@@ -8,6 +8,7 @@ import { useResources, notifyResourcesChanged } from '../lib/resources'
 import { SpecialTasksPanel } from '../components/SpecialTasksPanel'
 import { claimAllTasks, claimTask, fetchTasks, type TaskBoard, type TaskState } from '../lib/game'
 import { formatNumber } from '../lib/format'
+import { useI18n } from '../i18n'
 
 type Notice = { kind: 'success' | 'info' | 'error'; text: string } | null
 
@@ -28,6 +29,7 @@ function TaskRow({
   disabled: boolean
   onClaim: (key: string) => void
 }) {
+  const t = useI18n().t
   const done = task.claimed
   return (
     <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/50 p-3">
@@ -44,7 +46,7 @@ function TaskRow({
           <span className="shrink-0 text-xs font-bold text-primary">+{task.xp} XP</span>
         </div>
         <Progress className="mt-1.5" value={task.progress} max={task.goal} tone={done || task.completed ? 'success' : 'primary'} />
-        <p className="mt-1 text-[10px] text-muted">{task.progress} / {task.goal}{done ? ' · claimed' : ''}</p>
+        <p className="mt-1 text-[10px] text-muted">{t('tasks.progress', { progress: task.progress, goal: task.goal })}{done ? t('tasks.claimedSuffix') : ''}</p>
       </div>
       <Button
         size="sm"
@@ -54,7 +56,7 @@ function TaskRow({
         onClick={() => onClaim(task.key)}
         className="shrink-0"
       >
-        {done ? 'Done' : 'Claim'}
+        {done ? t('common.done') : t('common.claim')}
       </Button>
     </div>
   )
@@ -77,12 +79,13 @@ function BonusRow({
   disabled: boolean
   onClaim: () => void
 }) {
+  const t = useI18n().t
   return (
     <div className={`flex items-center gap-3 rounded-xl border p-3 ${claimed ? 'border-success/40 bg-success/10' : completed ? 'border-gold/40 bg-gold/10' : 'border-line bg-surface-2/40'}`}>
       <Gift className={`h-5 w-5 ${claimed || completed ? 'text-gold' : 'text-muted'}`} />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-white">{label} completion bonus</p>
-        <p className="text-[10px] text-muted">+{formatNumber(xp)} XP{claimed ? ' · claimed' : ''}</p>
+        <p className="text-sm font-semibold text-white">{t('tasks.bonusSuffix', { label })}</p>
+        <p className="text-[10px] text-muted">+{formatNumber(xp)} XP{claimed ? t('tasks.claimedSuffix') : ''}</p>
       </div>
       <Button
         size="sm"
@@ -92,13 +95,14 @@ function BonusRow({
         onClick={onClaim}
         className="shrink-0"
       >
-        {claimed ? 'Done' : 'Claim'}
+        {claimed ? t('common.done') : t('common.claim')}
       </Button>
     </div>
   )
 }
 
 export default function Tasks() {
+  const { t, tp } = useI18n()
   const { data, loading, error, reload } = useApi(() => fetchTasks(), [])
   const resources = useResources()
   const [board, setBoard] = useState<TaskBoard | null>(null)
@@ -112,7 +116,7 @@ export default function Tasks() {
 
   const allBusy = busyKey !== null || claimingAll
   const claimableCount = board
-    ? [...board.daily, ...board.weekly, board.dailyBonus, board.weeklyBonus].filter((t) => t.completed && !t.claimed).length
+    ? [...board.daily, ...board.weekly, board.dailyBonus, board.weeklyBonus].filter((x) => x.completed && !x.claimed).length
     : 0
 
   async function claim(key: string) {
@@ -123,15 +127,15 @@ export default function Tasks() {
       const res = await claimTask(key)
       setBoard(res.board)
       if (res.claimed) {
-        setNotice({ kind: 'success', text: `Claimed · +${res.xpAwarded} XP` })
+        setNotice({ kind: 'success', text: t('tasks.claimedNotice', { xp: res.xpAwarded }) })
         notifyResourcesChanged()
       } else if (res.alreadyClaimed) {
-        setNotice({ kind: 'info', text: 'Already claimed' })
+        setNotice({ kind: 'info', text: t('tasks.alreadyClaimed') })
       } else {
-        setNotice({ kind: 'info', text: 'Not completed yet' })
+        setNotice({ kind: 'info', text: t('tasks.notCompleted') })
       }
     } catch (e) {
-      setNotice({ kind: 'error', text: e instanceof Error ? e.message : 'Claim failed' })
+      setNotice({ kind: 'error', text: e instanceof Error ? e.message : t('tasks.claimFailed') })
     } finally {
       setBusyKey(null)
     }
@@ -145,16 +149,13 @@ export default function Tasks() {
       const r = await claimAllTasks()
       setBoard(r.board)
       if (r.xpAwarded > 0) {
-        setNotice({
-          kind: 'success',
-          text: `Claimed ${r.claimed.length} task${r.claimed.length === 1 ? '' : 's'} · +${r.xpAwarded} XP`
-        })
+        setNotice({ kind: 'success', text: tp('tasks.claimedTasks', r.claimed.length, { xp: r.xpAwarded }) })
         notifyResourcesChanged()
       } else {
-        setNotice({ kind: 'info', text: 'Nothing to claim' })
+        setNotice({ kind: 'info', text: t('tasks.nothingToClaim') })
       }
     } catch (e) {
-      setNotice({ kind: 'error', text: e instanceof Error ? e.message : 'Claim failed' })
+      setNotice({ kind: 'error', text: e instanceof Error ? e.message : t('tasks.claimFailed') })
     } finally {
       setClaimingAll(false)
     }
@@ -165,9 +166,9 @@ export default function Tasks() {
       <SpecialTasksPanel />
 
       <SectionHeading
-        eyebrow="Missions"
-        title="Daily & Weekly Tasks"
-        description="Complete tasks to earn XP. Progress resets on UTC boundaries; unclaimed rewards persist."
+        eyebrow={t('tasks.eyebrow')}
+        title={t('tasks.title')}
+        description={t('tasks.description')}
         right={
           <Button
             size="sm"
@@ -177,19 +178,19 @@ export default function Tasks() {
             isLoading={claimingAll}
             iconLeft={claimingAll ? undefined : <Gift className="h-4 w-4" />}
           >
-            {claimableCount > 0 ? `Claim All (${claimableCount})` : 'Claim All'}
+            {claimableCount > 0 ? t('tasks.claimAllCount', { count: claimableCount }) : t('tasks.claimAll')}
           </Button>
         }
       />
 
       <div className="grid grid-cols-2 gap-3">
         <Stat
-          label="Lifetime XP"
+          label={t('dashboard.lifetimeXp')}
           value={resources.data ? formatNumber(resources.data.progress.xp) : '—'}
           Icon={Star}
           tone="text-primary"
         />
-        <Stat label="Ready to claim" value={String(claimableCount)} Icon={Gift} tone="text-gold" />
+        <Stat label={t('stat.readyToClaim')} value={String(claimableCount)} Icon={Gift} tone="text-gold" />
       </div>
 
       {notice && (
@@ -203,22 +204,22 @@ export default function Tasks() {
       ) : error && !board ? (
         <EmptyState
           Icon={AlertTriangle}
-          title="Could not load missions"
+          title={t('tasks.error')}
           description={error}
-          action={<Button size="sm" variant="outline" onClick={reload}><RefreshCw className="mr-2 h-4 w-4" />Retry</Button>}
+          action={<Button size="sm" variant="outline" onClick={reload}><RefreshCw className="me-2 h-4 w-4" />{t('common.retry')}</Button>}
         />
       ) : !board ? null : (
         <>
           <section className="space-y-2">
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-white">Daily</h2>
+              <h2 className="text-sm font-bold text-white">{t('tasks.daily')}</h2>
               <Badge>{board.day} UTC</Badge>
             </div>
-            {board.daily.map((t) => (
-              <TaskRow key={t.key} task={t} busy={busyKey === t.key} disabled={allBusy} onClaim={claim} />
+            {board.daily.map((x) => (
+              <TaskRow key={x.key} task={x} busy={busyKey === x.key} disabled={allBusy} onClaim={claim} />
             ))}
             <BonusRow
-              label="All daily tasks"
+              label={t('tasks.allDaily')}
               xp={board.dailyBonus.xp}
               completed={board.dailyBonus.completed}
               claimed={board.dailyBonus.claimed}
@@ -230,14 +231,14 @@ export default function Tasks() {
 
           <section className="space-y-2">
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-white">Weekly</h2>
+              <h2 className="text-sm font-bold text-white">{t('tasks.weekly')}</h2>
               <Badge>{board.week}</Badge>
             </div>
-            {board.weekly.map((t) => (
-              <TaskRow key={t.key} task={t} busy={busyKey === t.key} disabled={allBusy} onClaim={claim} />
+            {board.weekly.map((x) => (
+              <TaskRow key={x.key} task={x} busy={busyKey === x.key} disabled={allBusy} onClaim={claim} />
             ))}
             <BonusRow
-              label="All weekly tasks"
+              label={t('tasks.allWeekly')}
               xp={board.weeklyBonus.xp}
               completed={board.weeklyBonus.completed}
               claimed={board.weeklyBonus.claimed}

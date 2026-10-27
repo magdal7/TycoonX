@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Sparkles, LayoutDashboard, Play, Download, Coins, Store, Target, Users } from 'lucide-react'
 import { Button } from './ui/button'
 import { useAuth } from '../context/AuthContext'
+import { useT, type TranslationKey } from '../i18n'
 import {
   clearOnboardingState,
   getOnboardingState,
@@ -15,19 +16,20 @@ export function requestOnboardingReplay(): void {
   window.dispatchEvent(new Event(ONBOARDING_REPLAY_EVENT))
 }
 
-const STEPS = [
-  { Icon: Sparkles, title: 'Welcome to TycoonX', text: 'You are building a technology empire. This short tour shows the core loop — you can skip it any time and replay it from Help.' },
-  { Icon: LayoutDashboard, title: 'Your command center', text: 'The Empire dashboard is home: your balances, level and CEO fleet all live here.' },
-  { Icon: Users, title: 'Your free Intern CEO', text: 'A starter Intern CEO is provisioned automatically on first sign-in — no purchase required.' },
-  { Icon: Play, title: 'Start production', text: 'Start a manual production cycle on a CEO (4h, 6h or 8h with equipment). Nothing restarts automatically.' },
-  { Icon: Download, title: 'Collect when ready', text: 'When a cycle finishes it becomes “Ready”. Collect it to receive Earned SP.' },
-  { Icon: Coins, title: 'Earned SP vs Bonus SP', text: 'Earned SP comes from production and is the only balance that can ever be withdrawn. Bonus SP is spendable but never withdrawable.' },
-  { Icon: Store, title: 'Recruit more CEOs', text: 'The Market lets you buy more CEO copies with SP (Bonus SP spends first). Every copy has a finite lifetime cap.' },
-  { Icon: Target, title: 'Missions & progression', text: 'Complete daily and weekly missions and permanent achievements to earn XP and climb the ranks.' },
+const STEPS: { Icon: React.ComponentType<{ className?: string }>; titleKey: TranslationKey; textKey: TranslationKey }[] = [
+  { Icon: Sparkles, titleKey: 'onboarding.s1.title', textKey: 'onboarding.s1.text' },
+  { Icon: LayoutDashboard, titleKey: 'onboarding.s2.title', textKey: 'onboarding.s2.text' },
+  { Icon: Users, titleKey: 'onboarding.s3.title', textKey: 'onboarding.s3.text' },
+  { Icon: Play, titleKey: 'onboarding.s4.title', textKey: 'onboarding.s4.text' },
+  { Icon: Download, titleKey: 'onboarding.s5.title', textKey: 'onboarding.s5.text' },
+  { Icon: Coins, titleKey: 'onboarding.s6.title', textKey: 'onboarding.s6.text' },
+  { Icon: Store, titleKey: 'onboarding.s7.title', textKey: 'onboarding.s7.text' },
+  { Icon: Target, titleKey: 'onboarding.s8.title', textKey: 'onboarding.s8.text' },
 ]
 
 export default function OnboardingGuide() {
   const { user } = useAuth()
+  const t = useT()
   const userId = user?.id ?? null
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState(0)
@@ -64,9 +66,9 @@ export default function OnboardingGuide() {
   return (
     <div
       role="dialog"
-      aria-label="Getting started guide"
+      aria-label={t('onboarding.dialogLabel')}
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)_+_4.5rem)] z-40 flex justify-center px-3 md:bottom-6 md:left-72 md:right-6 md:px-0"
+      className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)_+_4.5rem)] z-40 flex justify-center px-3 md:bottom-6 md:ms-72 md:me-6 md:px-0"
     >
       <div className="pointer-events-auto w-full max-w-md animate-slide-up rounded-2xl border border-line bg-surface/95 p-4 shadow-card backdrop-blur">
         <div className="flex items-center gap-2">
@@ -74,22 +76,22 @@ export default function OnboardingGuide() {
             <current.Icon className="h-4 w-4" />
           </span>
           <span className="text-[10px] font-bold uppercase tracking-widest text-muted">
-            Step {step + 1} of {STEPS.length}
+            {t('onboarding.step', { current: step + 1, total: STEPS.length })}
           </span>
           <button
             type="button"
             onClick={() => finish('skipped')}
-            className="ml-auto text-[11px] text-muted underline hover:text-ink"
+            className="ms-auto text-[11px] text-muted underline hover:text-ink"
           >
-            Skip
+            {t('onboarding.skip')}
           </button>
         </div>
-        <h3 className="mt-2 text-sm font-bold text-ink">{current.title}</h3>
-        <p className="mt-1 text-xs text-muted">{current.text}</p>
+        <h3 className="mt-2 text-sm font-bold text-ink">{t(current.titleKey)}</h3>
+        <p className="mt-1 text-xs text-muted">{t(current.textKey)}</p>
 
         <div className="mt-3 flex items-center gap-1.5">
           {STEPS.map((s, i) => (
-            <span key={s.title} className={`h-1.5 flex-1 rounded-full ${i <= step ? 'bg-primary' : 'bg-line'}`} />
+            <span key={s.titleKey} className={`h-1.5 flex-1 rounded-full ${i <= step ? 'bg-primary' : 'bg-line'}`} />
           ))}
         </div>
 
@@ -100,12 +102,12 @@ export default function OnboardingGuide() {
             onClick={() => setStep((s) => Math.max(0, s - 1))}
             disabled={step === 0}
           >
-            Back
+            {t('onboarding.back')}
           </Button>
           {last ? (
-            <Button size="sm" className="flex-1" onClick={() => finish('done')}>Got it — start playing</Button>
+            <Button size="sm" className="flex-1" onClick={() => finish('done')}>{t('onboarding.finish')}</Button>
           ) : (
-            <Button size="sm" className="flex-1" onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}>Next</Button>
+            <Button size="sm" className="flex-1" onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}>{t('onboarding.next')}</Button>
           )}
         </div>
       </div>

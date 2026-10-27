@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { ceoPortraitUrl } from '../lib/ceoArt'
 import { rarityStyle } from '../lib/ceos'
+import { useT } from '../i18n'
 
 const SKINS = ['#f1c9a5', '#e0ac82', '#c68642', '#8d5524', '#ffd9b3', '#a9744f']
 const HAIR = ['#2b2b2b', '#5a3a22', '#0d1f1b', '#6b7280', '#3b2f2f', '#4b5563']
@@ -70,6 +71,7 @@ export function CeoAvatar({
   /** Explicit catalog artwork. Falls back to the locally bundled portrait, then the SVG avatar. */
   imageUrl?: string | null
 }) {
+  const t = useT()
   const style = rarityStyle(rarity)
   const [imgFailed, setImgFailed] = useState(false)
   // Prefer explicitly provided catalog artwork, then the locally bundled
@@ -162,15 +164,15 @@ export function CeoAvatar({
 
       {/* state indicator */}
       {state === 'ready' && (
-        <span className="absolute -right-1 -top-1 z-20 h-3 w-3 rounded-full border-2 border-surface bg-gold shadow-gold motion-safe:animate-pulse-soft" aria-label="Ready to collect" />
+        <span className="absolute -right-1 -top-1 z-20 h-3 w-3 rounded-full border-2 border-surface bg-gold shadow-gold motion-safe:animate-pulse-soft" aria-label={t('common.ready')} />
       )}
       {state === 'producing' && (
-        <span className="absolute -right-1 -top-1 z-20 grid h-4 w-4 place-items-center rounded-full border-2 border-surface bg-primary text-[8px] text-white" aria-label="Producing">
+        <span className="absolute -right-1 -top-1 z-20 grid h-4 w-4 place-items-center rounded-full border-2 border-surface bg-primary text-[8px] text-white" aria-label={t('common.producing')}>
           <span className="h-1.5 w-1.5 rounded-full bg-white/90 motion-safe:animate-pulse-soft" />
         </span>
       )}
       {state === 'exhausted' && (
-        <span className="absolute -right-1 -top-1 z-20 grid h-4 w-4 place-items-center rounded-full border-2 border-surface bg-warning text-[8px] text-black" aria-label="Exhausted">
+        <span className="absolute -right-1 -top-1 z-20 grid h-4 w-4 place-items-center rounded-full border-2 border-surface bg-warning text-[8px] text-black" aria-label={t('common.exhausted')}>
           ▮
         </span>
       )}

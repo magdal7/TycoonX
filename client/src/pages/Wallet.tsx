@@ -16,7 +16,8 @@ import {
   fetchWithdrawals,
   saveWithdrawalWallet
 } from '../lib/game'
-import { formatNumber } from '../lib/format'
+import { formatNumber, formatDateTime } from '../lib/format'
+import { useI18n, type TranslationKey } from '../i18n'
 
 /**
  * Fallback asset/network list. The server sends the authoritative verified
@@ -48,25 +49,18 @@ const FALLBACK_PAIRS: { asset: string; network: string; label: string }[] = [
 
 const PAIR_LABEL = new Map(FALLBACK_PAIRS.map((p) => [`${p.asset}/${p.network}`, p.label]))
 
-/** Human-readable labels for provider-reported invoice states (never "credited"). */
-const PROVIDER_STATUS_LABEL: Record<string, string> = {
-  new: 'Awaiting payment',
-  waiting: 'Awaiting payment',
-  paying: 'Payment detected',
-  confirmed: 'Confirming on-chain',
-  paid: 'Paid',
-  manual_accept: 'Manual review',
-  underpaid: 'Underpaid',
-  expired: 'Expired',
-  refunding: 'Refunding',
-  refunded: 'Refunded'
-}
-
-function formatExpiry(iso: string | null): string {
-  if (!iso) return ''
-  const ts = new Date(iso).getTime()
-  if (!Number.isFinite(ts)) return ''
-  return new Date(ts).toLocaleString()
+/** Provider invoice states mapped to translation keys (never "credited"). */
+const PROVIDER_STATUS_KEY: Record<string, TranslationKey> = {
+  new: 'wallet.deposit.awaiting',
+  waiting: 'wallet.deposit.awaiting',
+  paying: 'wallet.deposit.detected',
+  confirmed: 'wallet.deposit.confirming',
+  paid: 'wallet.deposit.paid',
+  manual_accept: 'wallet.deposit.manualReview',
+  underpaid: 'wallet.deposit.underpaid',
+  expired: 'wallet.deposit.expired',
+  refunding: 'wallet.deposit.refunding',
+  refunded: 'wallet.deposit.refunded'
 }
 
 const STATUS_TONE: Record<string, 'warning' | 'success' | 'demo' | 'default'> = {
@@ -91,6 +85,7 @@ const TYPE_TONE: Record<string, 'warning' | 'success' | 'demo' | 'default'> = {
 }
 
 export default function Wallet() {
+  const { t } = useI18n()
   const wallet = useApi(() => fetchWallet(), [])
   const withdrawals = useApi(() => fetchWithdrawals(), [])
   const deposits = useApi(() => fetchDeposits(), [])
@@ -121,8 +116,6 @@ export default function Wallet() {
   const minDepositUsdt = deposits.data?.minDepositUsdt ?? '0.01'
   const depositAccess = deposits.data?.depositAccess ?? 'disabled'
 
-  // Verified asset/network allowlist comes from the server; the built-in list is
-  // only a fallback so the UI never presents a route the provider may not support.
   const pairs = useMemo<{ asset: string; network: string; label: string }[]>(() => {
     const assets = deposits.data?.assets ?? []
     if (assets.length === 0) return FALLBACK_PAIRS
@@ -144,11 +137,11 @@ export default function Wallet() {
     setWalletNotice('')
     try {
       await saveWithdrawalWallet(walletInput.trim())
-      setWalletNotice('Withdrawal wallet saved. New requests are subject to the security hold.')
+      setWalletNotice(t('wallet.wallet.savedNotice'))
       setWalletInput('')
       reloadAll()
     } catch (err) {
-      setWalletNotice(err instanceof Error ? err.message : 'Could not save wallet')
+      setWalletNotice(err instanceof Error ? err.message : t('wallet.wallet.saveFailed'))
     } finally {
       setWalletBusy(false)
     }
@@ -172,12 +165,12 @@ export default function Wallet() {
       setAddress('')
       reloadAll()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Request failed'
+      const msg = err instanceof Error ? err.message : t('wallet.withdraw.requestFailed')
       setNotice(
         msg === 'withdrawals_unavailable' || msg === 'payments_disabled'
-          ? "Withdrawals aren't open yet."
+          ? t('wallet.withdraw.notOpenNotice')
           : msg === 'payout_fee_semantics_unverified'
-            ? 'Payouts are temporarily unavailable while the provider fee rules are being verified.'
+            ? t('wallet.withdraw.feeUnverified')
             : msg,
       )
     } finally {
@@ -210,20 +203,20 @@ export default function Wallet() {
         setInvoiceUrl(dep.payUrl)
         window.open(dep.payUrl, '_blank', 'noopener,noreferrer')
       }
-      const expiry = dep.expiresAt ? ` It expires ${formatExpiry(dep.expiresAt)}.` : ''
-      setNotice(`Payment page ready for ${dep.amountUsdt} USDT. Complete the invoice to receive Bonus SP.${expiry}`)
+      const expiry = dep.expiresAt ? t('wallet.deposit.expires', { date: formatDateTime(dep.expiresAt) }) : ''
+      setNotice(t('wallet.deposit.ready', { amount: dep.amountUsdt, expiry }))
       reloadAll()
     } catch (err) {
       setNotice(
         err instanceof Error && err.message === 'asset_not_accepted'
-          ? 'That asset is not enabled on the OxaPay merchant account.'
+          ? t('wallet.deposit.unsupportedAsset')
           : err instanceof Error && err.message === 'unsupported_pair'
-            ? 'Unsupported asset/network combination.'
+            ? t('wallet.deposit.unsupportedPair')
             : err instanceof Error && err.message === 'payments_disabled'
-              ? 'Deposits are not open to your account yet.'
+              ? t('wallet.deposit.notOpen')
               : err instanceof Error
                 ? err.message
-                : 'Deposit failed',
+                : t('wallet.deposit.failed'),
       )
     } finally {
       setBusy(false)
@@ -233,27 +226,28 @@ export default function Wallet() {
   const requests = withdrawals.data?.withdrawals ?? []
   const pending = requests.find((r) => ['REQUESTED', 'ON_HOLD', 'APPROVED'].includes(r.status))
 
+  const providerStatusLabel = (code: string | null | undefined): string | undefined =>
+    code ? t(PROVIDER_STATUS_KEY[code] ?? 'wallet.deposit.awaiting') : undefined
+
   return (
     <div className="space-y-5 animate-fade-in">
-      <SectionHeading eyebrow="Balance" title="Wallet" description="Earned SP, Bonus SP, USDT, and transaction history." right={<Badge variant={wallet.data?.paymentsEnabled ? 'success' : 'warning'}>{wallet.data?.paymentsEnabled ? 'Deposits live' : 'Payments unavailable'}</Badge>} />
+      <SectionHeading eyebrow={t('wallet.eyebrow')} title={t('wallet.title')} description={t('wallet.description')} right={<Badge variant={wallet.data?.paymentsEnabled ? 'success' : 'warning'}>{wallet.data?.paymentsEnabled ? t('wallet.depositsLive') : t('wallet.paymentsUnavailable')}</Badge>} />
 
       {wallet.loading ? (
         <Skeleton className="h-28" />
       ) : wallet.error || !wallet.data ? (
-        <EmptyState Icon={AlertTriangle} title="Could not load wallet" description={wallet.error} action={<Button size="sm" variant="outline" onClick={wallet.reload}>Retry</Button>} />
+        <EmptyState Icon={AlertTriangle} title={t('wallet.error')} description={wallet.error} action={<Button size="sm" variant="outline" onClick={wallet.reload}>{t('common.retry')}</Button>} />
       ) : (
         <Card padding="lg" className="border-line">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat label="Earned SP" value={formatNumber(Number(sp?.earnedSp ?? 0))} Icon={Coins} tone="text-gold" hint="potentially withdrawable" />
-            <Stat label="Bonus SP" value={formatNumber(Number(sp?.bonusSp ?? 0))} Icon={Gem} tone="text-accent" hint="non-withdrawable" />
-            <Stat label="USDT" value={usdt?.balance ?? '0.00'} Icon={DollarSign} tone="text-success" hint="confirmed deposits" />
-            <Stat label="Pending withdrawal" value={`${formatNumber(Number(wallet.data.pendingWithdrawalSp))} SP`} hint="locked" />
+            <Stat label={t('dashboard.earnedSp')} value={formatNumber(Number(sp?.earnedSp ?? 0))} Icon={Coins} tone="text-gold" hint={t('stat.potentiallyWithdrawable')} />
+            <Stat label={t('dashboard.bonusSp')} value={formatNumber(Number(sp?.bonusSp ?? 0))} Icon={Gem} tone="text-accent" hint={t('stat.nonWithdrawable')} />
+            <Stat label={t('wallet.usdt')} value={usdt?.balance ?? '0.00'} Icon={DollarSign} tone="text-success" hint={t('stat.confirmedDeposits')} />
+            <Stat label={t('stat.pendingWithdrawal')} value={`${formatNumber(Number(wallet.data.pendingWithdrawalSp))} SP`} hint={t('stat.locked')} />
           </div>
           <p className="mt-3 text-[11px] text-muted">
-            Conversion: 1 USDT = 1,000 SP. Deposits credit Bonus SP once the invoice is fully paid.
-            {withdrawals.data?.payoutsEnabled
-              ? ' Withdrawals are reviewed and paid after provider confirmation.'
-              : ' Withdrawals/payouts remain disabled.'}
+            {t('wallet.conversion')}
+            {withdrawals.data?.payoutsEnabled ? t('wallet.withdrawalsReviewed') : t('wallet.withdrawalsDisabled')}
           </p>
         </Card>
       )}
@@ -266,41 +260,34 @@ export default function Wallet() {
       <Card padding="md" className="border-line">
         <div className="flex items-center gap-2">
           <DollarSign className="h-4 w-4 text-success" />
-          <h3 className="text-sm font-bold text-white">Deposit crypto</h3>
-          <Badge variant={wallet.data?.paymentsEnabled ? 'success' : 'warning'} className="ml-auto">
-            {wallet.data?.paymentsEnabled ? 'Live' : 'Unavailable'}
+          <h3 className="text-sm font-bold text-white">{t('wallet.deposit.title')}</h3>
+          <Badge variant={wallet.data?.paymentsEnabled ? 'success' : 'warning'} className="ms-auto">
+            {wallet.data?.paymentsEnabled ? t('wallet.deposit.live') : t('wallet.deposit.unavailable')}
           </Badge>
         </div>
-        <p className="mt-2 text-[11px] text-muted">
-          Choose an asset/network, then continue to the secure payment page. Bonus SP (1 USDT = 1,000 SP) is
-          credited automatically once the invoice is fully paid. Repeating while an invoice is open resumes the
-          same invoice instead of creating a duplicate.
-        </p>
+        <p className="mt-2 text-[11px] text-muted">{t('wallet.deposit.body')}</p>
         {!wallet.data?.paymentsEnabled || depositAccess === 'disabled' ? (
           <div className="mt-3 rounded-xl border border-line bg-surface-2/50 p-3 text-[11px] text-muted">
-            <p className="font-semibold text-white">Deposits aren&apos;t available to you yet.</p>
-            <p className="mt-1">
-              External deposits are currently disabled. Existing invoices still settle once paid. CEO purchases
-              with existing SP remain available in the Market.
-            </p>
+            <p className="font-semibold text-white">{t('wallet.deposit.notAvailableTitle')}</p>
+            <p className="mt-1">{t('wallet.deposit.notAvailableBody')}</p>
           </div>
         ) : (
           <>
             <form onSubmit={submitDeposit} className="mt-3 space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-xs text-muted">
-                  Amount (USDT)
+                  {t('wallet.deposit.amount')}
                   <input
                     inputMode="decimal"
                     value={depositAmount}
                     onChange={(e) => setDepositAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-                    placeholder="e.g. 10"
+                    placeholder={t('wallet.deposit.amountPlaceholder')}
                     className="mt-1 w-full rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-sm text-white outline-none focus:border-primary"
                   />
-                  <span className="mt-1 block text-[10px] text-muted">Minimum {minDepositUsdt} USDT · 1 USDT = 1,000 Bonus SP</span>
+                  <span className="mt-1 block text-[10px] text-muted">{t('wallet.deposit.minimum', { min: minDepositUsdt })}</span>
                 </label>
                 <label className="block text-xs text-muted">
-                  Asset / network
+                  {t('wallet.deposit.assetNetwork')}
                   <select
                     value={pairIndex}
                     onChange={(e) => setPairIndex(Number(e.target.value))}
@@ -312,11 +299,11 @@ export default function Wallet() {
                   </select>
                 </label>
               </div>
-              <Button type="submit" disabled={busy || !depositAmount} isLoading={busy}>Continue to Payment</Button>
+              <Button type="submit" disabled={busy || !depositAmount} isLoading={busy}>{t('wallet.deposit.continue')}</Button>
             </form>
             {invoiceUrl && (
               <a href={invoiceUrl} target="_blank" rel="noreferrer" className="mt-3 block truncate rounded-xl border border-success/30 bg-success/5 px-3 py-2 text-xs text-success underline">
-                Open payment invoice →
+                {t('wallet.deposit.openInvoice')}
               </a>
             )}
           </>
@@ -324,7 +311,7 @@ export default function Wallet() {
         {(deposits.data?.deposits ?? []).length > 0 && (
           <Card padding="none" className="mt-3 overflow-hidden border-line">
             {(deposits.data?.deposits ?? []).map((d, i) => {
-              const providerLabel = d.lastProviderStatus ? PROVIDER_STATUS_LABEL[d.lastProviderStatus] : undefined
+              const providerLabel = providerStatusLabel(d.lastProviderStatus)
               return (
                 <div key={d.id} className={`flex items-center gap-3 px-3 py-2.5 ${i !== 0 ? 'border-t border-line' : ''}`}>
                   <span className="min-w-0 flex-1 text-xs text-white">
@@ -338,11 +325,11 @@ export default function Wallet() {
                       <span className="block text-[10px] text-muted">
                         {providerLabel}
                         {providerLabel && d.status === 'CREATED' && d.expiresAt ? ' · ' : ''}
-                        {d.status === 'CREATED' && d.expiresAt ? `expires ${formatExpiry(d.expiresAt)}` : ''}
+                        {d.status === 'CREATED' && d.expiresAt ? t('wallet.deposit.expiresLabel', { date: formatDateTime(d.expiresAt) }) : ''}
                       </span>
                     )}
                   </span>
-                  <Badge variant={STATUS_TONE[d.status] ?? 'default'}>{d.status}</Badge>
+                  <Badge variant={STATUS_TONE[d.status] ?? 'default'}>{t((`status.${d.status}`) as TranslationKey)}</Badge>
                 </div>
               )
             })}
@@ -354,35 +341,36 @@ export default function Wallet() {
       <Card padding="md" className="border-line">
         <div className="flex items-center gap-2">
           <WalletIcon className="h-4 w-4 text-primary" />
-          <h3 className="text-sm font-bold text-ink">Withdrawal wallet</h3>
+          <h3 className="text-sm font-bold text-ink">{t('wallet.wallet.title')}</h3>
           {savedWallet?.holdActive ? (
-            <Badge variant="warning" className="ml-auto">Security hold</Badge>
+            <Badge variant="warning" className="ms-auto">{t('wallet.wallet.securityHold')}</Badge>
           ) : savedWallet?.address ? (
-            <Badge variant="success" className="ml-auto">Saved</Badge>
+            <Badge variant="success" className="ms-auto">{t('wallet.wallet.saved')}</Badge>
           ) : (
-            <Badge variant="default" className="ml-auto">Not set</Badge>
+            <Badge variant="default" className="ms-auto">{t('wallet.wallet.notSet')}</Badge>
           )}
         </div>
         <p className="mt-2 text-[11px] text-muted">
           {savedWallet?.address ? (
-            <>Saved BEP20 address: <span className="font-mono text-ink">{savedWallet.address}</span></>
+            <>{t('wallet.wallet.savedAddress')} <span className="font-mono text-ink" dir="ltr">{savedWallet.address}</span></>
           ) : (
-            'Save a USDT BEP20 wallet before requesting a withdrawal. The saved wallet is the only payout destination.'
+            t('wallet.wallet.savePrompt')
           )}
           {savedWallet?.holdActive && savedWallet.holdUntil
-            ? ` New requests unlock ${new Date(savedWallet.holdUntil).toLocaleString()}.`
+            ? t('wallet.wallet.holdUntil', { date: formatDateTime(savedWallet.holdUntil) })
             : ''}
         </p>
         <form onSubmit={submitWallet} className="mt-3 flex flex-col gap-2 sm:flex-row">
           <input
             value={walletInput}
             onChange={(e) => setWalletInput(e.target.value)}
-            placeholder="0x… BEP20 wallet address"
-            aria-label="Withdrawal wallet address"
+            placeholder={t('wallet.wallet.placeholder')}
+            aria-label={t('wallet.wallet.addressLabel')}
+            dir="ltr"
             className="flex-1 rounded-xl border border-line bg-surface-2/60 px-3 py-2 font-mono text-xs text-ink placeholder-muted outline-none focus:border-primary"
           />
           <Button type="submit" size="sm" disabled={walletBusy || !walletInput.trim()} isLoading={walletBusy} iconLeft={<Save className="h-4 w-4" />}>
-            {savedWallet?.address ? 'Change wallet' : 'Save wallet'}
+            {savedWallet?.address ? t('wallet.wallet.change') : t('wallet.wallet.save')}
           </Button>
         </form>
         {walletNotice && <p className="mt-2 text-[11px] text-amber-300">{walletNotice}</p>}
@@ -392,33 +380,31 @@ export default function Wallet() {
       <Card padding="md" className="border-line">
         <div className="flex items-center gap-2">
           <ArrowDownToLine className="h-4 w-4 text-primary" />
-          <h3 className="text-sm font-bold text-white">Request withdrawal</h3>
+          <h3 className="text-sm font-bold text-white">{t('wallet.withdraw.title')}</h3>
           {payoutsEnabled ? (
-            <Badge variant="success" className="ml-auto">Open</Badge>
+            <Badge variant="success" className="ms-auto">{t('wallet.withdraw.open')}</Badge>
           ) : (
-            <Badge variant="warning" className="ml-auto">Opening soon</Badge>
+            <Badge variant="warning" className="ms-auto">{t('wallet.withdraw.openingSoon')}</Badge>
           )}
         </div>
         {payoutsEnabled && !pending && (
-          <p className="mt-2 text-[11px] text-muted">
-            Requests are reviewed by an admin. A payout is marked paid only after the provider confirms it on-chain.
-          </p>
+          <p className="mt-2 text-[11px] text-muted">{t('wallet.withdraw.reviewNote')}</p>
         )}
 
         {pending ? (
           <div className="mt-3 rounded-xl border border-line bg-surface-2/50 p-3">
-            <p className="text-xs text-muted">You already have a pending request.</p>
+            <p className="text-xs text-muted">{t('wallet.withdraw.pendingExists')}</p>
             <div className="mt-2 flex items-center gap-2">
-              <Badge variant={STATUS_TONE[pending.status] ?? 'default'}>{pending.status}</Badge>
+              <Badge variant={STATUS_TONE[pending.status] ?? 'default'}>{t((`status.${pending.status}`) as TranslationKey)}</Badge>
               <span className="text-xs text-white">{formatNumber(pending.grossSp)} SP → {pending.netUsdt} USDT</span>
-              <Button size="sm" variant="ghost" className="ml-auto" onClick={() => cancel(pending.id)} disabled={busy} iconLeft={<X className="h-3.5 w-3.5" />}>Cancel</Button>
+              <Button size="sm" variant="ghost" className="ms-auto" onClick={() => cancel(pending.id)} disabled={busy} iconLeft={<X className="h-3.5 w-3.5" />}>{t('common.cancel')}</Button>
             </div>
           </div>
         ) : payoutsEnabled ? (
           <form onSubmit={submitWithdrawal} className="mt-3 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-xs text-muted">
-                Gross amount (SP)
+                {t('wallet.withdraw.gross')}
                 <input
                   inputMode="numeric"
                   value={gross}
@@ -428,11 +414,12 @@ export default function Wallet() {
                 />
               </label>
               <label className="block text-xs text-muted">
-                USDT BEP20 address
+                {t('wallet.withdraw.addressLabel')}
                 <input
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   placeholder="0x…"
+                  dir="ltr"
                   className="mt-1 w-full rounded-xl border border-line bg-surface-2/60 px-3 py-2 text-sm text-white outline-none focus:border-primary"
                 />
               </label>
@@ -440,58 +427,53 @@ export default function Wallet() {
             {gross && Number(gross) >= minGross && (
               <div className="grid grid-cols-3 gap-2 rounded-xl border border-line bg-surface-2/40 p-2 text-center text-[11px]">
                 <div>
-                  <div className="text-muted">Gross</div>
+                  <div className="text-muted">{t('wallet.withdraw.grossLabel')}</div>
                   <div className="font-semibold text-white">{(Number(gross) / 1000).toFixed(2)} USDT</div>
                 </div>
                 <div>
-                  <div className="text-muted">Fee</div>
+                  <div className="text-muted">{t('wallet.withdraw.feeLabel')}</div>
                   <div className="font-semibold text-white">{feeUsdt.toFixed(2)} USDT</div>
                 </div>
                 <div>
-                  <div className="text-muted">You receive</div>
+                  <div className="text-muted">{t('wallet.withdraw.receiveLabel')}</div>
                   <div className="font-semibold text-success">{(Number(gross) / 1000 - feeUsdt).toFixed(2)} USDT</div>
                 </div>
               </div>
             )}
             <p className="text-[10px] text-muted">
-              Minimum {minGross.toLocaleString()} Earned SP ({(minGross / 1000).toFixed(2)} USDT) · flat
-              {' '}{feeUsdt.toFixed(2)} USDT fee. The provider charges a separate ~{providerFeeUsdt} USDT BEP20
-              network fee (included in the flat fee).
+              {t('wallet.withdraw.rules', { min: formatNumber(minGross), minUsdt: (minGross / 1000).toFixed(2), fee: feeUsdt.toFixed(2), providerFee: providerFeeUsdt })}
             </p>
             <Button type="submit" disabled={busy || Number(gross) < minGross || earned < Number(gross) || !address} isLoading={busy}>
-              Submit request
+              {t('wallet.withdraw.submit')}
             </Button>
           </form>
         ) : (
           <div className="mt-3 rounded-xl border border-line bg-surface-2/50 p-3 text-[11px] text-muted">
-            <p className="font-semibold text-white">Withdrawals aren&apos;t open yet.</p>
-            <p className="mt-1">
-              Your Earned SP stays in your account. You&apos;ll be able to submit a request once payouts are enabled.
-              Bonus SP is never withdrawable.
-            </p>
+            <p className="font-semibold text-white">{t('wallet.withdraw.notOpenTitle')}</p>
+            <p className="mt-1">{t('wallet.withdraw.notOpenBody')}</p>
           </div>
         )}
       </Card>
 
       {/* Withdrawal history */}
       <section className="space-y-2">
-        <h3 className="flex items-center gap-2 text-sm font-bold text-white"><WalletIcon className="h-4 w-4 text-muted" /> Withdrawal requests</h3>
+        <h3 className="flex items-center gap-2 text-sm font-bold text-white"><WalletIcon className="h-4 w-4 text-muted" /> {t('wallet.withdraw.historyTitle')}</h3>
         {withdrawals.loading ? <Skeleton className="h-14" /> : requests.length === 0 ? (
-          <EmptyState Icon={ShieldCheck} title="No withdrawal requests" description="Requests will appear here once submitted." />
+          <EmptyState Icon={ShieldCheck} title={t('wallet.withdraw.empty.title')} description={t('wallet.withdraw.empty.body')} />
         ) : (
           <Card padding="none" className="overflow-hidden border-line">
             {requests.map((r, i) => (
               <div key={r.id} className={`flex items-center gap-3 px-3 py-3 ${i !== 0 ? 'border-t border-line' : ''}`}>
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-white">{formatNumber(r.grossSp)} SP → {r.netUsdt} USDT</p>
-                  <p className="text-[10px] text-muted">{r.network} · {r.address.slice(0, 10)}…{r.address.slice(-6)}</p>
+                  <p className="text-[10px] text-muted" dir="ltr">{r.network} · {r.address.slice(0, 10)}…{r.address.slice(-6)}</p>
                   {r.paidAt && (
                     <p className="text-[10px] text-success">
-                      Paid {new Date(r.paidAt).toLocaleString()}{r.payoutTrackId ? ` · ${r.payoutTrackId}` : ''}
+                      {t('wallet.withdraw.paidAt', { date: formatDateTime(r.paidAt) })}{r.payoutTrackId ? ` · ${r.payoutTrackId}` : ''}
                     </p>
                   )}
                 </div>
-                <Badge variant={STATUS_TONE[r.status] ?? 'default'}>{r.status}</Badge>
+                <Badge variant={STATUS_TONE[r.status] ?? 'default'}>{t((`status.${r.status}`) as TranslationKey)}</Badge>
               </div>
             ))}
           </Card>
@@ -500,16 +482,16 @@ export default function Wallet() {
 
       {/* Purchases */}
       <section className="space-y-2">
-        <h3 className="flex items-center gap-2 text-sm font-bold text-white"><ShoppingCart className="h-4 w-4 text-muted" /> CEO purchases</h3>
+        <h3 className="flex items-center gap-2 text-sm font-bold text-white"><ShoppingCart className="h-4 w-4 text-muted" /> {t('wallet.purchases.title')}</h3>
         {(purchases.data?.purchases ?? []).length === 0 ? (
-          <EmptyState Icon={ShoppingCart} title="No purchases yet" description="Buy a CEO from the Market using SP (Bonus SP first, then Earned SP)." />
+          <EmptyState Icon={ShoppingCart} title={t('wallet.purchases.empty.title')} description={t('wallet.purchases.empty.body')} />
         ) : (
           <Card padding="none" className="overflow-hidden border-line">
             {(purchases.data?.purchases ?? []).map((p, i) => (
               <div key={p.id} className={`flex items-center gap-3 px-3 py-2.5 ${i !== 0 ? 'border-t border-line' : ''}`}>
                 <span className="flex-1 text-sm text-white">{p.ceoName ?? `CEO #${p.ceoId}`}</span>
                 <span className="text-xs text-muted">{p.priceUsd} USDT</span>
-                <Badge variant={STATUS_TONE[p.status] ?? 'default'}>{p.status}</Badge>
+                <Badge variant={STATUS_TONE[p.status] ?? 'default'}>{t((`status.${p.status}`) as TranslationKey)}</Badge>
               </div>
             ))}
           </Card>
@@ -518,17 +500,17 @@ export default function Wallet() {
 
       {/* Transaction history */}
       <section className="space-y-2">
-        <h3 className="flex items-center gap-2 text-sm font-bold text-white"><History className="h-4 w-4 text-muted" /> Transaction history</h3>
+        <h3 className="flex items-center gap-2 text-sm font-bold text-white"><History className="h-4 w-4 text-muted" /> {t('wallet.tx.title')}</h3>
         {transactions.loading ? <Skeleton className="h-14" /> : (transactions.data ?? []).length === 0 ? (
-          <EmptyState Icon={History} title="No activity yet" description="Collect a production cycle to see entries here." action={<Button size="sm" variant="outline" onClick={reloadAll}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button>} />
+          <EmptyState Icon={History} title={t('wallet.tx.empty.title')} description={t('wallet.tx.empty.body')} action={<Button size="sm" variant="outline" onClick={reloadAll}><RefreshCw className="me-2 h-4 w-4" />{t('common.refresh')}</Button>} />
         ) : (
           <Card padding="none" className="overflow-hidden border-line">
-            {(transactions.data ?? []).map((t, i) => (
-              <div key={t.id} className={`flex items-center gap-3 px-3 py-2.5 ${i !== 0 ? 'border-t border-line' : ''}`}>
-                <Badge variant={TYPE_TONE[t.type] ?? 'default'}>{t.type}</Badge>
-                <span className="flex-1 truncate text-xs text-muted">{t.label}</span>
-                <span className={`text-sm font-semibold ${t.type === 'SP' && t.amount.startsWith('-') ? 'text-red-300' : 'text-white'}`}>
-                  {t.type === 'SP' && !t.amount.startsWith('-') ? '+' : ''}{formatNumber(Number(t.amount))}{t.type === 'SP' ? '' : t.type === 'DEPOSIT' || t.type === 'PURCHASE' ? ' USDT' : ''}
+            {(transactions.data ?? []).map((tx, i) => (
+              <div key={tx.id} className={`flex items-center gap-3 px-3 py-2.5 ${i !== 0 ? 'border-t border-line' : ''}`}>
+                <Badge variant={TYPE_TONE[tx.type] ?? 'default'}>{t((`status.${tx.type}`) as TranslationKey)}</Badge>
+                <span className="flex-1 truncate text-xs text-muted">{tx.label}</span>
+                <span className={`text-sm font-semibold ${tx.type === 'SP' && tx.amount.startsWith('-') ? 'text-red-300' : 'text-white'}`}>
+                  {tx.type === 'SP' && !tx.amount.startsWith('-') ? '+' : ''}{formatNumber(Number(tx.amount))}{tx.type === 'SP' ? '' : tx.type === 'DEPOSIT' || tx.type === 'PURCHASE' ? ' USDT' : ''}
                 </span>
               </div>
             ))}

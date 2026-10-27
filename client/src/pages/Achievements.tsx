@@ -7,6 +7,7 @@ import { Progress, SectionHeading, EmptyState, CardSkeleton } from '../component
 import { useApi } from '../lib/useApi'
 import { claimAchievement, fetchAchievements, type AchievementStage } from '../lib/game'
 import { formatNumber } from '../lib/format'
+import { useT } from '../i18n'
 
 const STAGE_TONE: Record<string, string> = {
   BRONZE: 'text-amber-600 border-amber-600/40 bg-amber-600/10',
@@ -16,16 +17,17 @@ const STAGE_TONE: Record<string, string> = {
 }
 
 function StageChip({ stage, onClick, busy }: { stage: AchievementStage; onClick: () => void; busy: boolean }) {
+  const t = useT()
   const tone = STAGE_TONE[stage.stage] ?? 'text-muted border-line bg-white/5'
   return (
     <button
       type="button"
       disabled={!stage.achieved || stage.claimed || busy}
       onClick={onClick}
-      className={`flex-1 rounded-lg border px-2 py-2 text-left transition-colors ${tone} ${
+      className={`flex-1 rounded-lg border px-2 py-2 text-start transition-colors ${tone} ${
         stage.achieved && !stage.claimed ? 'hover:brightness-125' : ''
       } ${!stage.achieved ? 'opacity-50' : ''}`}
-      title={`${stage.stage} · ${formatNumber(stage.threshold)} · +${stage.xp} XP`}
+      title={t('achievements.stageTitle', { stage: stage.stage, threshold: formatNumber(stage.threshold), xp: stage.xp })}
     >
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-bold uppercase tracking-wide">{stage.stage}</span>
@@ -37,11 +39,12 @@ function StageChip({ stage, onClick, busy }: { stage: AchievementStage; onClick:
 }
 
 export default function Achievements() {
+  const t = useT()
   const { data, loading, error, reload } = useApi(() => fetchAchievements(), [])
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
 
-  const claimable = (data ?? []).flatMap((t) => t.stages).filter((s) => s.achieved && !s.claimed).length
+  const claimable = (data ?? []).flatMap((track) => track.stages).filter((s) => s.achieved && !s.claimed).length
 
   async function claim(trackKey: string, stage: string) {
     setBusy(true)
@@ -50,7 +53,7 @@ export default function Achievements() {
       await claimAchievement(trackKey, stage)
       reload()
     } catch {
-      setNotice('Could not claim — try again.')
+      setNotice(t('achievements.couldNotClaim'))
     } finally {
       setBusy(false)
     }
@@ -59,12 +62,12 @@ export default function Achievements() {
   return (
     <div className="space-y-5 animate-fade-in">
       <SectionHeading
-        eyebrow="Trophies"
-        title="Achievements"
-        description="Permanent, cumulative milestones. Rewards are XP only."
+        eyebrow={t('achievements.eyebrow')}
+        title={t('achievements.title')}
+        description={t('achievements.description')}
         right={
           <div className="flex items-center gap-2">
-            {claimable > 0 && <Badge variant="success">{claimable} ready</Badge>}
+            {claimable > 0 && <Badge variant="success">{t('achievements.ready', { count: claimable })}</Badge>}
             <Sparkles className="h-5 w-5 text-accent" />
           </div>
         }
@@ -79,7 +82,7 @@ export default function Achievements() {
       {loading ? (
         <div className="grid gap-3 sm:grid-cols-2">{Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)}</div>
       ) : error ? (
-        <EmptyState Icon={AlertTriangle} title="Could not load achievements" description={error} action={<Button size="sm" variant="outline" onClick={reload}><RefreshCw className="mr-2 h-4 w-4" />Retry</Button>} />
+        <EmptyState Icon={AlertTriangle} title={t('achievements.error')} description={error} action={<Button size="sm" variant="outline" onClick={reload}><RefreshCw className="me-2 h-4 w-4" />{t('common.retry')}</Button>} />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {(data ?? []).map((track) => (
